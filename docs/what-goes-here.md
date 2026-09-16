@@ -69,6 +69,52 @@ builds itself at runtime will show up blank.
 Split a document into items only if each part is separately actionable. A
 41-step walkthrough is one document; the two defects it uncovered are two items.
 
+### 2b. A checklist — a document whose steps are each answerable
+
+A QA walkthrough, a release runbook, an audit. It reads like a document but it
+is *worked*: somebody goes step by step and records what happened to each one.
+
+Use `checks` rather than `body` alone:
+
+```bash
+curl -s localhost:4317/api/projects/<slug>/items \
+  -H 'content-type: application/json' \
+  -d '{
+    "title": "Cycle Count QA walkthrough",
+    "context": "41 steps. Your sign-off becomes the record.",
+    "section": "Documents",
+    "bodyFormat": "markdown",
+    "body": "# Full instructions...\n",
+    "checks": [
+      {"id": "step-1", "label": "1. Check the ports are free"},
+      {"id": "step-2", "label": "2. Start the review server"}
+    ]
+  }'
+```
+
+Each step records `result` (`pass` / `fail` / `skip` / empty), a `note`, who and
+when. Answer one at a time:
+
+```bash
+curl -s -X PATCH localhost:4317/api/items/<id>/checks/step-7 \
+  -H 'content-type: application/json' \
+  -d '{"result":"fail","note":"Counted column shows dashes","by":"sam"}'
+```
+
+**One step at a time, never the whole array.** The endpoint exists precisely so
+a person walking the checklist and an agent writing to the same item cannot
+overwrite each other.
+
+**When to reach for this instead of separate items:** the steps share one
+context and one sign-off, and nobody would triage them individually. Forty-one
+steps as forty-one items buries every real decision on the board. Conversely, if
+two of those steps turn into defects somebody must schedule, *those* become
+their own items — the checklist records what happened, the items carry the work.
+
+Empty result is not the same as a failure. A step nobody reached must be
+distinguishable from a step that was tried and failed, or the sign-off is a
+guess.
+
 ### 3. A finding — something you discovered that they do not know
 
 A defect, a risk, a surprise in production. It belongs here rather than in

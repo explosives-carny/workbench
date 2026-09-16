@@ -96,6 +96,15 @@ curl -s -X PATCH localhost:4317/api/items/<id> \
   -d '{"status":"complete","actor":"forge","ifVersion":4}'
 ```
 
+Record one step of a checklist (see `docs/what-goes-here.md` for when to build
+one):
+
+```bash
+curl -s -X PATCH localhost:4317/api/items/<id>/checks/step-7 \
+  -H 'content-type: application/json' \
+  -d '{"result":"fail","note":"what happened","by":"sam"}'
+```
+
 ## Concurrency — read this before you write
 
 **Assume you are not the only session.** Another agent, another terminal, and
@@ -112,6 +121,45 @@ the human's browser may all be working on the same project at the same moment.
   you are the one who just created the item.
 - Identify yourself with `author` on messages and `actor` on edits. When two
   sessions are working, "who changed this" is the first question a human asks.
+
+## First use in a session — ask, then remember
+
+**Before anything else, read the settings:**
+
+```bash
+curl -s localhost:4317/api/settings
+```
+
+If `onboardedAt` is absent, this human has never been asked how they want this
+used. Ask — once, in the conversation, in one short message — and record the
+answers. Do not assume, and do not ask again in a later session.
+
+Offer these, with your recommendation, and accept "all of it" or "none of it" as
+answers:
+
+| Setting | The question | Default if they do not care |
+|---|---|---|
+| `autoCapture` | Should I put decisions on the board automatically, or only when you ask? | `true` — automatic |
+| `checkInOnStart` | Should I read the board at the start of every session without being asked? | `true` |
+| `postFindings` | Should defects and risks I discover go on the board, or stay in conversation? | `true` |
+| `summariseOnExit` | Should I post what I did before I finish? | `false` |
+| `defaultProject` | Which project should new items land in? | ask, or infer from the repository |
+
+Record what they said, including the refusals — a `false` is an instruction and
+must survive the session as clearly as a `true`:
+
+```bash
+curl -s -X PATCH localhost:4317/api/settings \
+  -H 'content-type: application/json' \
+  -d '{"onboardedAt":"2026-09-16T20:15:00Z","autoCapture":true,"checkInOnStart":true,"postFindings":true,"summariseOnExit":false,"defaultProject":"acme-site"}'
+```
+
+Then **honour them**. An agent that asks the question and then behaves the same
+way regardless has made the onboarding worse than useless: it spent the human's
+attention and changed nothing.
+
+If `onboardedAt` is present, say nothing about setup. Read the settings, follow
+them, and get on with the work.
 
 ## The check-in word
 

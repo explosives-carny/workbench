@@ -69,6 +69,16 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     // the response said.
     body: typeof body.body === 'string' ? body.body : undefined,
     bodyFormat: body.bodyFormat,
+    checks: Array.isArray(body.checks)
+      ? body.checks.map((c: any, n: number) => ({
+          id: typeof c?.id === 'string' && c.id ? c.id : `c${n + 1}`,
+          label: String(c?.label ?? ''),
+          result: ['', 'pass', 'fail', 'skip'].includes(c?.result) ? c.result : '',
+          note: typeof c?.note === 'string' ? c.note : '',
+          by: typeof c?.by === 'string' ? c.by : '',
+          at: typeof c?.at === 'string' ? c.at : '',
+        }))
+      : undefined,
   };
 }
 
@@ -88,6 +98,18 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
 
   // GET /api/projects — everything the index needs in one call, counts included,
   // so the gallery never fans out one request per project.
+  // Settings: what the human has already been asked and answered. An agent
+  // reads this FIRST in a session so it neither re-asks nor assumes.
+  if (parts[0] === 'settings' && parts.length === 1) {
+    if (method === 'GET') return json({ ok: true, settings: store.getSettings() });
+    if (method === 'PATCH') {
+      const body = await readJson(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return badRequest('body must be a JSON object');
+      return json({ ok: true, settings: store.setSettings(body) });
+    }
+    return badRequest(`${method} not supported here`);
+  }
+
   if (parts[0] === 'projects' && parts.length === 1) {
     if (method === 'GET') {
       const includeArchived = url.searchParams.get('archived') === '1';
@@ -187,6 +209,22 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
           'x-content-type-options': 'nosniff',
         },
       });
+    }
+
+    // One step of a checklist. A whole-array PATCH would lose a concurrent
+    // answer to a different step, which is the normal case when somebody walks
+    // a checklist while an agent is writing to the same item.
+    if (parts[2] === 'checks' && parts.length === 4 && method === 'PATCH') {
+      const body = await readJson(req);
+      if (body.result !== undefined && !['', 'pass', 'fail', 'skip'].includes(body.result)) {
+        return badRequest("result must be '', pass, fail or skip");
+      }
+      const updated = store.setCheck(item.id, parts[3], {
+        result: body.result,
+        note: typeof body.note === 'string' ? body.note : undefined,
+        by: typeof body.by === 'string' ? body.by : 'you',
+      });
+      return json({ ok: true, item: updated });
     }
 
     if (parts[2] === 'messages') {

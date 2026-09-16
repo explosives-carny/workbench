@@ -56,6 +56,16 @@ export type Message = {
   createdAt: string;
 };
 
+export type Check = {
+  id: string;
+  label: string;
+  /** '' means not yet answered — distinct from a recorded failure. */
+  result: '' | 'pass' | 'fail' | 'skip';
+  note: string;
+  by: string;
+  at: string;
+};
+
 export type Item = {
   id: string;
   projectId: string;
@@ -70,6 +80,7 @@ export type Item = {
   updatedBy: string;
   body: string;
   bodyFormat: 'text' | 'markdown' | 'html';
+  checks: Check[];
   createdAt: string;
   updatedAt: string;
   messages?: Message[];
@@ -84,6 +95,7 @@ export type ItemInput = {
   section?: string;
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
+  checks?: Check[];
 };
 
 function now(): string {
@@ -131,6 +143,11 @@ export function openDb(path: string): Database {
       -- JavaScript template literal and one would end it.)
       body        TEXT NOT NULL DEFAULT '',
       body_format TEXT NOT NULL DEFAULT 'text',
+      -- A checklist: steps that are each separately answerable, on ONE item.
+      -- Forty-one steps as forty-one items would bury every other decision on
+      -- the board, and they share one context and one sign-off. JSON because
+      -- the shape is a list the item owns, never queried across items.
+      checks      TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -141,6 +158,15 @@ export function openDb(path: string): Database {
       author     TEXT NOT NULL DEFAULT '',
       text       TEXT NOT NULL,
       created_at TEXT NOT NULL
+    );
+    -- Preferences the human sets once and every later session reads, so an
+    -- agent never re-asks a question already answered. Key/value rather than
+    -- columns: the set of things worth asking will change, and a schema
+    -- migration per preference is a bad trade for a single-user tool.
+    CREATE TABLE IF NOT EXISTS settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_items_project ON items(project_id, position);
     CREATE INDEX IF NOT EXISTS idx_messages_item ON messages(item_id, created_at);
@@ -153,6 +179,7 @@ export function openDb(path: string): Database {
   if (!columns.has('updated_by')) db.exec("ALTER TABLE items ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''");
   if (!columns.has('body')) db.exec("ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''");
   if (!columns.has('body_format')) db.exec("ALTER TABLE items ADD COLUMN body_format TEXT NOT NULL DEFAULT 'text'");
+  if (!columns.has('checks')) db.exec("ALTER TABLE items ADD COLUMN checks TEXT NOT NULL DEFAULT '[]'");
   return db;
 }
 
@@ -198,6 +225,12 @@ function rowToItem(r: any): Item {
     position: r.position,
     version: r.version ?? 1,
     updatedBy: r.updated_by ?? '',
+    checks: (() => {
+      try {
+        const parsed = JSON.parse(r.checks ?? '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    })(),
     body: r.body ?? '',
     bodyFormat: (r.body_format ?? 'text') as 'text' | 'markdown' | 'html',
     createdAt: r.created_at,
@@ -279,6 +312,7 @@ export class Store {
     for (const item of items) {
       (item as any).bodyLength = item.body.length;
       item.body = '';
+      // checks stay: they are small, and a row shows "12 of 41" from them.
     }
     if (!withMessages) return items;
     for (const item of items) item.messages = this.listMessages(item.id);
@@ -300,8 +334,8 @@ export class Store {
     const id = randomUUID();
     this.db
       .query(
-        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -315,6 +349,7 @@ export class Store {
         position,
         input.body || '',
         input.bodyFormat || 'text',
+        JSON.stringify(input.checks || []),
         at,
         at
       );
@@ -343,22 +378,51 @@ export class Store {
       position: patch.position ?? current.position,
       body: patch.body ?? current.body,
       bodyFormat: patch.bodyFormat ?? current.bodyFormat,
+      checks: JSON.stringify(patch.checks ?? current.checks),
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
       next.title, next.context, next.options, next.choice, next.status, next.section, next.position,
-      next.body, next.bodyFormat, now(), opts.actor || '', id,
+      next.body, next.bodyFormat, next.checks, now(), opts.actor || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
         `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, section = ?, position = ?,
-           body = ?, body_format = ?, updated_at = ?, updated_by = ?, version = version + 1
+           body = ?, body_format = ?, checks = ?, updated_at = ?, updated_by = ?, version = version + 1
          WHERE id = ?${guard}`
       )
       .run(...params);
     if (result.changes === 0 && guard) throw new VersionConflict(this.getItem(id)!);
     return this.getItem(id);
+  }
+
+  // One step at a time, read-modify-write inside the same transaction as the
+  // version bump. Answering step 12 while another session answers step 13 must
+  // not lose either, and sending the whole array back would do exactly that.
+  setCheck(
+    itemId: string,
+    checkId: string,
+    patch: { result?: Check['result']; note?: string; by?: string }
+  ): Item | null {
+    const current = this.getItem(itemId);
+    if (!current) return null;
+    const checks = current.checks.map((c) =>
+      c.id === checkId
+        ? {
+            ...c,
+            result: patch.result ?? c.result,
+            note: patch.note ?? c.note,
+            by: patch.by ?? c.by,
+            at: now(),
+          }
+        : c
+    );
+    if (!checks.some((c) => c.id === checkId)) return current;
+    this.db
+      .query('UPDATE items SET checks = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
+      .run(JSON.stringify(checks), now(), patch.by || '', itemId);
+    return this.getItem(itemId);
   }
 
   deleteItem(id: string): boolean {
@@ -403,6 +467,24 @@ export class Store {
       .query('UPDATE items SET status = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
       .run(status, now(), message.author, itemId);
     return message;
+  }
+
+  getSettings(): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const row of this.db.query('SELECT key, value FROM settings').all() as any[]) {
+      try { out[row.key] = JSON.parse(row.value); } catch { out[row.key] = row.value; }
+    }
+    return out;
+  }
+
+  setSettings(patch: Record<string, unknown>): Record<string, unknown> {
+    const at = now();
+    for (const [key, value] of Object.entries(patch)) {
+      this.db
+        .query('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+        .run(key, JSON.stringify(value), at);
+    }
+    return this.getSettings();
   }
 
   counts(projectId: string): Record<Status, number> {
