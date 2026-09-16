@@ -183,7 +183,9 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
 
-    if (url.pathname.startsWith('/api')) {
+    // `/api/` with the slash: every API route has one, and a bare prefix test
+    // swallowed `/api-doc` into the API router, which then 404'd it.
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
       try {
         return await handleApi(req, url);
       } catch (error: any) {
@@ -196,7 +198,21 @@ const server = Bun.serve({
     if (url.pathname === '/' || url.pathname === '/index.html') {
       return new Response(Bun.file(join(PUBLIC_DIR, 'index.html')));
     }
-    // Any /p/<slug> renders the same shell; the slug is read client-side.
+    // The contract is one file, AGENTS.md, and this renders that same file
+    // rather than a copy of it — a second copy is a second thing to forget to
+    // update, and the footer link pointed at a page that did not exist at all.
+    if (url.pathname === '/agents.html') {
+      return new Response(Bun.file(join(PUBLIC_DIR, 'agents.html')));
+    }
+    if (url.pathname === '/api-doc') {
+      const md = Bun.file(new URL('../AGENTS.md', import.meta.url).pathname);
+      return new Response(md, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+    }
+    // /p/<slug>/i/<id> is one item on its own page; /p/<slug> is the list. Both
+    // read their identifiers client-side from the path.
+    if (/^\/p\/[^/]+\/i\/[^/]+\/?$/.test(url.pathname)) {
+      return new Response(Bun.file(join(PUBLIC_DIR, 'item.html')));
+    }
     if (url.pathname.startsWith('/p/')) {
       return new Response(Bun.file(join(PUBLIC_DIR, 'project.html')));
     }

@@ -103,6 +103,18 @@
       });
       el.appendChild(b);
     }
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'viewtoggle mono';
+    toggle.textContent = mode === 'list' ? 'Cards' : 'List';
+    toggle.setAttribute('aria-label', mode === 'list' ? 'Switch to card view' : 'Switch to list view');
+    toggle.addEventListener('click', () => {
+      mode = mode === 'list' ? 'cards' : 'list';
+      try { localStorage.setItem(MODE_KEY, mode); } catch (e) { /* preference only */ }
+      safeRender(true);
+    });
+    el.appendChild(toggle);
+
     const hiddenCount = items.length - visible().length;
     if (hiddenCount > 0) {
       const note = document.createElement('span');
@@ -112,6 +124,67 @@
       note.textContent = hiddenCount + ' hidden';
       el.appendChild(note);
     }
+  }
+
+  // Two densities over the same data. The list answers "where does this stand"
+  // across fourteen items without scrolling past fourteen threads; the cards
+  // answer "what is this one about" and let you reply without leaving. Which one
+  // you want is a per-viewer preference, so it lives beside the filters.
+  const MODE_KEY = 'wb.mode.' + slug;
+  let mode = (function () {
+    try { return localStorage.getItem(MODE_KEY) === 'cards' ? 'cards' : 'list'; }
+    catch (e) { return 'list'; }
+  })();
+
+  function lastWord(item) {
+    const msgs = item.messages || [];
+    if (!msgs.length) return null;
+    return msgs[msgs.length - 1];
+  }
+
+  function renderRow(item) {
+    const a = document.createElement('a');
+    a.className = 'listrow s-' + item.status;
+    a.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(item.id);
+
+    const main = document.createElement('div');
+    main.className = 'lr-main';
+    const t = document.createElement('span');
+    t.className = 'lr-title';
+    t.textContent = item.title;
+    main.appendChild(t);
+    // A document behind the row is worth saying so, because the row cannot show
+    // it and the only way in is to open the item.
+    if (item.bodyLength) {
+      const doc = document.createElement('span');
+      doc.className = 'lr-doc mono';
+      doc.textContent = 'document';
+      main.appendChild(doc);
+    }
+    a.appendChild(main);
+
+    const meta = document.createElement('div');
+    meta.className = 'lr-meta';
+
+    // The three things the roll-up exists to show.
+    const last = lastWord(item);
+    const who = document.createElement('span');
+    who.className = 'lr-who mono' + (last && last.who === 'you' ? ' you' : '');
+    who.textContent = last ? (last.who === 'you' ? 'you' : (last.author || 'agent')) + ' · ' + WB.fmt(last.createdAt) : 'no replies';
+    meta.appendChild(who);
+
+    const choice = document.createElement('span');
+    choice.className = 'lr-choice';
+    choice.textContent = item.choice || '—';
+    meta.appendChild(choice);
+
+    const chip = document.createElement('span');
+    chip.className = 'chip s-' + item.status;
+    chip.textContent = WB.STATUS_LABELS[item.status];
+    meta.appendChild(chip);
+
+    a.appendChild(meta);
+    return a;
   }
 
   function statusChip(status) {
@@ -264,7 +337,7 @@
         head.appendChild(h2);
         itemsEl.appendChild(head);
       }
-      for (const item of bySection.get(key)) itemsEl.appendChild(renderItem(item));
+      for (const item of bySection.get(key)) itemsEl.appendChild(mode === 'list' ? renderRow(item) : renderItem(item));
     }
   }
 
@@ -276,8 +349,10 @@
   // instead of trying to dodge it.
   function signature() {
     return JSON.stringify([
+      mode,
       [...hidden].sort(),
-      items.map((i) => [i.id, i.version, i.status, i.choice, i.title, i.context, i.section, (i.messages || []).length]),
+      items.map((i) => [i.id, i.version, i.status, i.choice, i.title, i.context, i.section, (i.messages || []).length, i.bodyLength || 0,
+        (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
     ]);
   }
   let lastSignature = null;
