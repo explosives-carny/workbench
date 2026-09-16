@@ -287,6 +287,11 @@ worse still: the thread is the record, and a correction is part of the record.
   is the signal and hunting for others only finds work they have not finished
   asking for. `AGENTS.md` has how to plan a round and when delegating it is worth
   the cost.
+- **`wb --auto` opts into the other behaviour**, for when they are working
+  through a batch of answers and would rather not type `wb` after each one. It
+  means "re-read at each natural boundary", never "poll on a timer" — the timer
+  is the expensive habit, not the picking up. Say once that it is on, because a
+  mode that changes what a session costs must never be silently running.
 - **While working:** post a message when you act on a decision. The thread is
   the record of why the code looks the way it does.
 - **End of a session:** make sure nothing you finished is still sitting at

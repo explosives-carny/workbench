@@ -49,6 +49,10 @@
   let items = [];
   // The project itself, for groupBy. Held rather than re-read per render.
   let project = null;
+  // Board-wide preferences. Only autoMode is rendered, and it is rendered
+  // because a mode that changes how much a session costs must be visible
+  // without asking the agent whether it is on.
+  let settings = {};
 
   // Completed work is hidden by default. A board that shows everything ever
   // decided stops answering the only question it is for — what is outstanding —
@@ -182,6 +186,25 @@
 
     group.append(expandAll, collapseAll);
     el.appendChild(group);
+
+    // Auto mode, shown because it is otherwise invisible: the agent keeps
+    // picking up new work without being asked, and the only way to know is to
+    // ask it. A click turns it off, which is the one thing you want to be able
+    // to do quickly when it is running away with itself.
+    if (settings.autoMode) {
+      const auto = document.createElement('button');
+      auto.type = 'button';
+      auto.className = 'automode mono';
+      auto.textContent = 'auto \u00d7';
+      auto.title = 'The agent picks up new work without being asked. Click to turn it off.';
+      auto.setAttribute('aria-label', 'Auto mode is on. Turn it off.');
+      auto.addEventListener('click', async () => {
+        await WB.patch('/api/settings', { autoMode: false });
+        settings.autoMode = false;
+        safeRender(true);
+      });
+      el.appendChild(auto);
+    }
 
     // An active label filter has to be visible and undoable from here. A row
     // chip can clear it too, but only if a row carrying that label is on screen
@@ -528,6 +551,7 @@
       [...hidden].sort(),
       labelFilter,
       project && project.groupBy,
+      Boolean(settings.autoMode),
       items.map((i) => [i.id, i.version, i.status, i.choice, i.title, i.context, i.section, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
         (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
     ]);
@@ -575,6 +599,10 @@
     // would file things somewhere nothing displays. Hide it rather than keep a
     // field whose value is invisible.
     project = data.project;
+    try {
+      const s = await WB.get('/api/settings');
+      settings = (s && s.settings) || {};
+    } catch (e) { /* the board is still usable without it */ }
     document.getElementById('isection').hidden = project.groupBy === 'status';
     document.getElementById('pname').textContent = data.project.name;
     document.getElementById('pdesc').textContent = data.project.description || '';
