@@ -281,8 +281,12 @@ worse still: the thread is the record, and a correction is part of the record.
   check-in word, and not in between. Answering each reply as it arrives means
   the human is still deciding while you are already building against half their
   decisions — and a round answered together is almost always a different, and
-  smaller, piece of work than the same items answered one at a time. `AGENTS.md`
-  has how to plan a round and when delegating it is worth the cost.
+  smaller, piece of work than the same items answered one at a time.
+- **On a check-in, the actionable set is everything at `received`.** Nothing
+  else. A human replying to an issue moves it there automatically, so the status
+  is the signal and hunting for others only finds work they have not finished
+  asking for. `AGENTS.md` has how to plan a round and when delegating it is worth
+  the cost.
 - **While working:** post a message when you act on a decision. The thread is
   the record of why the code looks the way it does.
 - **End of a session:** make sure nothing you finished is still sitting at
