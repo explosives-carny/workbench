@@ -38,14 +38,46 @@ export const STATUS_LABELS: Record<Status, string> = {
   complete: 'Complete',
 };
 
+export type SectionMode = 'adhoc' | 'declared';
+
 export type Project = {
   id: string;
   slug: string;
   name: string;
   description: string;
+  sectionMode: SectionMode;
+  /** Declared vocabulary. Advisory in adhoc mode, enforced in declared mode. */
+  sections: string[];
   createdAt: string;
   archivedAt: string | null;
 };
+
+// Near-duplicate detection. The way a section vocabulary actually rots is not
+// somebody inventing a wild new name — it is "Deploys" appearing beside "Ship
+// it", or "Design" becoming "design" and "Designs". Both lists then look
+// complete and neither is.
+//
+// Deliberately crude and explainable: case, punctuation and a trailing plural
+// are noise; everything else is a real difference. A warning, never a refusal,
+// because the tool cannot know that "Deploy" and "Release" are the same area in
+// this project and the human can.
+export function normaliseSection(name: string): string {
+  return String(name).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/s\b/g, '');
+}
+
+export function findSimilarSection(name: string, existing: string[]): string | null {
+  const target = normaliseSection(name);
+  if (!target) return null;
+  for (const candidate of existing) {
+    if (candidate === name) return null; // exact match is not a duplicate
+    const other = normaliseSection(candidate);
+    if (!other) continue;
+    if (other === target) return candidate;
+    // One wholly inside the other, at a length where that is meaningful.
+    if (target.length > 3 && other.length > 3 && (other.includes(target) || target.includes(other))) return candidate;
+  }
+  return null;
+}
 
 export type Message = {
   id: string;
@@ -116,7 +148,15 @@ export function openDb(path: string): Database {
       name        TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       created_at  TEXT NOT NULL,
-      archived_at TEXT
+      archived_at TEXT,
+      -- How this project governs its section vocabulary.
+      --   adhoc    — any section accepted; near-duplicates are reported back
+      --   declared — only the listed sections accepted; anything else refused
+      -- Default adhoc, because a project usually does not know its areas on day
+      -- one and being forced to guess produces a worse taxonomy than letting one
+      -- emerge and tidying it later.
+      section_mode TEXT NOT NULL DEFAULT 'adhoc',
+      sections     TEXT NOT NULL DEFAULT '[]'
     );
     CREATE TABLE IF NOT EXISTS items (
       id         TEXT PRIMARY KEY,
@@ -174,6 +214,9 @@ export function openDb(path: string): Database {
   // Additive migrations for databases created before a column existed. SQLite
   // has no ADD COLUMN IF NOT EXISTS, and a tool people install at different
   // times must open an old file rather than refuse it.
+  const pcols = new Set<string>(db.query('PRAGMA table_info(projects)').all().map((r: any) => r.name));
+  if (!pcols.has('section_mode')) db.exec("ALTER TABLE projects ADD COLUMN section_mode TEXT NOT NULL DEFAULT 'adhoc'");
+  if (!pcols.has('sections')) db.exec("ALTER TABLE projects ADD COLUMN sections TEXT NOT NULL DEFAULT '[]'");
   const columns = new Set<string>(db.query('PRAGMA table_info(items)').all().map((r: any) => r.name));
   if (!columns.has('version')) db.exec('ALTER TABLE items ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
   if (!columns.has('updated_by')) db.exec("ALTER TABLE items ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''");
@@ -198,6 +241,13 @@ function rowToProject(r: any): Project {
     slug: r.slug,
     name: r.name,
     description: r.description,
+    sectionMode: (r.section_mode === 'declared' ? 'declared' : 'adhoc') as SectionMode,
+    sections: (() => {
+      try {
+        const parsed = JSON.parse(r.sections ?? '[]');
+        return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+      } catch { return []; }
+    })(),
     createdAt: r.created_at,
     archivedAt: r.archived_at,
   };
@@ -284,12 +334,14 @@ export class Store {
       slug,
       name: input.name,
       description: input.description || '',
+      sectionMode: 'adhoc',
+      sections: [],
       createdAt: now(),
       archivedAt: null,
     };
     this.db
-      .query('INSERT INTO projects (id, slug, name, description, created_at, archived_at) VALUES (?, ?, ?, ?, ?, NULL)')
-      .run(project.id, project.slug, project.name, project.description, project.createdAt);
+      .query('INSERT INTO projects (id, slug, name, description, section_mode, sections, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)')
+      .run(project.id, project.slug, project.name, project.description, project.sectionMode, JSON.stringify(project.sections), project.createdAt);
     return project;
   }
 
@@ -496,6 +548,41 @@ export class Store {
         .run(key, JSON.stringify(value), at);
     }
     return this.getSettings();
+  }
+
+  /** The vocabulary actually in use, plus anything declared but unused. */
+  sectionsInUse(project: Project): { name: string; count: number; declared: boolean }[] {
+    const rows: any[] = this.db
+      .query("SELECT section AS name, COUNT(*) AS n FROM items WHERE project_id = ? AND section <> '' GROUP BY section ORDER BY n DESC")
+      .all(project.id);
+    const out = rows.map((r) => ({ name: r.name, count: r.n, declared: project.sections.includes(r.name) }));
+    for (const declared of project.sections) {
+      if (!out.some((s) => s.name === declared)) out.push({ name: declared, count: 0, declared: true });
+    }
+    return out;
+  }
+
+  setProjectSections(slug: string, patch: { sectionMode?: SectionMode; sections?: string[] }): Project | null {
+    const project = this.getProject(slug);
+    if (!project) return null;
+    const mode = patch.sectionMode ?? project.sectionMode;
+    const sections = patch.sections ?? project.sections;
+    this.db
+      .query('UPDATE projects SET section_mode = ?, sections = ? WHERE id = ?')
+      .run(mode, JSON.stringify(sections), project.id);
+    return this.getProject(slug);
+  }
+
+  /**
+   * Rename or merge a section across every item that uses it. Without this,
+   * drift is permanent: somebody notices "Deploys" and "Ship it" are the same
+   * area and has no way to say so except editing items one at a time.
+   */
+  renameSection(projectId: string, from: string, to: string, actor = ''): number {
+    const result = this.db
+      .query('UPDATE items SET section = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE project_id = ? AND section = ?')
+      .run(to, now(), actor, projectId, from);
+    return result.changes;
   }
 
   counts(projectId: string): Record<Status, number> {
