@@ -29,6 +29,11 @@ curl -s localhost:4317/api/projects/<slug>   # 3. one project: items + threads
 | Message | one turn in a thread | `who` (`you`\|`agent`), `author`, `text` |
 | Check | one step of a checklist | `id`, `label`, `result`, `note` |
 
+Every item and message carries `createdAt`. It is set for you. Send one **only**
+when you are importing history that already happened — a past ISO instant;
+anything unparseable or in the future is ignored and the clock is used instead.
+Never send one to make a fresh item look older.
+
 `body` + `bodyFormat` (`text`\|`markdown`\|`html`) hold long-form content.
 **`body` is stripped from list responses** — `GET /api/items/<id>` for the full
 text; `bodyLength` in a list tells you one is there.

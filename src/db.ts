@@ -128,7 +128,33 @@ export type ItemInput = {
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
   checks?: Check[];
+  /**
+   * When this thing actually came into being, for an import carrying history.
+   *
+   * Only honoured on create, and only when it is a real past instant. Everything
+   * created through the board leaves it out and gets the clock. It exists
+   * because migrating a body of work stamps every item with the moment of the
+   * import — so a board restored from an export, or brought over from somewhere
+   * else, shows forty items that all appeared in the same second and no sense of
+   * what came first.
+   */
+  createdAt?: string;
 };
+
+/**
+ * An ISO instant that is safe to trust as a creation date, or null.
+ *
+ * Rejects anything unparseable, and anything in the future: a date later than
+ * now is either a clock problem or a caller inventing history, and an item that
+ * claims to have been created tomorrow sorts above everything real forever.
+ * A date before the epoch is the same class of nonsense in the other direction.
+ */
+export function asHistoricInstant(value: unknown, nowMs = Date.now()): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms) || ms > nowMs || ms < 0) return null;
+  return new Date(ms).toISOString();
+}
 
 function now(): string {
   return new Date().toISOString();
@@ -381,6 +407,10 @@ export class Store {
 
   createItem(projectId: string, input: ItemInput): Item {
     const at = now();
+    // `updatedAt` stays the clock even when a creation date is supplied: the row
+    // WAS written now, and an import that backdated both would look like an item
+    // nobody has touched in months the moment it arrived.
+    const createdAt = asHistoricInstant(input.createdAt) || at;
     const maxRow: any = this.db.query('SELECT MAX(position) AS m FROM items WHERE project_id = ?').get(projectId);
     const position = (maxRow?.m ?? -1) + 1;
     const id = randomUUID();
@@ -402,7 +432,7 @@ export class Store {
         input.body || '',
         input.bodyFormat || 'text',
         JSON.stringify(input.checks || []),
-        at,
+        createdAt,
         at
       );
     return this.getItem(id)!;
@@ -506,7 +536,7 @@ export class Store {
   // (`needs-you` would be a lie, `received` is the agent's word to give), so the
   // human's own post moves it OFF needs-you and the agent's reply is what marks
   // it received. Callers can still override explicitly.
-  addMessage(itemId: string, input: { who: 'you' | 'agent'; text: string; author?: string; status?: Status }): Message | null {
+  addMessage(itemId: string, input: { who: 'you' | 'agent'; text: string; author?: string; status?: Status; createdAt?: string }): Message | null {
     const item = this.getItem(itemId);
     if (!item) return null;
     const message: Message = {
@@ -515,7 +545,11 @@ export class Store {
       who: input.who,
       author: input.author || (input.who === 'you' ? 'you' : 'agent'),
       text: input.text,
-      createdAt: now(),
+      // Same rule as an item's: supplied only by an import replaying history,
+      // and only when it is a real past instant. Without it a restored board
+      // has every thread collapsed into the second the import ran, in an
+      // interface whose whole job is showing who spoke last and when.
+      createdAt: asHistoricInstant(input.createdAt) || now(),
     };
     this.db
       .query('INSERT INTO messages (id, item_id, who, author, text, created_at) VALUES (?, ?, ?, ?, ?, ?)')

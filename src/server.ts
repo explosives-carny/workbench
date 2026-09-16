@@ -82,6 +82,11 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
           at: typeof c?.at === 'string' ? c.at : '',
         }))
       : undefined,
+    // Honoured on create only (the store ignores it on update). An import
+    // carrying real history says when each thing actually happened; anything
+    // unparseable or in the future is dropped rather than refused, because a
+    // bad date is not a reason to lose the item.
+    createdAt: typeof body.createdAt === 'string' ? body.createdAt : undefined,
   };
 }
 

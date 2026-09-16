@@ -363,7 +363,13 @@
     document.getElementById('ctx').textContent = item.context || '';
     // Section only. Status is the dropdown; the chosen option is the pressed
     // button. Neither needs restating in the masthead.
-    document.getElementById('eyebrow').textContent = item.section || 'Item';
+    // Section and the date it was raised. The date was nowhere on this page —
+    // the thread carries a timestamp per message, so an item nobody had replied
+    // to showed no date at all, and one with a long thread showed everything
+    // except when the question was actually asked.
+    const raised = item.createdAt ? 'Raised ' + WB.fmt(item.createdAt) : '';
+    document.getElementById('eyebrow').textContent =
+      [item.section, raised].filter(Boolean).join(' · ') || 'Item';
     renderChecks();
     renderDoc();
     renderPanel();
