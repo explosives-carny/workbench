@@ -812,7 +812,26 @@ export class Store {
     // on one must not drag it to `received` — that is a task transition and it
     // would put a specification into a status its own dropdown cannot show.
     // Documents keep whatever they hold; only an explicit status moves them.
-    const wanted: Status = input.status ?? (item.kind === 'issue' && input.who === 'you' ? 'received' : item.status);
+    //
+    // The two sides of the handshake are now symmetric, and they were not.
+    //
+    // A human reply has always moved an issue to `received` automatically. An
+    // agent reply moved nothing — so an agent that answered an item and forgot
+    // the separate status call left it reading `received`, identical to an item
+    // nobody had touched. The contract said "post a message, set the status",
+    // and only one of those two was ever enforced by anything. Memory is what
+    // fails under load, across a context reset, and at the end of a long round;
+    // that is exactly when the board most needs to be true.
+    //
+    // So an agent replying to an item at `received` claims it. Narrow on
+    // purpose: `received` is the one status meaning "yours, nobody has started",
+    // so a reply there is unambiguous. An agent adding context to a question
+    // still waiting on the human (`needs-decision`, `needs-qa`) leaves the move
+    // where it is, and anything else needs an explicit status — which a caller
+    // can always pass, and should whenever the reply hands the item back.
+    const autoClaim = item.kind === 'issue' && input.who === 'agent' && item.status === 'received';
+    const wanted: Status = input.status
+      ?? (item.kind === 'issue' && input.who === 'you' ? 'received' : (autoClaim ? 'in-progress' : item.status));
     const status: Status = isStatusAllowed(item.kind, wanted) ? wanted : item.status;
     // Messages are append-only and never conflict, so posting one is always
     // safe from any number of sessions at once. Only the status it carries
