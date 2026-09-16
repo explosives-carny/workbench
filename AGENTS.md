@@ -49,7 +49,7 @@ means "still waiting on them" — that is `needs-you`.
 
 ```bash
 # create a project (idempotent by slug)
-POST  /api/projects                      {"name":"Ops Guide","description":"..."}
+POST  /api/projects                      {"name":"Acme Site","description":"..."}
 
 # create items — POST AN ARRAY for a whole set in one call
 POST  /api/projects/<slug>/items         [{"title":"...","context":"...","options":["Do it","Hold"],"section":"Ship it"}]

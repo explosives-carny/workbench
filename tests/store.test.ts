@@ -15,15 +15,15 @@ describe('projects', () => {
   beforeEach(() => { store = freshStore(); });
 
   it('creates a project and addresses it by slug', () => {
-    const project = store.createProject({ name: 'Ops Guide' });
-    expect(project.slug).toBe('ops-guide');
-    expect(store.getProject('ops-guide')!.id).toBe(project.id);
+    const project = store.createProject({ name: 'Acme Site' });
+    expect(project.slug).toBe('acme-site');
+    expect(store.getProject('acme-site')!.id).toBe(project.id);
   });
 
   // An agent re-running its own setup must not produce a second board.
   it('is idempotent by slug', () => {
-    const first = store.createProject({ name: 'Ops Guide' });
-    const second = store.createProject({ name: 'Ops Guide' });
+    const first = store.createProject({ name: 'Acme Site' });
+    const second = store.createProject({ name: 'Acme Site' });
     expect(second.id).toBe(first.id);
     expect(store.listProjects().length).toBe(1);
   });
