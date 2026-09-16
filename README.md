@@ -40,7 +40,9 @@ If someone points you at this page and says "install it", do exactly this:
    backed up: it is a single file on one machine, and they are entitled to
    accept that risk, but not to be unaware of it.
 
-Do not seed example projects. An empty board is correct on day one.
+Do not seed example projects or sample data. The one thing you *should* create
+is the `Setup` section described in `AGENTS.md` — the setup questions belong on
+the board, where answering them is also the introduction to using it.
 
 ## Why
 

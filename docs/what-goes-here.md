@@ -29,9 +29,46 @@ Segment further only when the answer is genuinely different:
 | You would archive it separately | You would archive them together |
 | The lists never need reading together | You triage them in one sitting |
 
-**Sections, not projects, are for grouping inside a body of work.** "Ship it",
-"Design", "People and access" are sections. A project per section produces a
-gallery nobody scans and a decision nobody finds.
+## Sections — one axis, and only one
+
+**A section is the AREA OF WORK. Never the kind of item, never its state.**
+
+This is the rule that has to be stated, because it is the one that decays. Three
+different agents on the same board will each reach for a different axis, and
+after a month the field means nothing. On the reference board it went wrong
+exactly that way: decisions were filed by topic ("Ship it", "Design"), imported
+material by kind ("Documents", "Design records"), and migrated history by state
+("Settled", "Shipped") — three axes in one field, two of which duplicated
+information the item already carried.
+
+They duplicated it because:
+
+| Tempting section | Already answered by |
+|---|---|
+| "Documents", "Specs", "Notes" | `bodyLength` — the item has a body or it does not |
+| "Checklists" | `checks` — it has steps or it does not |
+| "Done", "Shipped", "Settled", "Archive" | `status` |
+| "Waiting on Sam", "Blocked" | `status` |
+| "Urgent" | say so in the context, or do it |
+
+So: **name the part of the work, not the shape or the stage of the item.**
+Good sections read like the areas somebody would say out loud — `Ship it`,
+`Design`, `People and access`, `Housekeeping`, `Cycle count`, `Magazine flip`.
+
+### Choosing one, as an agent
+
+1. `GET /api/projects/<slug>` and read the sections already in use. **Reuse one.**
+   A near-synonym ("Deploys" beside "Ship it") is the failure mode — you have
+   split one area into two and neither list is complete now.
+2. Only invent a section when the item genuinely belongs to no existing area,
+   and then name it after the area, not the item.
+3. Leave it empty rather than guessing. An unsectioned item sorts to the top and
+   somebody will place it; a wrongly-sectioned one is filed and invisible.
+4. Six to eight sections is a working board. Past a dozen, the grouping has
+   become a second status field and needs collapsing.
+
+**Sections, not projects, are for grouping inside a body of work.** A project per
+section produces a gallery nobody scans and a decision nobody finds.
 
 Signs you split too finely: projects with two items; a gallery that needs
 scrolling; the same decision posted twice because it was unclear where it lived.

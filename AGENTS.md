@@ -99,44 +99,78 @@ Never create items on a check-in. It means catch up, not ask.
 
 ## Onboarding — first use in a session only
 
-`settings.onboardedAt` missing → ask once, in one message, with your
-recommendation on each. Record every answer including refusals; a `false` is an
-instruction that must outlive the session.
+`settings.onboardedAt` missing → **put the setup questions on the board rather
+than asking in chat.** It is the shortest possible introduction to the tool: the
+human answers their first items in the interface they will use from then on, and
+the answers are already recorded where every later session can read them.
 
-| Key | Question | Default |
-|---|---|---|
-| `autoCapture` | Put decisions on the board automatically? | `true` |
-| `checkInOnStart` | Read the board every session unprompted? | `true` |
-| `postFindings` | Defects and risks go on the board? | `true` |
-| `summariseOnExit` | Post what you did before finishing? | `false` |
-| `defaultProject` | Where do new items land? | ask, or infer from the repo |
-| `backupPlan` | Where does the database get backed up to? | `"none"` only if they say so |
+Create a `Setup` section in the project you are working in (or a `Workbench
+setup` project if there is none yet), then say one line in chat: *"I have put
+six setup questions on the board — answer them there and I will pick them up."*
 
 ```bash
-PATCH /api/settings  {"onboardedAt":"<iso>","autoCapture":true,"...":"..."}
+POST /api/projects/<slug>/items
+[
+ {"section":"Setup","title":"Should I put decisions on the board automatically?",
+  "context":"Automatic means anything needing your call becomes an item without you asking. Recommended.",
+  "options":["Automatic","Only when I ask"]},
+ {"section":"Setup","title":"Should I read the board at the start of every session?",
+  "context":"So a decision you make today is acted on tomorrow without you re-raising it. Recommended.",
+  "options":["Yes","Only when I say so"]},
+ {"section":"Setup","title":"Should defects and risks I find go on the board?",
+  "context":"Otherwise they live in the transcript and disappear with it. Recommended.",
+  "options":["Put them on the board","Tell me in chat"]},
+ {"section":"Setup","title":"Should I post a summary before I finish a session?",
+  "context":"Useful if somebody else picks the work up; noise if it is only you.",
+  "options":["Yes","No"]},
+ {"section":"Setup","title":"Where should the database be backed up?",
+  "context":"It is one file on one machine. Nothing here replicates it. `bun run export <dir>` writes one JSON file per project — point it at a private git repository. Declining is a legitimate answer and I will not ask again.",
+  "options":["A private git repo","Somewhere else I already back up","Accept the risk, no backup"]},
+ {"section":"Setup","title":"Where should new items land by default?",
+  "context":"If you work across several projects, name the one that should catch anything I do not place explicitly.",
+  "options":["This project","I will say each time"]}
+]
 ```
 
-### Raise the backup question once, at onboarding
+When they answer, write the results to settings and **close the items** — a
+setup question left open forever is noise on a board meant to show what is
+outstanding:
 
-The database is a single file on one machine. It is not replicated, not synced
-and not backed up by anything here. Say so plainly and offer:
+```bash
+PATCH /api/settings {"onboardedAt":"<iso>","autoCapture":true,"checkInOnStart":true,
+                     "postFindings":true,"summariseOnExit":false,
+                     "backupPlan":"<path|repo|none>","defaultProject":"<slug>"}
+PATCH /api/items/<id> {"status":"complete","actor":"<you>"}
+```
 
-1. **A private git repository** — `bun run export <dir>` writes one JSON file
-   per project; point it at a repo and commit. This is the recommendation.
-2. **Any other durable location** they already trust — a synced folder, a
-   backup system, an external disk.
-3. **Nothing.** A legitimate answer for a board they would not mind losing.
+| Key | From | Default if they never answer |
+|---|---|---|
+| `autoCapture` | question 1 | `true` |
+| `checkInOnStart` | question 2 | `true` |
+| `postFindings` | question 3 | `true` |
+| `summariseOnExit` | question 4 | `false` |
+| `backupPlan` | question 5 | ask again next session; never assume `"none"` |
+| `defaultProject` | question 6 | infer from the repository |
 
-Record the outcome in `backupPlan` — a path, a repository URL, or the string
-`"none"`. If they accept the risk, write `"none"` and **do not raise it again**;
-nagging about a risk somebody has knowingly accepted is how people stop reading
+`"none"` for `backupPlan` is a real answer. Record it and **never raise backups
+again** — nagging about a knowingly accepted risk is how people stop reading
 what you write.
-
-If `backupPlan` is a path or a repository, offer to run the export at the end of
-sessions where the board changed materially.
 
 Then honour all of it. Asking and then behaving identically is worse than not
 asking.
+
+## Sections
+
+`section` is the **area of work** — one axis, always. Not the kind of item
+(`bodyLength` and `checks` say that) and not its state (`status` says that).
+
+Before setting one, read the sections already on the board and **reuse one**.
+Inventing "Deploys" next to an existing "Ship it" splits one area in two and
+neither list is complete afterwards. No good fit → leave it empty; an
+unsectioned item sorts to the top and gets placed, a mis-sectioned one is
+filed and invisible.
+
+Full reasoning and the failure modes: `docs/what-goes-here.md`.
 
 ## Rules
 
