@@ -60,7 +60,11 @@
   // sees. Wrapped because storage throws in a private window and a filter
   // preference is never worth breaking the page over.
   const FILTER_KEY = 'wb.filters.' + slug;
-  const DEFAULT_HIDDEN = ['complete'];
+  // Finished work and superseded documents are both hidden by default. They are
+  // the same thing in the two vocabularies — kept, not current — and a board
+  // that opens showing everything ever decided stops answering the only question
+  // it is for.
+  const DEFAULT_HIDDEN = ['complete', 'archived'];
 
   function loadHidden() {
     try {
@@ -431,7 +435,9 @@
     const sel = document.createElement('select');
     sel.id = 'st-' + item.id;
     sel.className = 'status s-' + item.status;
-    for (const s of WB.STATUSES) {
+    // Only this item's own set — an issue never offers Active, a document
+    // never offers Received.
+    for (const s of WB.statusesFor(item.kind)) {
       const o = document.createElement('option');
       o.value = s;
       o.textContent = WB.STATUS_LABELS[s];

@@ -71,6 +71,38 @@ export const STATUS_LABELS: Record<Status, string> = {
  */
 export const DOCUMENT_STATUSES: Status[] = ['active', 'archived'];
 
+/** The five a task moves through. The complement of DOCUMENT_STATUSES. */
+export const ISSUE_STATUSES: Status[] = STATUSES.filter((s) => !DOCUMENT_STATUSES.includes(s));
+
+/**
+ * What an item IS, which decides which statuses it may hold.
+ *
+ *   issue    — something to decide or do: the five task states
+ *   document — something to read or work through: active or archived
+ *
+ * Stored rather than inferred. It was briefly inferred from whether the item
+ * carried a body, which is wrong in both directions: a decision can arrive with
+ * a long explanation attached, and a document can be a stub that grows later.
+ * Getting it wrong lets a specification be set to "Received", which is the
+ * exact confusion the two status sets exist to prevent.
+ */
+export type Kind = 'issue' | 'document';
+export const KINDS = ['issue', 'document'] as const;
+
+/** The statuses this kind of item is allowed to hold. */
+export function statusesFor(kind: Kind): Status[] {
+  return kind === 'document' ? DOCUMENT_STATUSES : ISSUE_STATUSES;
+}
+
+export function isStatusAllowed(kind: Kind, status: Status): boolean {
+  return statusesFor(kind).includes(status);
+}
+
+/** The status a kind falls back to when it has none, or an incompatible one. */
+export function defaultStatusFor(kind: Kind): Status {
+  return kind === 'document' ? 'active' : 'needs-decision';
+}
+
 /**
  * Old status spellings, accepted on input and mapped forward.
  *
@@ -234,6 +266,8 @@ export type Item = {
   options: string[];
   choice: string;
   status: Status;
+  /** What this item is, which decides which statuses it may hold. */
+  kind: Kind;
   section: string;
   /**
    * How this item relates to others, crosswise to everything else.
@@ -262,6 +296,7 @@ export type ItemInput = {
   options?: string[];
   choice?: string;
   status?: Status;
+  kind?: Kind;
   section?: string;
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
@@ -359,6 +394,8 @@ export function openDb(path: string): Database {
       -- Labels: any number per item, crosswise to section and status. JSON
       -- because the set is small, owned by the item, and only ever read with it.
       labels      TEXT NOT NULL DEFAULT '[]',
+      -- issue or document. Decides which statuses this item may hold.
+      kind        TEXT NOT NULL DEFAULT 'issue',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -396,6 +433,20 @@ export function openDb(path: string): Database {
   if (!columns.has('body_format')) db.exec("ALTER TABLE items ADD COLUMN body_format TEXT NOT NULL DEFAULT 'text'");
   if (!columns.has('checks')) db.exec("ALTER TABLE items ADD COLUMN checks TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('labels')) db.exec("ALTER TABLE items ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
+  if (!columns.has('kind')) {
+    db.exec("ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'issue'");
+    // Backfill: anything carrying long-form content is a document. That is the
+    // best signal available on an existing board and it is right far more often
+    // than it is wrong; the ones it gets wrong are visible immediately, because
+    // their status will not match their kind and the next line fixes that.
+    db.exec("UPDATE items SET kind = 'document' WHERE length(body) > 0");
+  }
+  // Any item whose status does not belong to its kind is corrected to that
+  // kind's default. This runs on every open, not only on the backfill: it is the
+  // guard that stops a stored value the UI can no longer produce from sitting
+  // there forever after a hand-edit or an older writer.
+  db.exec("UPDATE items SET status = 'active' WHERE kind = 'document' AND status NOT IN ('active','archived')");
+  db.exec("UPDATE items SET status = 'needs-decision' WHERE kind = 'issue' AND status IN ('active','archived')");
   // `needs-you` split into `needs-decision` and `needs-qa`. Every existing row
   // predates the split and therefore predates the distinction, so it becomes
   // `needs-decision` — the meaning it actually had. Nothing is guessed as QA:
@@ -465,6 +516,7 @@ function rowToItem(r: any): Item {
       } catch { return []; }
     })(),
     labels: parseLabels(r.labels),
+    kind: (r.kind === 'document' ? 'document' : 'issue') as Kind,
     body: r.body ?? '',
     bodyFormat: (r.body_format ?? 'text') as 'text' | 'markdown' | 'html',
     createdAt: r.created_at,
@@ -570,13 +622,20 @@ export class Store {
     // WAS written now, and an import that backdated both would look like an item
     // nobody has touched in months the moment it arrived.
     const createdAt = asHistoricInstant(input.createdAt) || at;
+    // The kind decides which statuses are legal, so it is resolved first and the
+    // status is checked against it. A status that does not belong to the kind is
+    // replaced rather than refused: the caller told us what the thing IS, which
+    // is the more reliable half of the pair, and refusing the whole create over
+    // a status an older writer could not have known about loses the item.
+    const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
+    const status = input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind);
     const maxRow: any = this.db.query('SELECT MAX(position) AS m FROM items WHERE project_id = ?').get(projectId);
     const position = (maxRow?.m ?? -1) + 1;
     const id = randomUUID();
     this.db
       .query(
-        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, labels, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, labels, kind, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -585,13 +644,14 @@ export class Store {
         input.context || '',
         JSON.stringify(input.options || []),
         input.choice || '',
-        input.status || 'needs-decision',
+        status,
         input.section || '',
         position,
         input.body || '',
         input.bodyFormat || 'text',
         JSON.stringify(input.checks || []),
         JSON.stringify(normaliseLabels(input.labels)),
+        kind,
         createdAt,
         at
       );
@@ -610,12 +670,20 @@ export class Store {
   ): Item | null {
     const current = this.getItem(id);
     if (!current) return null;
+    // Kind and status move together. Changing the kind of an existing item is
+    // legitimate — a decision that turns out to be a specification, or the other
+    // way round — but it cannot leave the item holding a status its new kind
+    // does not have, so the status follows unless the same patch sets a valid one.
+    const kind: Kind = patch.kind === undefined ? current.kind : (patch.kind === 'document' ? 'document' : 'issue');
+    const wanted = patch.status ?? current.status;
+    const status = isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind);
     const next = {
       title: patch.title ?? current.title,
       context: patch.context ?? current.context,
       options: JSON.stringify(patch.options ?? current.options),
       choice: patch.choice ?? current.choice,
-      status: patch.status ?? current.status,
+      status,
+      kind,
       section: patch.section ?? current.section,
       position: patch.position ?? current.position,
       body: patch.body ?? current.body,
@@ -625,13 +693,13 @@ export class Store {
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
-      next.title, next.context, next.options, next.choice, next.status, next.section, next.position,
+      next.title, next.context, next.options, next.choice, next.status, next.kind, next.section, next.position,
       next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
-        `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, section = ?, position = ?,
+        `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, kind = ?, section = ?, position = ?,
            body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, version = version + 1
          WHERE id = ?${guard}`
       )
@@ -716,7 +784,12 @@ export class Store {
       .query('INSERT INTO messages (id, item_id, who, author, text, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(message.id, message.itemId, message.who, message.author, message.text, message.createdAt);
 
-    const status: Status = input.status ?? (input.who === 'you' ? 'received' : item.status);
+    // A document has no "the agent is working on it" state, so a human replying
+    // on one must not drag it to `received` — that is a task transition and it
+    // would put a specification into a status its own dropdown cannot show.
+    // Documents keep whatever they hold; only an explicit status moves them.
+    const wanted: Status = input.status ?? (item.kind === 'issue' && input.who === 'you' ? 'received' : item.status);
+    const status: Status = isStatusAllowed(item.kind, wanted) ? wanted : item.status;
     // Messages are append-only and never conflict, so posting one is always
     // safe from any number of sessions at once. Only the status it carries
     // touches the item row, and it bumps the version so a concurrent editor
