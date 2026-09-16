@@ -222,6 +222,24 @@ made, which you should be *acting on*, not re-asking.
 **One item per question.** Two decisions in one item means one of them gets
 answered and the other is silently lost.
 
+## Status is whose move it is, not how hard you worked
+
+The mistake is easy and it is always the same one: finishing a piece of work and
+marking the item `complete` because *you* are done with it.
+
+`complete` means it landed — merged, deployed, in the hands of whoever needed
+it. Work sitting in an open pull request is `received`: you still own it, and
+the person scanning the board needs to know it is not finished. Say what it
+waits on in the thread, or `received` starts reading as `forgotten`.
+
+The mirror of that mistake is leaving something at `received` when the human is
+the one doing it. `received` claims you are working; if they are, the move is
+theirs and the status is `needs-you`, whether or not you intend to help.
+
+And when you notice you set the wrong one — say so and change it. A wrong status
+is worse than a stale one, because people act on it. Quietly flipping it is
+worse still: the thread is the record, and a correction is part of the record.
+
 ## Rhythm
 
 - **Start of a session:** read the project. Act on everything at `received`

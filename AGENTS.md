@@ -42,8 +42,27 @@ text; `bodyLength` in a list tells you one is there.
 | `deferred` | nobody's, on purpose | either, with a reason in the thread |
 | `complete` | done | you, once the work landed |
 
-`complete` claims the work is finished, not that you asked. `deferred` never
-means "still waiting on them" — that is `needs-you`.
+`complete` claims the work **landed**, not that you finished typing. Work that is
+written but sitting in an unmerged pull request, an undeployed branch or a queue
+is still `received` — you own it, it is not done. Say in the thread what it is
+waiting on, so "received" does not read as "forgotten".
+
+`deferred` never means "still waiting on them" — that is `needs-you`.
+
+Set the status to whose move it actually is, not to how much effort you spent:
+
+| Situation | Status |
+|---|---|
+| You asked something | `needs-you` |
+| They answered, you are working | `received` |
+| Written, PR open, not merged | `received` — and say so |
+| Merged and running | `complete` |
+| They are doing it, not you | `needs-you` |
+| Parked by agreement | `deferred` |
+
+**Correct your own status when you get it wrong.** A status that misdescribes
+the state is worse than a stale one, because somebody trusts it. Post a message
+saying what you are correcting and why, and change it — do not quietly flip it.
 
 ## Calls
 
