@@ -419,6 +419,17 @@ export class Store {
         : c
     );
     if (!checks.some((c) => c.id === checkId)) return current;
+    // A pass needs no explanation; anything else does. "Failed" with no note is
+    // the least useful record a checklist can produce — somebody reading the
+    // sign-off later cannot tell what went wrong, and the person who knew has
+    // moved on. Enforced here rather than only in the browser, because an agent
+    // recording a result must meet the same bar as a person.
+    const next = checks.find((c) => c.id === checkId)!;
+    if (next.result && next.result !== 'pass' && !String(next.note || '').trim()) {
+      const error: any = new Error(`step "${next.label}" was recorded as ${next.result}; a note is required for anything other than a pass`);
+      error.statusCode = 400;
+      throw error;
+    }
     this.db
       .query('UPDATE items SET checks = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
       .run(JSON.stringify(checks), now(), patch.by || '', itemId);

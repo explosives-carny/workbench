@@ -1,219 +1,136 @@
-# Working with the workbench
+# Workbench — agent contract
 
-This file is the contract. Any coding agent, any vendor, any session can follow
-it — the interface is plain HTTP and JSON, and nothing here depends on which
-model you are or which tool is driving you.
+Vendor-neutral. Plain HTTP and JSON. Base URL `http://localhost:4317`
+(`WORKBENCH_PORT` overrides).
 
-Base URL: `http://localhost:4317` (override with `WORKBENCH_PORT`).
+**Read this file once per session, then use the API.** Do not open the web UI to
+find something out — every fact below comes back from one call, and browsing is
+slower for you and invisible to the next session.
 
-## What this is for
+## Session start, in order
 
-You are usually asking a human for decisions inside a conversation. That has two
-failure modes and this tool exists to remove both.
+```bash
+curl -s localhost:4317/api/settings          # 1. how this human wants it used
+curl -s localhost:4317/api/projects          # 2. what exists, with counts
+curl -s localhost:4317/api/projects/<slug>   # 3. one project: items + threads
+```
 
-The first is that questions get lost. A long session scrolls, and a question
-asked forty tool calls ago is gone even though it is still unanswered. Here, an
-open item stays open and visible until somebody closes it.
+1. `settings.onboardedAt` missing → ask the onboarding questions once (below),
+   record the answers, proceed. Present → say nothing about setup.
+2. Act on every item at `received` **before** creating anything new.
+3. `counts["needs-you"]` is what is waiting on the human.
 
-The second is cost and continuity. Re-reading a large document to change one
-line is expensive, and the next session cannot read your conversation at all.
-Items are small, addressable and durable — you read only what you need, and a
-decision made on Monday is still readable by a different agent on Friday.
+## Objects
 
-## The model
-
-**Project** — one body of work. `slug` is its address.
-**Item** — one thing needing a decision, an answer or a status. It holds a
-title, context, optional choice buttons, a status, and a thread.
-**Message** — one turn in that thread, from `you` (the human) or an `agent`.
-
-### Status vocabulary
-
-Four states, chosen so that no two overlap. Each answers one question: **whose
-move is it?**
-
-`received` exists because "open" and "closed" cannot express the thing that
-actually goes wrong — a human answering and nobody knowing whether the answer
-was read.
-
-| Status | Means | Who sets it |
+| Object | Is | Key fields |
 |---|---|---|
-| `needs-you` | Waiting on the human. | An agent, when it asks. |
-| `received` | The human answered. | Set automatically when the human replies. |
-| `deferred` | Parked on purpose — waiting on neither of us. | Either side, with a reason in the thread. |
-| `complete` | Done; nothing outstanding. | Usually the agent, once the work landed. |
+| Project | one body of work | `slug` (its address), `name` |
+| Item | one thing needing a person | `title`, `context`, `options[]`, `choice`, `status`, `section`, `version` |
+| Message | one turn in a thread | `who` (`you`\|`agent`), `author`, `text` |
+| Check | one step of a checklist | `id`, `label`, `result`, `note` |
 
-Setting `complete` is a claim that the work is finished, not that you asked. Do
-not set it when you post a question.
+`body` + `bodyFormat` (`text`\|`markdown`\|`html`) hold long-form content.
+**`body` is stripped from list responses** — `GET /api/items/<id>` for the full
+text; `bodyLength` in a list tells you one is there.
 
-Do not reach for `deferred` to mean "still waiting on them" — that is
-`needs-you`. It means the decision was consciously parked, and the thread should
-say what would bring it back.
+## Status — whose move is it
 
-## The calls
-
-Create a project (idempotent by slug — re-running your own setup is safe):
-
-```bash
-curl -s localhost:4317/api/projects \
-  -H 'content-type: application/json' \
-  -d '{"name":"Acme Site","description":"Dispatch and inventory tooling"}'
-```
-
-Add items. **Post an array to create a whole set in one call** — this is the
-shape you want at the start of a piece of work, and doing it one request at a
-time is how half-built lists happen when something fails in the middle:
-
-```bash
-curl -s localhost:4317/api/projects/acme-site/items \
-  -H 'content-type: application/json' \
-  -d '[
-    {"title":"Deploy to production","context":"Prod is 200 commits behind.","options":["Do it","Hold"],"section":"Ship it"},
-    {"title":"Branches to delete","context":"Eight are contained in test; two are yours.","options":["Delete both","Keep both"],"section":"Ship it"}
-  ]'
-```
-
-Read what is waiting. This is the call to make at the **start of a session** —
-it is small, and it tells you what the human has answered since you last ran:
-
-```bash
-curl -s localhost:4317/api/projects/acme-site
-```
-
-Reply in a thread, and acknowledge:
-
-```bash
-curl -s localhost:4317/api/items/<id>/messages \
-  -H 'content-type: application/json' \
-  -d '{"who":"agent","author":"forge","text":"Deployed as revision 00225. Verified the served bundle matches the commit."}'
-```
-
-Change status or record the decision you acted on:
-
-```bash
-curl -s -X PATCH localhost:4317/api/items/<id> \
-  -H 'content-type: application/json' \
-  -d '{"status":"complete","actor":"forge","ifVersion":4}'
-```
-
-Record one step of a checklist (see `docs/what-goes-here.md` for when to build
-one):
-
-```bash
-curl -s -X PATCH localhost:4317/api/items/<id>/checks/step-7 \
-  -H 'content-type: application/json' \
-  -d '{"result":"fail","note":"what happened","by":"sam"}'
-```
-
-## Concurrency — read this before you write
-
-**Assume you are not the only session.** Another agent, another terminal, and
-the human's browser may all be working on the same project at the same moment.
-
-- **Messages are append-only and never conflict.** Posting one is always safe.
-  Prefer a message over editing an item when you are recording something that
-  happened.
-- **Item edits can conflict.** Pass `ifVersion` with the `version` you last read.
-  If the item moved on, you get `409` with `conflict: true` and the **current
-  item attached** — merge onto that and retry. Do not re-read and blind-write;
-  that is the same race with extra steps.
-- Omitting `ifVersion` is allowed and means last-write-wins. Only do that when
-  you are the one who just created the item.
-- Identify yourself with `author` on messages and `actor` on edits. When two
-  sessions are working, "who changed this" is the first question a human asks.
-
-## First use in a session — ask, then remember
-
-**Before anything else, read the settings:**
-
-```bash
-curl -s localhost:4317/api/settings
-```
-
-If `onboardedAt` is absent, this human has never been asked how they want this
-used. Ask — once, in the conversation, in one short message — and record the
-answers. Do not assume, and do not ask again in a later session.
-
-Offer these, with your recommendation, and accept "all of it" or "none of it" as
-answers:
-
-| Setting | The question | Default if they do not care |
+| Status | Whose move | Set by |
 |---|---|---|
-| `autoCapture` | Should I put decisions on the board automatically, or only when you ask? | `true` — automatic |
-| `checkInOnStart` | Should I read the board at the start of every session without being asked? | `true` |
-| `postFindings` | Should defects and risks I discover go on the board, or stay in conversation? | `true` |
-| `summariseOnExit` | Should I post what I did before I finish? | `false` |
-| `defaultProject` | Which project should new items land in? | ask, or infer from the repository |
+| `needs-you` | the human's | you, when you ask |
+| `received` | yours — you have the answer | automatic when the human replies |
+| `deferred` | nobody's, on purpose | either, with a reason in the thread |
+| `complete` | done | you, once the work landed |
 
-Record what they said, including the refusals — a `false` is an instruction and
-must survive the session as clearly as a `true`:
+`complete` claims the work is finished, not that you asked. `deferred` never
+means "still waiting on them" — that is `needs-you`.
+
+## Calls
 
 ```bash
-curl -s -X PATCH localhost:4317/api/settings \
-  -H 'content-type: application/json' \
-  -d '{"onboardedAt":"2026-09-16T20:15:00Z","autoCapture":true,"checkInOnStart":true,"postFindings":true,"summariseOnExit":false,"defaultProject":"acme-site"}'
+# create a project (idempotent by slug)
+POST  /api/projects                      {"name":"Acme Site","description":"..."}
+
+# create items — POST AN ARRAY for a whole set in one call
+POST  /api/projects/<slug>/items         [{"title":"...","context":"...","options":["Do it","Hold"],"section":"Ship it"}]
+
+# reply, and acknowledge
+POST  /api/items/<id>/messages           {"who":"agent","author":"<you>","text":"..."}
+
+# record a decision you acted on
+PATCH /api/items/<id>                    {"status":"complete","actor":"<you>","ifVersion":4}
+
+# one checklist step — never the whole array
+PATCH /api/items/<id>/checks/<checkId>   {"result":"fail","note":"required unless pass","by":"<name>"}
+
+# a document in full
+GET   /api/items/<id>                    → item.body
+GET   /api/items/<id>/body               → raw, correct content-type
+
+# preferences
+GET | PATCH /api/settings
 ```
 
-Then **honour them**. An agent that asks the question and then behaves the same
-way regardless has made the onboarding worse than useless: it spent the human's
-attention and changed nothing.
+Errors are `{"ok":false,"error":"..."}` — `400` malformed · `404` bad id or slug
+· `409` version conflict, with the current item attached.
 
-If `onboardedAt` is present, say nothing about setup. Read the settings, follow
-them, and get on with the work.
+## Concurrency
+
+- **Messages never conflict.** Append one rather than editing an item whenever
+  you are recording something that happened.
+- **Item edits can.** Send `ifVersion` from the copy you read. On `409`, merge
+  onto the item in the response and retry — do not re-read and blind-write.
+- Omit `ifVersion` only for an item you just created.
+- Always send `author` / `actor`. "Who changed this" is the first question asked.
+- Checklist steps: one `PATCH` per step. Sending the array loses concurrent
+  answers.
 
 ## The check-in word
 
-The human says **`workbench`** (or `wb`) and it means exactly one thing:
+Human says **`workbench`** or **`wb`** →
 
-> Read every project I am working on, find items where the last word was mine,
-> act on them, and reply underneath what you did.
+1. `GET /api/projects`, then each project.
+2. Find items whose newest message is `who: "you"`, or whose `choice` has no
+   agent reply after it.
+3. Do the work. Post a message per item. Set the status.
+4. Report one line per item. Nothing waiting → say so in one line.
 
-Concretely:
+Never create items on a check-in. It means catch up, not ask.
+
+## Onboarding — first use in a session only
+
+`settings.onboardedAt` missing → ask once, in one message, with your
+recommendation on each. Record every answer including refusals; a `false` is an
+instruction that must outlive the session.
+
+| Key | Question | Default |
+|---|---|---|
+| `autoCapture` | Put decisions on the board automatically? | `true` |
+| `checkInOnStart` | Read the board every session unprompted? | `true` |
+| `postFindings` | Defects and risks go on the board? | `true` |
+| `summariseOnExit` | Post what you did before finishing? | `false` |
+| `defaultProject` | Where do new items land? | ask, or infer from the repo |
 
 ```bash
-curl -s localhost:4317/api/projects
-curl -s localhost:4317/api/projects/<slug>
+PATCH /api/settings  {"onboardedAt":"<iso>","autoCapture":true,"...":"..."}
 ```
 
-For each item whose newest message has `who: "you"`, or whose `choice` changed
-and has no agent reply after it: do the work, post a message saying what you
-did, and set the status. Report back a one-line summary per item — not the full
-threads, which they just wrote.
+Then honour them. Asking and then behaving identically is worse than not asking.
 
-If nothing is waiting, say so in one line. Do not create new items on a
-check-in; it is a command to catch up, not to ask.
+## Rules
 
-This word exists because the alternative is the human re-typing a decision they
-already recorded, which is the exact failure the board removes.
+1. One item per question. Two questions in one item loses one.
+2. Write context answerable without you present: name the tradeoff, recommend
+   one, say what being wrong costs.
+3. Post a message when you act. The thread is the record.
+4. Never fake a human reply. `who: "you"` only when relaying something they
+   actually said, and say that it is relayed.
+5. Close what you finish.
+6. Never edit this application to add a feature — branch and open a pull
+   request. See `CONTRIBUTING.md`.
 
-## Rules that keep this useful
+## Further reading
 
-1. **Ask once, in one item.** Do not restate a pending question in conversation;
-   the point is that it lives here.
-2. **Write context the human can act on without you.** They may read it hours
-   later in a different session. Name the tradeoff and give a recommendation.
-3. **Answer underneath.** When you act on a decision, post a message saying what
-   you did. The thread is the record.
-4. **Do not invent a human reply.** Only post `who: "you"` when relaying
-   something the human actually said, and say so in the text.
-5. **Close what you finish.** An item left at `received` forever is as bad as a
-   lost question.
-6. **Do not change this application to add a feature.** A limitation is a pull
-   request, not an edit to the copy in front of you — see
-   [`CONTRIBUTING.md`](CONTRIBUTING.md). Most "I need a new type" is a section,
-   a status or a document body; [`docs/what-goes-here.md`](docs/what-goes-here.md)
-   says which.
-
-## Deciding what to create
-
-[`docs/what-goes-here.md`](docs/what-goes-here.md) is the companion to this
-file: what belongs on a board, the four kinds of item, when to create one and
-when not to, and how to segment projects rather than splitting them so finely
-that nobody scans the gallery. Read it once before your first write.
-
-## Errors
-
-Every failure is `{"ok": false, "error": "..."}` with a real HTTP status. The
-message is written to be read by whoever sent the request, which is usually you:
-`400` is a malformed request, `404` is a bad slug or id, `409` is a version
-conflict.
+- `docs/what-goes-here.md` — what to create and when, how to segment projects,
+  the item kinds, and the checklist template.
+- `CONTRIBUTING.md` — what needs a pull request and what you can do without one.

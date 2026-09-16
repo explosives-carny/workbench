@@ -219,12 +219,17 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       if (body.result !== undefined && !['', 'pass', 'fail', 'skip'].includes(body.result)) {
         return badRequest("result must be '', pass, fail or skip");
       }
-      const updated = store.setCheck(item.id, parts[3], {
-        result: body.result,
-        note: typeof body.note === 'string' ? body.note : undefined,
-        by: typeof body.by === 'string' ? body.by : 'you',
-      });
-      return json({ ok: true, item: updated });
+      try {
+        const updated = store.setCheck(item.id, parts[3], {
+          result: body.result,
+          note: typeof body.note === 'string' ? body.note : undefined,
+          by: typeof body.by === 'string' ? body.by : 'you',
+        });
+        return json({ ok: true, item: updated });
+      } catch (error: any) {
+        if (error?.statusCode === 400) return badRequest(error.message);
+        throw error;
+      }
     }
 
     if (parts[2] === 'messages') {

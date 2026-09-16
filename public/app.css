@@ -316,3 +316,14 @@ button.ck-fail[aria-pressed="true"] { background: var(--you); border-color: var(
 button.ck-skip[aria-pressed="true"] { background: var(--faint); border-color: var(--faint); color: #fff; }
 input.ck-note { flex: 1 1 180px; width: auto; font-size: 12.5px; padding: 5px 9px; }
 @media (max-width: 620px) { .ck-label { flex-basis: 100%; } input.ck-note { flex-basis: 100%; } }
+
+.checkhead.sticky {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2;
+  background: var(--ground); padding: 10px 0; margin: 0 0 4px;
+  border-bottom: 1px solid var(--rule);
+}
+.checkrow.inline { margin: 6px 0 22px; background: var(--ground); }
+.checkrow.inline .ck-btns { flex: none; }
+.checkrow.inline input.ck-note { flex: 1 1 200px; }
+.checkrow.needsnote { border-color: var(--you); }
+.checkrow.needsnote input.ck-note { border-color: var(--you); }
