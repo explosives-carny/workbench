@@ -5,6 +5,11 @@ browser; every session — any agent, any vendor — reads the same answers.
 
 Nothing leaves your machine. There is no account, no service and no build step.
 
+![A workbench board: six items across three sections, three waiting on a decision, each with its options and status inline.](docs/images/board.png)
+
+*Example data. Rows collapse to one line each; the filters hide completed work by
+default.*
+
 ## Quick start
 
 ```bash
