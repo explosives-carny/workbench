@@ -37,7 +37,7 @@
   const listEl = document.getElementById('list');
 
   function card(p) {
-    const waiting = p.counts['needs-you'] || 0;
+    const waiting = WB.WAITING_ON_YOU.reduce((n, k) => n + (p.counts[k] || 0), 0);
     const a = document.createElement('a');
     a.className = 'proj' + (waiting ? ' hot' : '');
     a.href = '/p/' + encodeURIComponent(p.slug);
@@ -48,7 +48,7 @@
     a.querySelector('.t').textContent = p.name;
     a.querySelector('.d').textContent = p.description || '';
     a.querySelector('.counts').textContent =
-      ['needs-you', 'received', 'deferred', 'complete']
+      WB.STATUSES
         .map((s) => WB.STATUS_LABELS[s] + ' ' + (p.counts[s] || 0))
         .join('  ·  ');
     return a;

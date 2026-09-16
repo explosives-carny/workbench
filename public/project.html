@@ -24,6 +24,7 @@
     <form id="newitem">
       <input type="text" id="ititle" placeholder="What needs deciding or doing" aria-label="Item title" required>
       <input type="text" id="isection" placeholder="Section (optional)" aria-label="Section">
+      <input type="text" id="ilabels" placeholder="Labels, comma separated (optional)" aria-label="Labels">
       <button type="submit">Add</button>
     </form>
   </section>
@@ -46,6 +47,8 @@
   const drafts = {};
   let deferred = null;
   let items = [];
+  // The project itself, for groupBy. Held rather than re-read per render.
+  let project = null;
 
   // Completed work is hidden by default. A board that shows everything ever
   // decided stops answering the only question it is for — what is outstanding —
@@ -76,8 +79,25 @@
 
   let hidden = loadHidden();
 
+  // One label at a time, deliberately. A multi-select needs an and/or choice
+  // that nobody wants to make on a board this size, and "show me just this
+  // thread of work" is what the field is actually for.
+  const LABEL_KEY = 'wb.label.' + slug;
+  function loadLabelFilter() {
+    try { return localStorage.getItem(LABEL_KEY) || null; } catch (e) { return null; }
+  }
+  function saveLabelFilter() {
+    try {
+      if (labelFilter) localStorage.setItem(LABEL_KEY, labelFilter);
+      else localStorage.removeItem(LABEL_KEY);
+    } catch (e) { /* not worth failing over */ }
+  }
+  let labelFilter = loadLabelFilter();
+
   function visible() {
-    return items.filter((i) => !hidden.has(i.status));
+    return items.filter((i) =>
+      !hidden.has(i.status) &&
+      (!labelFilter || (i.labels || []).some((l) => l.toLowerCase() === labelFilter.toLowerCase())));
   }
 
   function renderFilters() {
@@ -85,7 +105,8 @@
     const counts = {};
     for (const i of items) counts[i.status] = (counts[i.status] || 0) + 1;
     el.innerHTML = '';
-    for (const s of WB.STATUSES) {
+
+    function toggle(s) {
       const on = !hidden.has(s);
       const b = document.createElement('button');
       b.type = 'button';
@@ -101,7 +122,35 @@
         // repaint immediately rather than wait for the next poll.
         safeRender(true);
       });
-      el.appendChild(b);
+      return b;
+    }
+
+    // Two clusters, because the seven statuses are not one scale. Work moves
+    // through Decision → QA → Received → Deferred → Complete; a document is
+    // only ever Active or Archived. Presented as one undifferentiated row they
+    // read as a seven-step pipeline, and somebody eventually sets a
+    // specification to "Received" trying to find the right point on it.
+    //
+    // Each cluster is its own labelled group so the split is announced rather
+    // than merely spaced, and either can be empty without leaving a stray
+    // heading — a board with no documents yet shows no Documents filters.
+    const clusters = [
+      { label: 'Work', statuses: WB.STATUSES.filter((s) => !WB.DOCUMENT_STATUSES.includes(s)) },
+      { label: 'Documents', statuses: WB.DOCUMENT_STATUSES },
+    ];
+    for (const cluster of clusters) {
+      const present = cluster.statuses.filter((s) => (counts[s] || 0) > 0 || !hidden.has(s));
+      if (!present.length) continue;
+      const box = document.createElement('span');
+      box.className = 'filterset';
+      box.setAttribute('role', 'group');
+      box.setAttribute('aria-label', 'Show ' + cluster.label.toLowerCase() + ' by status');
+      const name = document.createElement('span');
+      name.className = 'filterset-label mono';
+      name.textContent = cluster.label;
+      box.appendChild(name);
+      for (const s of present) box.appendChild(toggle(s));
+      el.appendChild(box);
     }
     const group = document.createElement('span');
     group.className = 'viewgroup';
@@ -130,6 +179,19 @@
     group.append(expandAll, collapseAll);
     el.appendChild(group);
 
+    // An active label filter has to be visible and undoable from here. A row
+    // chip can clear it too, but only if a row carrying that label is on screen
+    // — and the case where none is, is exactly the case somebody gets stuck in.
+    if (labelFilter) {
+      const active = document.createElement('button');
+      active.type = 'button';
+      active.className = 'labelfilter mono';
+      active.textContent = 'label: ' + labelFilter + ' \u00d7';
+      active.setAttribute('aria-label', 'Clear the label filter: ' + labelFilter);
+      active.addEventListener('click', () => { labelFilter = null; saveLabelFilter(); safeRender(true); });
+      el.appendChild(active);
+    }
+
     const hiddenCount = items.length - visible().length;
     if (hiddenCount > 0) {
       const note = document.createElement('span');
@@ -156,6 +218,30 @@
     if (!msgs.length) return null;
     return msgs[msgs.length - 1];
   }
+
+  // When this item last had anything said on it — the newest message, or when it
+  // was raised if nobody has replied yet. Rows sort by this, newest first, so the
+  // thing that just moved is at the top of its group and the stale one sinks.
+  // Falling back to createdAt rather than 0 matters: a brand new unanswered
+  // question is the most live thing on the board, not the deadest.
+  function lastActivity(item) {
+    const last = lastWord(item);
+    const when = Date.parse((last && last.createdAt) || item.createdAt || '');
+    return Number.isFinite(when) ? when : 0;
+  }
+
+  // The status groups, when the project groups by status. Open holds every live
+  // TASK state: splitting them would move a piece of work between groups every
+  // time it changed hands, and the per-row chip already says which it is.
+  const STATUS_GROUPS = [
+    { label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received'] },
+    { label: 'Deferred', statuses: ['deferred'] },
+    // Documents above Archived: a current reference is something you reach for
+    // while working, not something waiting on you. An archived one joins
+    // finished work, because both are kept rather than current.
+    { label: 'Documents', statuses: ['active'] },
+    { label: 'Archived', statuses: ['archived', 'complete'] },
+  ];
 
   function renderRow(item) {
     const wrap = document.createElement('div');
@@ -188,6 +274,24 @@
     main.appendChild(t);
     // A document behind the row is worth saying so, because the row cannot show
     // it and the only way in is to open the item.
+    // Labels sit on the row because that is where the relationship is useful —
+    // seeing that three rows share one is the whole point, and it is invisible
+    // if you have to open each item to find out. Clickable: reading a label and
+    // wanting only that label is one gesture, not a trip to a filter menu.
+    for (const label of item.labels || []) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'lr-label mono' + (labelFilter === label ? ' on' : '');
+      chip.textContent = label;
+      chip.title = labelFilter === label ? 'Clear this label filter' : 'Show only items labelled ' + label;
+      chip.addEventListener('click', (e) => {
+        e.preventDefault();
+        labelFilter = labelFilter === label ? null : label;
+        saveLabelFilter();
+        safeRender(true);
+      });
+      main.appendChild(chip);
+    }
     if (item.bodyLength) {
       const doc = document.createElement('span');
       doc.className = 'lr-doc mono';
@@ -351,18 +455,32 @@
     if (el) { el.textContent = text; el.className = 'saved' + (isErr ? ' err' : ''); }
   }
 
+  // The board's groups, each already filtered and sorted. Built from the VISIBLE
+  // list, so a group whose every item is hidden is simply absent — no heading
+  // standing over nothing, and no empty "Completed" while completed items are
+  // filtered off.
+  function groups(shown) {
+    const byActivity = (a, b) => lastActivity(b) - lastActivity(a);
+    if (project && project.groupBy === 'status') {
+      return STATUS_GROUPS
+        .map((g) => ({ label: g.label, items: shown.filter((i) => g.statuses.includes(i.status)).sort(byActivity) }))
+        .filter((g) => g.items.length);
+    }
+    // Section grouping keeps its original order — first appearance in the
+    // stored order — because that order is the human's, set by position.
+    const order = [];
+    const bySection = new Map();
+    for (const item of shown) {
+      const key = item.section || '';
+      if (!bySection.has(key)) { bySection.set(key, []); order.push(key); }
+      bySection.get(key).push(item);
+    }
+    return order.map((key) => ({ label: key, items: bySection.get(key).sort(byActivity) }));
+  }
+
   function render() {
     renderFilters();
     const shown = visible();
-    const sections = [];
-    const bySection = new Map();
-    // Grouped from the FILTERED list, so a section whose every item is hidden
-    // does not leave a heading standing over nothing.
-    for (const item of shown) {
-      const key = item.section || '';
-      if (!bySection.has(key)) { bySection.set(key, []); sections.push(key); }
-      bySection.get(key).push(item);
-    }
     itemsEl.innerHTML = '';
     if (!items.length) {
       itemsEl.innerHTML = '<p class="empty">Nothing here yet. Add an item below, or let an agent add them.</p>';
@@ -370,19 +488,25 @@
     }
     if (!shown.length) {
       // Distinguishable from an empty project, and it names the way out.
-      itemsEl.innerHTML = '<p class="empty">Every item is filtered out. Turn a status back on above to see them.</p>';
+      itemsEl.innerHTML = labelFilter
+        ? '<p class="empty">Nothing matches the label &ldquo;' + labelFilter.replace(/[&<>]/g, '') + '&rdquo; with the statuses you have on. Clear the label above, or turn a status back on.</p>'
+        : '<p class="empty">Every item is filtered out. Turn a status back on above to see them.</p>';
       return;
     }
-    for (const key of sections) {
-      if (key) {
+    for (const group of groups(shown)) {
+      if (group.label) {
         const head = document.createElement('div');
         head.className = 'sec-head';
         const h2 = document.createElement('h2');
-        h2.textContent = key;
+        h2.textContent = group.label;
         head.appendChild(h2);
+        const n = document.createElement('span');
+        n.className = 'sec-count mono';
+        n.textContent = group.items.length;
+        head.appendChild(n);
         itemsEl.appendChild(head);
       }
-      for (const item of bySection.get(key)) itemsEl.appendChild(renderRow(item));
+      for (const item of group.items) itemsEl.appendChild(renderRow(item));
     }
   }
 
@@ -396,7 +520,9 @@
     return JSON.stringify([
       [...expanded].sort(),
       [...hidden].sort(),
-      items.map((i) => [i.id, i.version, i.status, i.choice, i.title, i.context, i.section, (i.messages || []).length, i.bodyLength || 0,
+      labelFilter,
+      project && project.groupBy,
+      items.map((i) => [i.id, i.version, i.status, i.choice, i.title, i.context, i.section, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
         (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
     ]);
   }
@@ -439,11 +565,16 @@
 
   async function load(redraw) {
     const data = await WB.get('/api/projects/' + encodeURIComponent(slug));
+    // A project grouping by status has no section headings, so the section box
+    // would file things somewhere nothing displays. Hide it rather than keep a
+    // field whose value is invisible.
+    project = data.project;
+    document.getElementById('isection').hidden = project.groupBy === 'status';
     document.getElementById('pname').textContent = data.project.name;
     document.getElementById('pdesc').textContent = data.project.description || '';
     items = data.items;
     document.getElementById('eyebrow').textContent =
-      (data.counts['needs-you'] || 0) + ' waiting on you · ' + items.length + ' items';
+      WB.WAITING_ON_YOU.reduce((n, k) => n + (data.counts[k] || 0), 0) + ' waiting on you · ' + items.length + ' items';
     if (redraw !== false) safeRender();
   }
 
@@ -486,8 +617,10 @@
     await WB.post('/api/projects/' + encodeURIComponent(slug) + '/items', {
       title,
       section: document.getElementById('isection').value.trim(),
+      labels: document.getElementById('ilabels').value.split(',').map((l) => l.trim()).filter(Boolean),
     });
     document.getElementById('ititle').value = '';
+    document.getElementById('ilabels').value = '';
     await load();
   });
 

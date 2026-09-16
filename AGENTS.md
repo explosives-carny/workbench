@@ -18,7 +18,7 @@ curl -s localhost:4317/api/projects/<slug>   # 3. one project: items + threads
 1. `settings.onboardedAt` missing → ask the onboarding questions once (below),
    record the answers, proceed. Present → say nothing about setup.
 2. Act on every item at `received` **before** creating anything new.
-3. `counts["needs-you"]` is what is waiting on the human.
+3. `counts["needs-decision"]` + `counts["needs-qa"]` is what is waiting on the human.
 
 **Read once, here.** After this, the board is read again only on the check-in
 word — see below for why, and for how to plan a round once you have one.
@@ -28,7 +28,7 @@ word — see below for why, and for how to plan a round once you have one.
 | Object | Is | Key fields |
 |---|---|---|
 | Project | one body of work | `slug` (its address), `name` |
-| Item | one thing needing a person | `title`, `context`, `options[]`, `choice`, `status`, `section`, `version` |
+| Item | one thing needing a person | `title`, `context`, `options[]`, `choice`, `status`, `section`, `labels[]`, `version` |
 | Message | one turn in a thread | `who` (`you`\|`agent`), `author`, `text` |
 | Check | one step of a checklist | `id`, `label`, `result`, `note` |
 
@@ -43,30 +43,55 @@ text; `bodyLength` in a list tells you one is there.
 
 ## Status — whose move is it
 
+Five are work. Two are documents. They are not one scale.
+
 | Status | Whose move | Set by |
 |---|---|---|
-| `needs-you` | the human's | you, when you ask |
+| `needs-decision` | the human's — they must choose | you, when you ask |
+| `needs-qa` | the human's — the work is built, it needs checking | you, when you finish something they must approve |
 | `received` | yours — you have the answer | automatic when the human replies |
 | `deferred` | nobody's, on purpose | either, with a reason in the thread |
 | `complete` | done | you, once the work landed |
+
+`needs-decision` and `needs-qa` are both "waiting on them" and they are **not**
+interchangeable. "Choose between these options" and "I finished, check it" take
+different amounts of a person's attention and cannot be triaged together. If
+nothing is built yet, it is a decision; if something is built and needs their
+eyes, it is QA.
+
+**Documents are not tasks.** A specification, a review or a history is never
+waiting on anybody and never finished — it is either current or superseded:
+
+| Status | Means |
+|---|---|
+| `active` | the current reference, still worth reading |
+| `archived` | superseded or shipped; kept for the record |
+
+Never file a document as `complete` to get it off the board. That hides the
+board's most-read material behind the completed filter on the day it is written.
+
+`needs-you` is still accepted on input and stored as `needs-decision`.
 
 `complete` claims the work **landed**, not that you finished typing. Work that is
 written but sitting in an unmerged pull request, an undeployed branch or a queue
 is still `received` — you own it, it is not done. Say in the thread what it is
 waiting on, so "received" does not read as "forgotten".
 
-`deferred` never means "still waiting on them" — that is `needs-you`.
+`deferred` never means "still waiting on them" — that is `needs-decision` or `needs-qa`.
 
 Set the status to whose move it actually is, not to how much effort you spent:
 
 | Situation | Status |
 |---|---|
-| You asked something | `needs-you` |
+| You need them to choose | `needs-decision` |
+| You built it; they must approve it | `needs-qa` |
 | They answered, you are working | `received` |
 | Written, PR open, not merged | `received` — and say so |
 | Merged and running | `complete` |
-| They are doing it, not you | `needs-you` |
+| They are doing it, not you | `needs-decision` |
 | Parked by agreement | `deferred` |
+| A document people still work from | `active` |
+| A document overtaken by events | `archived` |
 
 **Correct your own status when you get it wrong.** A status that misdescribes
 the state is worse than a stale one, because somebody trusts it. Post a message
@@ -79,7 +104,14 @@ saying what you are correcting and why, and change it — do not quietly flip it
 POST  /api/projects                      {"name":"Acme Site","description":"..."}
 
 # create items — POST AN ARRAY for a whole set in one call
-POST  /api/projects/<slug>/items         [{"title":"...","context":"...","options":["Do it","Hold"],"section":"Ship it"}]
+POST  /api/projects/<slug>/items         [{"title":"...","context":"...","options":["Do it","Hold"],"labels":["Ship it"]}]
+
+# labels in use on a project come back with the board (GET above), like sections
+# rename or merge a label everywhere; "to":"" removes it
+PATCH /api/projects/<slug>/labels        {"from":"Deploys","to":"Ship it","actor":"<you>"}
+
+# how the board groups its rows: "section" (default) or "status"
+PATCH /api/projects/<slug>                {"groupBy":"status"}
 
 # reply, and acknowledge
 POST  /api/items/<id>/messages           {"who":"agent","author":"<you>","text":"..."}
@@ -288,6 +320,34 @@ PATCH /api/projects/<slug>/sections  {"from":"Deploys","to":"Ship it","actor":"<
 ```
 
 Full reasoning and failure modes: `docs/what-goes-here.md`.
+
+## Labels
+
+`labels` is an array, any number per item, and it is the field for how items
+**relate** — the three that are one release, the two blocked on the same person.
+Crosswise to `section` (one area of work) and to `status` (whose move it is).
+
+`GET /api/projects/<slug>` returns `labels` with counts, the same way it returns
+`sections`. **Read it and reuse a name.** Nothing governs a label on the way in,
+so they rot faster than sections do — trimmed and de-duplicated case-insensitively
+on write, and nothing more.
+
+Repair: `PATCH /api/projects/<slug>/labels {"from":"...","to":"...","actor":"..."}`.
+An empty `to` removes the label; renaming onto an existing one merges.
+
+## Grouping
+
+`project.groupBy` decides what the board's headings are:
+
+| `groupBy` | Groups |
+|---|---|
+| `section` (default) | one per area of work |
+| `status` | Open · Deferred · Documents · Archived |
+
+A group with nothing visible in it does not render at all. Rows sort newest
+activity first within their group, so what just moved is at the top.
+
+Never switch it yourself; it is the human's call.
 
 ## Rules
 

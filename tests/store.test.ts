@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { openDb, Store, VersionConflict, findSimilarSection, asHistoricInstant } from '../src/db.ts';
+import { openDb, Store, VersionConflict, findSimilarSection, asHistoricInstant, asStatusValue, normaliseLabels, STATUSES, STATUS_GROUPS, DOCUMENT_STATUSES } from '../src/db.ts';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
@@ -39,13 +39,13 @@ describe('items and threads', () => {
 
   it('starts an item waiting on the human', () => {
     const item = store.createItem(projectId, { title: 'Deploy?' });
-    expect(item.status).toBe('needs-you');
+    expect(item.status).toBe('needs-decision');
     expect(item.version).toBe(1);
   });
 
   // The status transition is the point of the tool: a human answering must
   // visibly stop being a question, without the human having to say so twice.
-  it('moves off needs-you when the human replies', () => {
+  it('moves off the needs-* states when the human replies', () => {
     const item = store.createItem(projectId, { title: 'Deploy?' });
     store.addMessage(item.id, { who: 'you', text: 'Do it' });
     expect(store.getItem(item.id)!.status).toBe('received');
@@ -54,7 +54,7 @@ describe('items and threads', () => {
   it('leaves the status alone when an agent replies', () => {
     const item = store.createItem(projectId, { title: 'Deploy?' });
     store.addMessage(item.id, { who: 'agent', text: 'Asking again' });
-    expect(store.getItem(item.id)!.status).toBe('needs-you');
+    expect(store.getItem(item.id)!.status).toBe('needs-decision');
   });
 
   it('keeps the thread in order and append-only', () => {
@@ -146,7 +146,7 @@ describe('counts', () => {
     const third = store.createItem(projectId, { title: 'c' });
     store.updateItem(third.id, { status: 'complete' });
     const counts = store.counts(projectId);
-    expect(counts['needs-you']).toBe(2);
+    expect(counts['needs-decision']).toBe(2);
     expect(counts.complete).toBe(1);
   });
 });
@@ -291,5 +291,190 @@ describe('asHistoricInstant', () => {
     expect(asHistoricInstant('last tuesday', nowMs)).toBe(null);
     expect(asHistoricInstant(undefined, nowMs)).toBe(null);
     expect(asHistoricInstant(12345, nowMs)).toBe(null);
+  });
+});
+
+// Labels: the crosswise axis. A section says which area of work; labels say
+// what this has in common with that, any number, ungoverned on the way in.
+describe('labels', () => {
+  let store: Store;
+  let projectId: string;
+  let slug: string;
+  beforeEach(() => {
+    store = freshStore();
+    const project = store.createProject({ name: 'Acme Site' });
+    projectId = project.id;
+    slug = project.slug;
+  });
+
+  it('round-trips a label set', () => {
+    const item = store.createItem(projectId, { title: 'a', labels: ['Release 3', 'blocked'] });
+    expect(store.getItem(item.id)!.labels).toEqual(['Release 3', 'blocked']);
+  });
+
+  it('defaults to none rather than null', () => {
+    expect(store.createItem(projectId, { title: 'a' }).labels).toEqual([]);
+  });
+
+  // The only way a free-text field silently lies: two labels that look identical
+  // in the filter list and match different items.
+  it('trims, collapses whitespace and drops empties', () => {
+    const item = store.createItem(projectId, { title: 'a', labels: ['  spaced  ', 'two   words', '', '   '] });
+    expect(item.labels).toEqual(['spaced', 'two words']);
+  });
+
+  it('de-duplicates case-insensitively, first spelling wins', () => {
+    const item = store.createItem(projectId, { title: 'a', labels: ['Release', 'release', 'RELEASE'] });
+    expect(item.labels).toEqual(['Release']);
+  });
+
+  it('ignores non-strings and anything absurdly long', () => {
+    const item = store.createItem(projectId, { title: 'a', labels: ['ok', 42 as any, null as any, 'x'.repeat(61)] });
+    expect(item.labels).toEqual(['ok']);
+  });
+
+  // Undefined means "leave them"; an empty array means "clear them". Collapsing
+  // the two would make every unrelated PATCH silently strip an item's labels.
+  it('leaves labels alone when a patch omits them, and clears them on an empty array', () => {
+    const item = store.createItem(projectId, { title: 'a', labels: ['keep'] });
+    store.updateItem(item.id, { title: 'b' });
+    expect(store.getItem(item.id)!.labels).toEqual(['keep']);
+    store.updateItem(item.id, { labels: [] });
+    expect(store.getItem(item.id)!.labels).toEqual([]);
+  });
+
+  it('reports what is in use, commonest first', () => {
+    store.createItem(projectId, { title: 'a', labels: ['ship', 'qa'] });
+    store.createItem(projectId, { title: 'b', labels: ['ship'] });
+    expect(store.labelsInUse(projectId)).toEqual([{ name: 'ship', count: 2 }, { name: 'qa', count: 1 }]);
+  });
+
+  it('counts a label once per item however it is cased', () => {
+    store.createItem(projectId, { title: 'a', labels: ['Ship'] });
+    store.createItem(projectId, { title: 'b', labels: ['ship'] });
+    expect(store.labelsInUse(projectId)).toEqual([{ name: 'Ship', count: 2 }]);
+  });
+
+  it('renames a label across every item that carries it', () => {
+    store.createItem(projectId, { title: 'a', labels: ['deploys', 'keep'] });
+    store.createItem(projectId, { title: 'b', labels: ['deploys'] });
+    store.createItem(projectId, { title: 'c', labels: ['other'] });
+    expect(store.renameLabel(projectId, 'deploys', 'ship it')).toBe(2);
+    expect(store.labelsInUse(projectId).find((l) => l.name === 'ship it')!.count).toBe(2);
+    expect(store.labelsInUse(projectId).some((l) => l.name === 'deploys')).toBe(false);
+  });
+
+  // Renaming onto a label an item already has must merge, not duplicate it.
+  it('merges rather than doubling when renamed onto an existing label', () => {
+    const item = store.createItem(projectId, { title: 'a', labels: ['ship', 'deploys'] });
+    store.renameLabel(projectId, 'deploys', 'ship');
+    expect(store.getItem(item.id)!.labels).toEqual(['ship']);
+  });
+
+  it('removes a label when renamed to nothing', () => {
+    const item = store.createItem(projectId, { title: 'a', labels: ['gone', 'stays'] });
+    expect(store.renameLabel(projectId, 'gone', '')).toBe(1);
+    expect(store.getItem(item.id)!.labels).toEqual(['stays']);
+  });
+
+  it('bumps the version of every item a rename touched', () => {
+    const item = store.createItem(projectId, { title: 'a', labels: ['x'] });
+    store.renameLabel(projectId, 'x', 'y');
+    expect(store.getItem(item.id)!.version).toBe(2);
+  });
+
+  it('matches the label case-insensitively when renaming', () => {
+    store.createItem(projectId, { title: 'a', labels: ['Ship'] });
+    expect(store.renameLabel(projectId, 'ship', 'shipped')).toBe(1);
+  });
+});
+
+describe('grouping', () => {
+  let store: Store;
+  beforeEach(() => { store = freshStore(); });
+
+  it('groups by section until told otherwise', () => {
+    expect(store.createProject({ name: 'Acme' }).groupBy).toBe('section');
+  });
+
+  it('switches to status grouping and stays there', () => {
+    const project = store.createProject({ name: 'Acme' });
+    expect(store.setProjectSections(project.slug, { groupBy: 'status' })!.groupBy).toBe('status');
+    expect(store.getProject(project.slug)!.groupBy).toBe('status');
+  });
+
+  it('leaves the section vocabulary alone when only the grouping changes', () => {
+    const project = store.createProject({ name: 'Acme' });
+    store.setProjectSections(project.slug, { sectionMode: 'declared', sections: ['Ship it'] });
+    store.setProjectSections(project.slug, { groupBy: 'status' });
+    const after = store.getProject(project.slug)!;
+    expect(after.sections).toEqual(['Ship it']);
+    expect(after.sectionMode).toBe('declared');
+  });
+
+  // Every live status belongs to Open. Splitting them would move a piece of work
+  // between groups every time it changed hands.
+  it('puts both needs-* states and received under Open', () => {
+    const open = STATUS_GROUPS.find((g) => g.id === 'open')!;
+    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received']);
+    expect(STATUS_GROUPS.map((g) => g.label)).toEqual(['Open', 'Deferred', 'Documents', 'Archived']);
+    // Every status lands in exactly one group, or a row would vanish from the board.
+    const placed = STATUS_GROUPS.flatMap((g) => g.statuses);
+    expect(placed.sort()).toEqual([...STATUSES].sort());
+  });
+});
+
+// needs-you split into needs-decision and needs-qa. "Choose between these" and
+// "I finished, check it" are different asks and cannot be triaged together.
+describe('the status split', () => {
+  let store: Store;
+  beforeEach(() => { store = freshStore(); });
+
+  it('has seven distinct states', () => {
+    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'deferred', 'active', 'archived', 'complete']);
+    expect(new Set(STATUSES).size).toBe(STATUSES.length);
+  });
+
+  // A document is never "waiting on" anybody and never "done". Forced through
+  // the task vocabulary it had to be filed as complete, which hid the board's
+  // most-read material behind the completed filter on the day it was written.
+  it('keeps the document statuses out of the task scale', () => {
+    expect(DOCUMENT_STATUSES).toEqual(['active', 'archived']);
+    const open = STATUS_GROUPS.find((g) => g.id === 'open')!;
+    for (const status of DOCUMENT_STATUSES) expect(open.statuses).not.toContain(status);
+  });
+
+  // Documents above Archived: a current reference is something you reach for
+  // while working, not something waiting on you.
+  it('puts Documents before Archived, and archived documents with finished work', () => {
+    const order = STATUS_GROUPS.map((g) => g.id);
+    expect(order.indexOf('documents')).toBeLessThan(order.indexOf('archived'));
+    expect(STATUS_GROUPS.find((g) => g.id === 'documents')!.statuses).toEqual(['active']);
+    expect(STATUS_GROUPS.find((g) => g.id === 'archived')!.statuses).toEqual(['archived', 'complete']);
+  });
+
+  it('accepts the old spelling and stores the new one', () => {
+    expect(asStatusValue('needs-you')).toBe('needs-decision');
+    expect(asStatusValue('needs-qa')).toBe('needs-qa');
+    expect(asStatusValue('nonsense')).toBe(null);
+    expect(asStatusValue(undefined)).toBe(null);
+  });
+
+  it('starts an item needing a decision, not QA', () => {
+    const project = store.createProject({ name: 'Acme' });
+    expect(store.createItem(project.id, { title: 'a' }).status).toBe('needs-decision');
+  });
+
+  it('can be set to needs-qa and counted there', () => {
+    const project = store.createProject({ name: 'Acme' });
+    const item = store.createItem(project.id, { title: 'a' });
+    store.updateItem(item.id, { status: 'needs-qa' });
+    expect(store.counts(project.id)['needs-qa']).toBe(1);
+    expect(store.counts(project.id)['needs-decision']).toBe(0);
+  });
+
+  it('counts every status, including the ones at zero', () => {
+    const project = store.createProject({ name: 'Acme' });
+    expect(Object.keys(store.counts(project.id)).sort()).toEqual([...STATUSES].sort());
   });
 });

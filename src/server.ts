@@ -10,7 +10,7 @@
 // because adding accounts to a single-user tool on a laptop buys nothing and
 // costs a login. Do not expose this port.
 import {
-  openDb, Store, STATUSES, VersionConflict, findSimilarSection,
+  openDb, Store, STATUSES, VersionConflict, findSimilarSection, asStatusValue,
   type Status, type ItemInput, type Project,
 } from './db.ts';
 import { homedir } from 'os';
@@ -37,12 +37,14 @@ function notFound(message = 'not found'): Response {
   return json({ ok: false, error: message }, 404);
 }
 
+// Accepts the current spellings and the old ones (see STATUS_ALIASES), so a
+// writer running from a cached copy of the contract is not refused for being
+// older rather than wrong. The value stored is always the current spelling.
 function asStatus(value: unknown, field = 'status'): Status | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string' || !STATUSES.includes(value as Status)) {
-    throw new Error(`${field} must be one of: ${STATUSES.join(', ')}`);
-  }
-  return value as Status;
+  const status = asStatusValue(value);
+  if (!status) throw new Error(`${field} must be one of: ${STATUSES.join(', ')}`);
+  return status;
 }
 
 function asItemInput(body: any, requireTitle: boolean): ItemInput {
@@ -87,6 +89,10 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     // unparseable or in the future is dropped rather than refused, because a
     // bad date is not a reason to lose the item.
     createdAt: typeof body.createdAt === 'string' ? body.createdAt : undefined,
+    // Normalised in the store, not here, so every write path gets the same
+    // treatment — including an import, which is where a stray trailing space
+    // would otherwise become a second label that looks identical.
+    labels: body.labels === undefined ? undefined : (Array.isArray(body.labels) ? body.labels : []),
   };
 }
 
@@ -176,6 +182,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
           items: store.listItems(project.id),
           counts: store.counts(project.id),
           sections: store.sectionsInUse(project),
+          // Same reasoning as `sections`: returned with the board so a writer
+          // reuses a label instead of inventing a near-synonym beside it.
+          labels: store.labelsInUse(project.id),
         });
       }
       if (method === 'PATCH') {
@@ -183,17 +192,20 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         if (typeof body.archived === 'boolean') {
           return json({ ok: true, project: store.archiveProject(project.slug, body.archived) });
         }
-        if (body.sectionMode !== undefined || body.sections !== undefined) {
+        if (body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined) {
           if (body.sectionMode !== undefined && !['adhoc', 'declared'].includes(body.sectionMode)) {
             return badRequest("sectionMode must be 'adhoc' or 'declared'");
           }
           if (body.sections !== undefined && (!Array.isArray(body.sections) || body.sections.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest('sections must be an array of strings');
           }
+          if (body.groupBy !== undefined && !['section', 'status'].includes(body.groupBy)) {
+            return badRequest("groupBy must be 'section' or 'status'");
+          }
           const updated = store.setProjectSections(project.slug, body)!;
-          return json({ ok: true, project: updated, sections: store.sectionsInUse(updated) });
+          return json({ ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id) });
         }
-        return badRequest('nothing to update; supported: archived, sectionMode, sections');
+        return badRequest('nothing to update; supported: archived, sectionMode, sections, groupBy');
       }
       return badRequest(`${method} not supported here`);
     }
@@ -215,6 +227,18 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       }
       const fresh = store.getProject(project.slug)!;
       return json({ ok: true, moved, sections: store.sectionsInUse(fresh) });
+    }
+
+    // Rename, merge or remove a label across the whole project. Labels rot
+    // faster than sections because nothing governs them on the way in, so the
+    // repair tool matters more here, not less. An empty `to` removes it.
+    if (parts[2] === 'labels' && parts.length === 3 && method === 'PATCH') {
+      const body = await readJson(req);
+      if (typeof body.from !== 'string' || !body.from || typeof body.to !== 'string') {
+        return badRequest('from (non-empty string) and to (string) are required');
+      }
+      const moved = store.renameLabel(project.id, body.from, body.to, typeof body.actor === 'string' ? body.actor : '');
+      return json({ ok: true, moved, labels: store.labelsInUse(project.id) });
     }
 
     if (parts[2] === 'items' && parts.length === 3) {
