@@ -20,6 +20,9 @@ curl -s localhost:4317/api/projects/<slug>   # 3. one project: items + threads
 2. Act on every item at `received` **before** creating anything new.
 3. `counts["needs-you"]` is what is waiting on the human.
 
+**Read once, here.** After this, the board is read again only on the check-in
+word — see below for why, and for how to plan a round once you have one.
+
 ## Objects
 
 | Object | Is | Key fields |
@@ -116,15 +119,68 @@ Errors are `{"ok":false,"error":"..."}` — `400` malformed · `404` bad id or s
 
 ## The check-in word
 
+**The board is read on the check-in word, and at session start. Not otherwise.**
+
+Between check-ins, do not poll it, do not re-read it to see whether they have
+replied, and do not answer an item the moment you notice an answer. They are
+still typing. An agent that reacts to each reply as it lands turns one round of
+decisions into a dozen half-plans, and each one costs a full pass over the work.
+Their answers keep. Read them all at once.
+
 Human says **`workbench`** or **`wb`** →
 
-1. `GET /api/projects`, then each project.
-2. Find items whose newest message is `who: "you"`, or whose `choice` has no
-   agent reply after it.
-3. Do the work. Post a message per item. Set the status.
-4. Report one line per item. Nothing waiting → say so in one line.
+1. `GET /api/projects`, then each project. **Read everything before doing
+   anything.**
+2. Collect every actionable: newest message is `who: "you"`, or a `choice` with
+   no agent reply after it, or an item at `received` you have not acted on.
+3. **Plan across the whole set, not item by item.** Then execute the plan.
+4. Report the plan, then the outcome. Nothing waiting → say so in one line.
 
 Never create items on a check-in. It means catch up, not ask.
+
+### Planning the set
+
+The point of batching is that the set tells you things no single item does.
+
+- **Find the shared work.** Three items touching one file are one edit and one
+  test run, not three. Two that need the same measurement need it once.
+- **Order by what unblocks what.** An item that changes an interface comes before
+  the items that use it. Say so rather than discovering it halfway.
+- **Separate the answerable from the buildable.** A question you can answer in a
+  paragraph is not the same job as a change that needs a branch and CI. Do the
+  answers first — they are cheap and they may change what you build.
+- **Name what you are NOT doing and why.** An item you are deferring to the next
+  round is a decision, and it belongs in the plan rather than in silence.
+- **Say the plan before executing it**, in a few lines. They may redirect it, and
+  redirecting a plan costs far less than redirecting finished work.
+
+### Whether to delegate
+
+Some rounds are worth spreading across subagents; most are not. This is a real
+tradeoff — parallel agents finish sooner and cost substantially more, and every
+agent's output has to be read and verified by you anyway.
+
+Delegate when **all** of these hold:
+
+- the work splits into parts that do not touch the same files
+- each part is big enough to be worth an agent's startup cost — roughly, more
+  than you would finish inline in fifteen minutes
+- you can state each part's done condition precisely enough to verify without
+  redoing it
+
+Do it inline when any of these hold:
+
+- the parts share files, or one part's result changes another's shape
+- the whole round is small, or is mostly answering questions
+- verifying the result means reading everything the agent read
+
+**Say which you chose and why, in one line, before you start** — "inline: four
+items, same two files, one test run" or "three agents: independent subsystems,
+~40 min each". If the scope grows past what you announced, say so and re-decide
+rather than quietly continuing.
+
+When the balance is genuinely unclear, put the choice to them with a rough cost
+rather than guessing. They are paying for it.
 
 ## Onboarding — first use in a session only
 

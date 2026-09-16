@@ -245,6 +245,12 @@ worse still: the thread is the record, and a correction is part of the record.
 - **Start of a session:** read the project. Act on everything at `received`
   before you create anything new. An agent that asks a fresh question while
   ignoring yesterday's answer teaches people to stop answering.
+- **Then stop reading it.** The board is read at session start and on the
+  check-in word, and not in between. Answering each reply as it arrives means
+  the human is still deciding while you are already building against half their
+  decisions — and a round answered together is almost always a different, and
+  smaller, piece of work than the same items answered one at a time. `AGENTS.md`
+  has how to plan a round and when delegating it is worth the cost.
 - **While working:** post a message when you act on a decision. The thread is
   the record of why the code looks the way it does.
 - **End of a session:** make sure nothing you finished is still sitting at
