@@ -85,6 +85,22 @@ a.proj.hot { border-left: 3px solid var(--you); }
 .proj .counts { color: var(--faint); font-size: 11px; margin-top: 9px; }
 .empty { color: var(--soft); }
 
+/* ---- filters ---- */
+.filters { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-top: 30px; }
+button.filter {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+  padding: 5px 10px; border-radius: 3px; border: 1px solid currentColor;
+}
+button.filter.s-needs-you { color: var(--you); background: var(--you-soft); }
+button.filter.s-received { color: var(--wait); background: var(--wait-soft); }
+button.filter.s-deferred { color: var(--accent); background: var(--accent-soft); }
+button.filter.s-complete { color: var(--ok); background: var(--ok-soft); }
+/* An off filter stays readable rather than disappearing — it is a control, and
+   a control you cannot find is not a control. */
+button.filter.off { color: var(--faint); background: transparent; border-color: var(--rule); text-decoration: line-through; }
+button.filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hiddennote { font-size: 10.5px; color: var(--faint); margin-left: 4px; }
+
 /* ---- items ---- */
 .sec-head {
   display: flex; align-items: baseline; gap: 10px; border-top: 1px solid var(--rule);
@@ -100,7 +116,7 @@ a.proj.hot { border-left: 3px solid var(--you); }
 }
 .item.s-needs-you { border-left: 3px solid var(--you); }
 .item.s-received { border-left: 3px solid var(--wait); }
-.item.s-needs-more { border-left: 3px solid var(--accent); }
+.item.s-deferred { border-left: 3px solid var(--accent); }
 .item.s-complete { border-left: 3px solid var(--ok); }
 .item h3 { font-size: 16px; font-weight: 600; margin: 0 0 4px; text-wrap: balance; }
 .item .ctx { color: var(--soft); font-size: 13.5px; margin: 0 0 12px; max-width: 70ch; }
@@ -111,7 +127,7 @@ a.proj.hot { border-left: 3px solid var(--you); }
 }
 .chip.s-needs-you { color: var(--you); background: var(--you-soft); }
 .chip.s-received { color: var(--wait); background: var(--wait-soft); }
-.chip.s-needs-more { color: var(--accent); background: var(--accent-soft); }
+.chip.s-deferred { color: var(--accent); background: var(--accent-soft); }
 .chip.s-complete { color: var(--ok); background: var(--ok-soft); }
 
 .thread { display: grid; gap: 8px; margin: 0 0 13px; }
@@ -134,21 +150,35 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
 button.send { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.ghost { color: var(--soft); }
 
-.replybox { display: flex; gap: 8px; align-items: flex-start; }
-textarea, input[type="text"] {
+/* The focus ring is drawn OUTSIDE the box, so the row below has to leave room
+   for it. Without this the outline ran underneath the status control and looked
+   clipped on every focus. */
+.replybox { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 14px; }
+textarea, input[type="text"], select {
   font: inherit; font-size: 14px; width: 100%; padding: 9px 11px; border-radius: 5px;
-  border: 1px solid var(--rule); background: var(--ground); color: var(--ink); resize: vertical;
+  border: 1px solid var(--rule); background: var(--ground); color: var(--ink);
 }
-textarea { min-height: 62px; }
-textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea { min-height: 62px; resize: vertical; }
+textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .saved { font-family: var(--mono); font-size: 10.5px; color: var(--faint); margin-top: 7px; min-height: 14px; }
 .saved.err { color: var(--you); }
+
+select.status {
+  width: auto; min-width: 160px; padding: 6px 10px; font-size: 13.5px;
+  /* Carries the same colour as the chip above it, so the control and the state
+     it sets are visibly the same thing. */
+  border-color: currentColor;
+}
+select.status.s-needs-you { color: var(--you); background: var(--you-soft); }
+select.status.s-received { color: var(--wait); background: var(--wait-soft); }
+select.status.s-deferred { color: var(--accent); background: var(--accent-soft); }
+select.status.s-complete { color: var(--ok); background: var(--ok-soft); }
 
 .newproj { margin-top: 44px; border-top: 1px solid var(--rule); padding-top: 20px; }
 .newproj form { display: flex; gap: 8px; flex-wrap: wrap; }
 .newproj input { flex: 1 1 200px; width: auto; }
 
-.statusbar { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.statusbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .statusbar .lbl { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
 
 footer {

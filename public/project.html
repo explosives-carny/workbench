@@ -16,6 +16,7 @@
     <div class="rule"></div>
   </header>
 
+  <div class="filters" id="filters" role="group" aria-label="Show items by status"></div>
   <div id="items" aria-live="polite"></div>
 
   <section class="newproj">
@@ -45,6 +46,73 @@
   const drafts = {};
   let deferred = null;
   let items = [];
+
+  // Completed work is hidden by default. A board that shows everything ever
+  // decided stops answering the only question it is for — what is outstanding —
+  // and this one is already at fourteen items on its first day.
+  //
+  // Per-viewer and per-project, in localStorage rather than on the item: which
+  // statuses YOU want to look at is not a fact about the work, and writing it to
+  // the database would make one person's filter change what another session
+  // sees. Wrapped because storage throws in a private window and a filter
+  // preference is never worth breaking the page over.
+  const FILTER_KEY = 'wb.filters.' + slug;
+  const DEFAULT_HIDDEN = ['complete'];
+
+  function loadHidden() {
+    try {
+      const raw = localStorage.getItem(FILTER_KEY);
+      if (!raw) return new Set(DEFAULT_HIDDEN);
+      const parsed = JSON.parse(raw);
+      return new Set(Array.isArray(parsed) ? parsed.filter((s) => WB.STATUSES.includes(s)) : DEFAULT_HIDDEN);
+    } catch (e) {
+      return new Set(DEFAULT_HIDDEN);
+    }
+  }
+
+  function saveHidden() {
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify([...hidden])); } catch (e) { /* not worth failing over */ }
+  }
+
+  let hidden = loadHidden();
+
+  function visible() {
+    return items.filter((i) => !hidden.has(i.status));
+  }
+
+  function renderFilters() {
+    const el = document.getElementById('filters');
+    const counts = {};
+    for (const i of items) counts[i.status] = (counts[i.status] || 0) + 1;
+    el.innerHTML = '';
+    for (const s of WB.STATUSES) {
+      const on = !hidden.has(s);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'filter s-' + s + (on ? '' : ' off');
+      // aria-pressed, not a checkbox: these are toggles over a list that is
+      // already on screen, and a screen reader should hear the state change.
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.textContent = WB.STATUS_LABELS[s] + ' ' + (counts[s] || 0);
+      b.addEventListener('click', () => {
+        if (hidden.has(s)) hidden.delete(s); else hidden.add(s);
+        saveHidden();
+        // Forced: the filter set is part of the signature, but a toggle must
+        // repaint immediately rather than wait for the next poll.
+        safeRender(true);
+      });
+      el.appendChild(b);
+    }
+    const hiddenCount = items.length - visible().length;
+    if (hiddenCount > 0) {
+      const note = document.createElement('span');
+      note.className = 'hiddennote mono';
+      // Say what is missing. A filtered list that looks like the whole list is
+      // how somebody concludes an item was lost.
+      note.textContent = hiddenCount + ' hidden';
+      el.appendChild(note);
+    }
+  }
 
   function statusChip(status) {
     const el = document.createElement('span');
@@ -128,21 +196,28 @@
     box.append(ta, sb);
     card.appendChild(box);
 
+    // A select rather than four buttons. Status is one value out of four, which
+    // is what a select is for — the button row spent a whole line restating
+    // options that are mutually exclusive, and the chip at the top of the card
+    // already says which one is current.
     const bar = document.createElement('div');
     bar.className = 'statusbar';
-    const lbl = document.createElement('span');
+    const lbl = document.createElement('label');
     lbl.className = 'lbl';
-    lbl.textContent = 'Set status';
-    bar.appendChild(lbl);
+    lbl.setAttribute('for', 'st-' + item.id);
+    lbl.textContent = 'Status';
+    const sel = document.createElement('select');
+    sel.id = 'st-' + item.id;
+    sel.className = 'status s-' + item.status;
     for (const s of WB.STATUSES) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'ghost';
-      b.textContent = WB.STATUS_LABELS[s];
-      b.setAttribute('aria-pressed', item.status === s ? 'true' : 'false');
-      b.addEventListener('click', () => setStatus(item.id, s));
-      bar.appendChild(b);
+      const o = document.createElement('option');
+      o.value = s;
+      o.textContent = WB.STATUS_LABELS[s];
+      if (item.status === s) o.selected = true;
+      sel.appendChild(o);
     }
+    sel.addEventListener('change', () => setStatus(item.id, sel.value));
+    bar.append(lbl, sel);
     card.appendChild(bar);
 
     const saved = document.createElement('div');
@@ -159,9 +234,13 @@
   }
 
   function render() {
+    renderFilters();
+    const shown = visible();
     const sections = [];
     const bySection = new Map();
-    for (const item of items) {
+    // Grouped from the FILTERED list, so a section whose every item is hidden
+    // does not leave a heading standing over nothing.
+    for (const item of shown) {
       const key = item.section || '';
       if (!bySection.has(key)) { bySection.set(key, []); sections.push(key); }
       bySection.get(key).push(item);
@@ -169,6 +248,11 @@
     itemsEl.innerHTML = '';
     if (!items.length) {
       itemsEl.innerHTML = '<p class="empty">Nothing here yet. Add an item below, or let an agent add them.</p>';
+      return;
+    }
+    if (!shown.length) {
+      // Distinguishable from an empty project, and it names the way out.
+      itemsEl.innerHTML = '<p class="empty">Every item is filtered out. Turn a status back on above to see them.</p>';
       return;
     }
     for (const key of sections) {
@@ -184,17 +268,38 @@
     }
   }
 
+  // What the rendered list actually depends on. The poll runs every five
+  // seconds and almost always finds nothing new, so rebuilding regardless
+  // replaced every button on the page twelve times a minute — and a click that
+  // lands during a rebuild hits a node that is already detached and does
+  // nothing. Redrawing only on a real change removes that window entirely
+  // instead of trying to dodge it.
+  function signature() {
+    return JSON.stringify([
+      [...hidden].sort(),
+      items.map((i) => [i.id, i.version, i.status, i.choice, i.title, i.context, i.section, (i.messages || []).length]),
+    ]);
+  }
+  let lastSignature = null;
+
   // A redraw while a reply box has focus is held back until it does not, and
   // the caret is restored exactly rather than jumped to the end. Both halves
-  // matter: without the first, keystrokes land in a element that is being
+  // matter: without the first, keystrokes land in an element that is being
   // replaced; without the second, typing into the middle of a sentence throws
   // the cursor to the end of it.
-  function safeRender() {
+  function safeRender(force) {
+    const sig = signature();
+    if (!force && sig === lastSignature) return;
+    lastSignature = sig;
+    return doRender();
+  }
+
+  function doRender() {
     const live = document.activeElement;
     const typing = live && live.tagName === 'TEXTAREA' && live.id && live.id.indexOf('ta-') === 0;
     if (typing) {
       clearTimeout(deferred);
-      deferred = setTimeout(safeRender, 2500);
+      deferred = setTimeout(function () { doRender(); }, 2500);
       return;
     }
     const fid = live && live.id ? live.id : null;
@@ -216,8 +321,6 @@
     const data = await WB.get('/api/projects/' + encodeURIComponent(slug));
     document.getElementById('pname').textContent = data.project.name;
     document.getElementById('pdesc').textContent = data.project.description || '';
-    document.getElementById('eyebrow').textContent =
-      (data.counts['needs-you'] || 0) + ' waiting on you · ' + items.length + ' items';
     items = data.items;
     document.getElementById('eyebrow').textContent =
       (data.counts['needs-you'] || 0) + ' waiting on you · ' + items.length + ' items';
