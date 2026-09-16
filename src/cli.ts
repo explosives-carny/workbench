@@ -73,6 +73,11 @@ function importAll(): void {
       // alternative — duplicating every item on a second import — is worse than
       // occasionally skipping a genuine retitled duplicate.
       if (existing.has(item.title)) continue;
+      // Every field the store accepts, deliberately. This list had drifted
+      // behind the store twice already — body and checks were both missing,
+      // which meant a restore from an export produced a board of empty
+      // documents and no checklists while reporting success. This is the
+      // disaster-recovery path; anything it drops is gone for good.
       const created = store.createItem(project.id, {
         title: item.title,
         context: item.context,
@@ -80,6 +85,10 @@ function importAll(): void {
         choice: item.choice,
         status: item.status,
         section: item.section,
+        body: item.body,
+        bodyFormat: item.bodyFormat,
+        checks: item.checks,
+        createdAt: item.createdAt,
       });
       for (const message of item.messages || []) {
         store.addMessage(created.id, {
@@ -87,6 +96,7 @@ function importAll(): void {
           text: message.text,
           author: message.author,
           status: item.status,
+          createdAt: message.createdAt,
         });
       }
       added += 1;

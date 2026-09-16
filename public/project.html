@@ -203,7 +203,12 @@
     const last = lastWord(item);
     const who = document.createElement('span');
     who.className = 'lr-who mono' + (last && last.who === 'you' ? ' you' : '');
-    who.textContent = last ? (last.who === 'you' ? 'you' : (last.author || 'agent')) + ' · ' + WB.fmt(last.createdAt) : 'no replies';
+    // An item with no replies used to show "no replies" and nothing else, so a
+    // row could carry no date at all — which is exactly the row you want a date
+    // on, because nothing has happened to it since it was raised.
+    who.textContent = last
+      ? (last.who === 'you' ? 'you' : (last.author || 'agent')) + ' · ' + WB.fmt(last.createdAt)
+      : 'raised ' + WB.fmt(item.createdAt);
     meta.appendChild(who);
 
     const choice = document.createElement('span');

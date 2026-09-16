@@ -26,10 +26,17 @@ window.WB = (function () {
     return data;
   }
 
+  // The year appears only when it is not this one. A board read in January
+  // otherwise shows "Dec 3" for something raised thirteen months ago and reads
+  // as last week.
   function fmt(iso) {
     if (!iso) return '';
     try {
-      return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '';
+      const opts = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+      if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+      return d.toLocaleString(undefined, opts);
     } catch {
       return '';
     }

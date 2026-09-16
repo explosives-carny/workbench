@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { openDb, Store, VersionConflict, findSimilarSection } from '../src/db.ts';
+import { openDb, Store, VersionConflict, findSimilarSection, asHistoricInstant } from '../src/db.ts';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
@@ -223,5 +223,73 @@ describe('section vocabulary', () => {
     const item = store.createItem(projectId, { title: 'a', section: 'Deploys' });
     store.renameSection(projectId, 'Deploys', 'Ship it');
     expect(store.getItem(item.id)!.version).toBe(2);
+  });
+});
+
+// Creation dates. The board's whole job is showing what is waiting and how
+// long it has been waiting, so an item with no usable date is a row that
+// cannot be triaged — and an import that stamps everything with the moment it
+// ran produces a board of items that all appeared in the same second.
+describe('creation dates', () => {
+  let store: Store;
+  let projectId: string;
+  beforeEach(() => {
+    store = freshStore();
+    projectId = store.createProject({ name: 'Acme Site' }).id;
+  });
+
+  it('stamps every new item with a creation date', () => {
+    const item = store.createItem(projectId, { title: 'a' });
+    expect(Date.parse(item.createdAt)).toBeGreaterThan(0);
+  });
+
+  it('honours a supplied creation date so an import can carry real history', () => {
+    const item = store.createItem(projectId, { title: 'a', createdAt: '2026-03-04T05:06:07.000Z' });
+    expect(item.createdAt).toBe('2026-03-04T05:06:07.000Z');
+  });
+
+  // updatedAt is when the ROW was written. Backdating both would make an item
+  // look untouched for months the instant it arrived.
+  it('keeps updatedAt on the clock even when the creation date is backdated', () => {
+    const item = store.createItem(projectId, { title: 'a', createdAt: '2020-01-01T00:00:00.000Z' });
+    expect(Date.parse(item.updatedAt)).toBeGreaterThan(Date.parse(item.createdAt));
+  });
+
+  it('falls back to now for a date that is unparseable or in the future', () => {
+    const before = Date.now() - 1000;
+    for (const bad of ['not a date', new Date(Date.now() + 86400000).toISOString(), '']) {
+      const item = store.createItem(projectId, { title: `t-${bad}`, createdAt: bad });
+      expect(Date.parse(item.createdAt)).toBeGreaterThanOrEqual(before);
+    }
+  });
+
+  it('ignores a creation date on update — history is set once', () => {
+    const item = store.createItem(projectId, { title: 'a', createdAt: '2026-03-04T05:06:07.000Z' });
+    store.updateItem(item.id, { title: 'b', createdAt: '2019-01-01T00:00:00.000Z' } as any);
+    expect(store.getItem(item.id)!.createdAt).toBe('2026-03-04T05:06:07.000Z');
+  });
+
+  it('replays a message at its original time', () => {
+    const item = store.createItem(projectId, { title: 'a' });
+    const message = store.addMessage(item.id, { who: 'you', text: 'hi', createdAt: '2026-03-04T05:06:07.000Z' })!;
+    expect(message.createdAt).toBe('2026-03-04T05:06:07.000Z');
+  });
+});
+
+describe('asHistoricInstant', () => {
+  const nowMs = Date.parse('2026-06-01T00:00:00.000Z');
+
+  it('accepts a real past instant and normalises it', () => {
+    expect(asHistoricInstant('2026-03-04T05:06:07Z', nowMs)).toBe('2026-03-04T05:06:07.000Z');
+  });
+
+  it('refuses the future, because it would sort above everything real forever', () => {
+    expect(asHistoricInstant('2026-06-02T00:00:00.000Z', nowMs)).toBe(null);
+  });
+
+  it('refuses what it cannot parse, rather than inventing a date', () => {
+    expect(asHistoricInstant('last tuesday', nowMs)).toBe(null);
+    expect(asHistoricInstant(undefined, nowMs)).toBe(null);
+    expect(asHistoricInstant(12345, nowMs)).toBe(null);
   });
 });
