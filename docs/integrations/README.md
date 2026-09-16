@@ -19,7 +19,8 @@ instructions. It assumes nothing but the ability to make an HTTP request.
 A decision board runs at http://localhost:4317. Read its contract at
 <path>/AGENTS.md before your first write.
 
-1. At the start of a session: `GET /api/projects/<slug>`. Items at `received`
+1. At the start of a session: `GET /api/projects/<slug>`. Items at `received`,
+   plus anything at `in-progress` you claimed before and did not finish. Items at `received`
    have an answer you have not acted on yet. Do that before asking anything new.
 2. Need a human decision? Create an item — do not ask in conversation, where it
    will scroll away and be invisible to the next session. `POST` an array to
@@ -31,7 +32,9 @@ A decision board runs at http://localhost:4317. Read its contract at
 5. Statuses mean whose move it is, and an item's `kind` decides which it may
    hold. An **issue**: `needs-decision` (human must choose), `needs-qa` (human
    must check work you finished — attach the steps as `checks`), `received`
-   (you), `deferred` (nobody, on purpose), `complete` (landed). A **document**:
+   (yours, not started), `in-progress` (yours, claimed — set it BEFORE you start,
+   with `actor`, so a lost session leaves evidence), `deferred` (nobody, on
+   purpose), `complete` (landed). A **document**:
    `active` or `archived`, never the others. Do not set `complete` when you ask
    — it is a claim that the work landed.
 6. When I say **`workbench`** (or `wb`), that means: read the board once, act on

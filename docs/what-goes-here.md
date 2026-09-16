@@ -343,6 +343,42 @@ made, which you should be *acting on*, not re-asking.
 **One item per question.** Two decisions in one item means one of them gets
 answered and the other is silently lost.
 
+## Claiming, and why a status for it exists
+
+There is a status for "somebody is working on this right now", and it is there
+for one failure: **the work being triggered by a human reply landing in a live
+session.**
+
+That trigger is fine until the session ends badly. An outage, a crash, a context
+reset, a laptop closing — and the reply has already been read, the item already
+says `received`, and the thing that was going to act on it is gone. Nothing on
+the board is wrong, exactly; it just quietly describes work nobody is doing.
+
+So: **claim it before starting.** Set `in-progress` with your own name, and post
+a message saying what you are about to do. The status makes the claim visible and
+the message makes it recoverable — by somebody else, or by you after a reset,
+with none of the context you had a minute ago.
+
+Two properties do the work, and neither needs a lock table or a heartbeat:
+
+- **`updatedBy` says who.** Without it, a survivor cannot tell an abandoned claim
+  from somebody else's live work, and will either duplicate the effort or leave
+  it forever.
+- **`updatedAt` says when.** A claim older than your session began is a claim
+  whose owner is not here any more.
+
+There is deliberately no fixed timeout. "Older than my session started" is
+answerable without a number everyone has to agree on, and it is the question
+that actually matters: is anybody still around who could be doing this.
+
+Reclaiming somebody's stale claim is normal. Doing it silently is not — say in
+the thread whose claim you took and why, because the alternative is two agents
+discovering each other through a merge conflict.
+
+**And move it off when you stop**, whichever way it went. An item left at
+`in-progress` by somebody who wandered away is worse than one never claimed: it
+reads as covered.
+
 ## Status is whose move it is, not how hard you worked
 
 The mistake is easy and it is always the same one: finishing a piece of work and
@@ -365,7 +401,8 @@ worse still: the thread is the record, and a correction is part of the record.
 ## Rhythm
 
 - **Start of a session:** read the project. Act on everything at `received`
-  before you create anything new. An agent that asks a fresh question while
+  before you create anything new — and check `in-progress` for a claim you left
+  behind last time. An agent that asks a fresh question while
   ignoring yesterday's answer teaches people to stop answering.
 - **Then stop reading it.** The board is read at session start and on the
   check-in word, and not in between. Answering each reply as it arrives means
