@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Workbench · item</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="wrap">
+  <a class="back" id="back" href="/">&#8592; Back</a>
+  <header class="mast">
+    <p class="eyebrow" id="eyebrow">Item</p>
+    <h1 id="title">…</h1>
+    <p class="lede" id="ctx"></p>
+    <div class="rule"></div>
+  </header>
+
+  <div id="doc"></div>
+  <div id="panel"></div>
+</div>
+<script src="/app.js"></script>
+<script>
+(function () {
+  const m = location.pathname.match(/^\/p\/([^/]+)\/i\/([^/]+)/);
+  const slug = decodeURIComponent(m[1]);
+  const itemId = decodeURIComponent(m[2]);
+  document.getElementById('back').href = '/p/' + encodeURIComponent(slug);
+
+  let item = null;
+  let draft = '';
+  let deferred = null;
+  let lastSig = null;
+
+  function sig() {
+    return JSON.stringify([item.version, item.status, item.choice, (item.messages || []).length, item.body.length]);
+  }
+
+  function renderDoc() {
+    const el = document.getElementById('doc');
+    el.innerHTML = '';
+    if (!item.body) return;
+    if (item.bodyFormat === 'html') {
+      // An imported document brings its own stylesheet and its own <h1>. Rendered
+      // inline it would fight this page for every selector, so it goes in a
+      // sandboxed iframe: the document keeps its own design, and it cannot reach
+      // the board's scripts or storage. sandbox="" with no allow-scripts means
+      // its own JavaScript does not run either, which is right — these are
+      // records, not applications.
+      const frame = document.createElement('iframe');
+      frame.className = 'bodyframe';
+      frame.setAttribute('sandbox', '');
+      frame.setAttribute('title', item.title);
+      frame.srcdoc = item.body;
+      el.appendChild(frame);
+      const note = document.createElement('p');
+      note.className = 'framenote mono';
+      note.textContent = 'Imported document · scripts disabled · ' + Math.round(item.body.length / 1024) + ' KB';
+      el.appendChild(note);
+    } else {
+      const pre = document.createElement('pre');
+      pre.className = 'doc';
+      pre.textContent = item.body;
+      el.appendChild(pre);
+    }
+  }
+
+  function renderPanel() {
+    const el = document.getElementById('panel');
+    el.innerHTML = '';
+    const card = document.createElement('section');
+    card.className = 'item s-' + item.status;
+
+    const head = document.createElement('div');
+    head.className = 'row';
+    const h = document.createElement('h3');
+    h.textContent = 'Discussion';
+    head.appendChild(h);
+    const chip = document.createElement('span');
+    chip.className = 'chip s-' + item.status;
+    chip.textContent = WB.STATUS_LABELS[item.status];
+    head.appendChild(chip);
+    card.appendChild(head);
+
+    const msgs = item.messages || [];
+    if (msgs.length) {
+      const thread = document.createElement('div');
+      thread.className = 'thread';
+      for (const msg of msgs) {
+        const d = document.createElement('div');
+        d.className = 'msg ' + (msg.who === 'you' ? 'you' : 'agent');
+        const who = document.createElement('div');
+        who.className = 'who';
+        who.textContent = msg.who === 'you' ? 'You' : (msg.author || 'Agent');
+        const p = document.createElement('p');
+        p.textContent = msg.text;
+        const when = document.createElement('div');
+        when.className = 'when';
+        when.textContent = WB.fmt(msg.createdAt);
+        d.append(who, p, when);
+        thread.appendChild(d);
+      }
+      card.appendChild(thread);
+    }
+
+    if (item.options && item.options.length) {
+      const opts = document.createElement('div');
+      opts.className = 'opts';
+      opts.setAttribute('role', 'group');
+      opts.setAttribute('aria-label', item.title);
+      for (const o of item.options) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = o;
+        b.setAttribute('aria-pressed', item.choice === o ? 'true' : 'false');
+        b.addEventListener('click', () => choose(o));
+        opts.appendChild(b);
+      }
+      card.appendChild(opts);
+    }
+
+    const box = document.createElement('div');
+    box.className = 'replybox';
+    const ta = document.createElement('textarea');
+    ta.id = 'ta-main';
+    ta.placeholder = msgs.length ? 'Reply' : 'Add a note';
+    ta.setAttribute('aria-label', 'Reply on: ' + item.title);
+    ta.value = draft;
+    ta.addEventListener('input', () => { draft = ta.value; });
+    ta.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
+    });
+    const sb = document.createElement('button');
+    sb.type = 'button';
+    sb.className = 'send';
+    sb.textContent = 'Send';
+    sb.addEventListener('click', send);
+    box.append(ta, sb);
+    card.appendChild(box);
+
+    const bar = document.createElement('div');
+    bar.className = 'statusbar';
+    const lbl = document.createElement('label');
+    lbl.className = 'lbl';
+    lbl.setAttribute('for', 'st-main');
+    lbl.textContent = 'Status';
+    const sel = document.createElement('select');
+    sel.id = 'st-main';
+    sel.className = 'status s-' + item.status;
+    for (const s of WB.STATUSES) {
+      const o = document.createElement('option');
+      o.value = s;
+      o.textContent = WB.STATUS_LABELS[s];
+      if (item.status === s) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => setStatus(sel.value));
+    bar.append(lbl, sel);
+    card.appendChild(bar);
+
+    const saved = document.createElement('div');
+    saved.className = 'saved';
+    saved.id = 'saved-main';
+    card.appendChild(saved);
+
+    el.appendChild(card);
+  }
+
+  function note(text, isErr) {
+    const el = document.getElementById('saved-main');
+    if (el) { el.textContent = text; el.className = 'saved' + (isErr ? ' err' : ''); }
+  }
+
+  function paint(force) {
+    const s = sig();
+    if (!force && s === lastSig) return;
+    const live = document.activeElement;
+    if (live && live.id === 'ta-main') {
+      clearTimeout(deferred);
+      deferred = setTimeout(() => paint(true), 2500);
+      return;
+    }
+    lastSig = s;
+    document.getElementById('title').textContent = item.title;
+    document.getElementById('ctx').textContent = item.context || '';
+    document.getElementById('eyebrow').textContent =
+      (item.section ? item.section + ' · ' : '') + WB.STATUS_LABELS[item.status] +
+      (item.choice ? ' · ' + item.choice : '');
+    renderDoc();
+    renderPanel();
+  }
+
+  async function load() {
+    const data = await WB.get('/api/items/' + encodeURIComponent(itemId));
+    item = data.item;
+    paint();
+  }
+
+  async function choose(option) {
+    note('saving…');
+    try { await WB.patch('/api/items/' + itemId, { choice: option, status: 'received' }); await load(); note('saved'); }
+    catch (e) { note(e.message, true); }
+  }
+  async function setStatus(status) {
+    note('saving…');
+    try { await WB.patch('/api/items/' + itemId, { status }); await load(); note('saved'); }
+    catch (e) { note(e.message, true); }
+  }
+  async function send() {
+    const text = (draft || '').trim();
+    if (!text) return;
+    note('sending…');
+    try { await WB.post('/api/items/' + itemId + '/messages', { who: 'you', text }); draft = ''; await load(); note('sent'); }
+    catch (e) { note(e.message, true); }
+  }
+
+  load();
+  setInterval(load, 5000);
+})();
+</script>
+</body>
+</html>

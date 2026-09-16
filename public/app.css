@@ -101,6 +101,55 @@ button.filter.off { color: var(--faint); background: transparent; border-color: 
 button.filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hiddennote { font-size: 10.5px; color: var(--faint); margin-left: 4px; }
 
+button.viewtoggle {
+  margin-left: auto; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+  padding: 5px 12px; border-radius: 3px; color: var(--soft);
+}
+
+/* ---- list view ---- */
+a.listrow {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  text-decoration: none; color: inherit; background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 5px;
+  padding: 10px 14px; margin-bottom: 6px;
+}
+a.listrow:hover, a.listrow:focus-visible { border-color: var(--accent); outline: none; }
+a.listrow.s-needs-you { border-left: 3px solid var(--you); }
+a.listrow.s-received { border-left: 3px solid var(--wait); }
+a.listrow.s-deferred { border-left: 3px solid var(--accent); }
+a.listrow.s-complete { border-left: 3px solid var(--ok); }
+.lr-main { flex: 1 1 260px; min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+.lr-title { font-size: 14.5px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-doc {
+  font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent);
+  border: 1px solid currentColor; border-radius: 2px; padding: 1px 5px; flex: none;
+}
+.lr-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-left: auto; }
+.lr-who { font-size: 10.5px; color: var(--faint); white-space: nowrap; }
+.lr-who.you { color: var(--you); }
+.lr-choice {
+  font-size: 12.5px; color: var(--ink-2); max-width: 22ch;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lr-meta .chip { margin-left: 0; }
+@media (max-width: 620px) {
+  .lr-meta { margin-left: 0; width: 100%; }
+  .lr-title { white-space: normal; }
+}
+
+/* ---- imported documents ---- */
+iframe.bodyframe {
+  width: 100%; height: 70vh; min-height: 420px; border: 1px solid var(--rule);
+  border-radius: 6px; background: var(--panel); margin-top: 8px;
+}
+.framenote { font-size: 10.5px; color: var(--faint); margin: 6px 0 24px; }
+pre.doc {
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 18px 20px; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--mono); font-size: 13px; line-height: 1.6; color: var(--ink-2);
+  margin: 8px 0 24px;
+}
+
 /* ---- items ---- */
 .sec-head {
   display: flex; align-items: baseline; gap: 10px; border-top: 1px solid var(--rule);

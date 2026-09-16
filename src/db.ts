@@ -68,6 +68,8 @@ export type Item = {
   position: number;
   version: number;
   updatedBy: string;
+  body: string;
+  bodyFormat: 'text' | 'markdown' | 'html';
   createdAt: string;
   updatedAt: string;
   messages?: Message[];
@@ -80,6 +82,8 @@ export type ItemInput = {
   choice?: string;
   status?: Status;
   section?: string;
+  body?: string;
+  bodyFormat?: 'text' | 'markdown' | 'html';
 };
 
 function now(): string {
@@ -118,6 +122,15 @@ export function openDb(path: string): Database {
       -- N and be refused rather than overwrite a change it never saw.
       version    INTEGER NOT NULL DEFAULT 1,
       updated_by TEXT NOT NULL DEFAULT '',
+      -- Long-form content: a QA walkthrough, a design specification, anything
+      -- that is a document rather than a question. Kept on the item rather than
+      -- in a second table because it belongs to exactly one item and is read
+      -- only when that item is opened. It is stripped from list responses so a
+      -- 150KB specification never rides along in a payload somebody asked a
+      -- summary from. (No backticks in this comment: the whole schema is a
+      -- JavaScript template literal and one would end it.)
+      body        TEXT NOT NULL DEFAULT '',
+      body_format TEXT NOT NULL DEFAULT 'text',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -138,6 +151,8 @@ export function openDb(path: string): Database {
   const columns = new Set<string>(db.query('PRAGMA table_info(items)').all().map((r: any) => r.name));
   if (!columns.has('version')) db.exec('ALTER TABLE items ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
   if (!columns.has('updated_by')) db.exec("ALTER TABLE items ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''");
+  if (!columns.has('body')) db.exec("ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''");
+  if (!columns.has('body_format')) db.exec("ALTER TABLE items ADD COLUMN body_format TEXT NOT NULL DEFAULT 'text'");
   return db;
 }
 
@@ -183,6 +198,8 @@ function rowToItem(r: any): Item {
     position: r.position,
     version: r.version ?? 1,
     updatedBy: r.updated_by ?? '',
+    body: r.body ?? '',
+    bodyFormat: (r.body_format ?? 'text') as 'text' | 'markdown' | 'html',
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -255,6 +272,14 @@ export class Store {
       .query('SELECT * FROM items WHERE project_id = ? ORDER BY position ASC, created_at ASC')
       .all(projectId)
       .map(rowToItem);
+    // The list never carries body text. A project holding a 150KB specification
+    // would otherwise put it in every response the board polls for, five seconds
+    // apart. `bodyLength` is kept so a list view can still say a document is
+    // there and offer a way in.
+    for (const item of items) {
+      (item as any).bodyLength = item.body.length;
+      item.body = '';
+    }
     if (!withMessages) return items;
     for (const item of items) item.messages = this.listMessages(item.id);
     return items;
@@ -275,8 +300,8 @@ export class Store {
     const id = randomUUID();
     this.db
       .query(
-        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -288,6 +313,8 @@ export class Store {
         input.status || 'needs-you',
         input.section || '',
         position,
+        input.body || '',
+        input.bodyFormat || 'text',
         at,
         at
       );
@@ -314,17 +341,19 @@ export class Store {
       status: patch.status ?? current.status,
       section: patch.section ?? current.section,
       position: patch.position ?? current.position,
+      body: patch.body ?? current.body,
+      bodyFormat: patch.bodyFormat ?? current.bodyFormat,
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
       next.title, next.context, next.options, next.choice, next.status, next.section, next.position,
-      now(), opts.actor || '', id,
+      next.body, next.bodyFormat, now(), opts.actor || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
         `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, section = ?, position = ?,
-           updated_at = ?, updated_by = ?, version = version + 1
+           body = ?, body_format = ?, updated_at = ?, updated_by = ?, version = version + 1
          WHERE id = ?${guard}`
       )
       .run(...params);
