@@ -48,7 +48,7 @@
     a.querySelector('.t').textContent = p.name;
     a.querySelector('.d').textContent = p.description || '';
     a.querySelector('.counts').textContent =
-      ['needs-you', 'received', 'needs-more', 'complete']
+      ['needs-you', 'received', 'deferred', 'complete']
         .map((s) => WB.STATUS_LABELS[s] + ' ' + (p.counts[s] || 0))
         .join('  ·  ');
     return a;

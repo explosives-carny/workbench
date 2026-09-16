@@ -13,17 +13,28 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
 // The four states an item can be in, and the vocabulary the whole tool speaks.
-// They exist because a flat "open/closed" cannot express the thing that actually
-// goes wrong: an agent asks, the human answers, and nobody can tell from the
-// list whether the answer was READ. `received` is that acknowledgement, and it
-// is the state an agent sets, never the human.
-export const STATUSES = ['needs-you', 'received', 'needs-more', 'complete'] as const;
+// They are chosen so that no two of them overlap, which took a correction: an
+// earlier set had `needs-you` and `needs-more` side by side, and both meant "the
+// human owes something". The only difference was whether it was the first ask or
+// a follow-up — provenance, which the thread already shows. In the one view that
+// matters, the human's queue, they were the same state twice.
+//
+// What the four now answer is "whose move is it":
+//   needs-you  the human's
+//   received   the agent's — it has the answer and is working
+//   deferred   nobody's, on purpose; revisit when something changes
+//   complete   done
+//
+// `received` exists because a flat open/closed cannot express the thing that
+// actually goes wrong: the human answers and cannot tell whether the answer was
+// read. It is the agent's acknowledgement to give, never the human's.
+export const STATUSES = ['needs-you', 'received', 'deferred', 'complete'] as const;
 export type Status = (typeof STATUSES)[number];
 
 export const STATUS_LABELS: Record<Status, string> = {
   'needs-you': 'Needs you',
   received: 'Received',
-  'needs-more': 'Needs more',
+  'deferred': 'Deferred',
   complete: 'Complete',
 };
 
@@ -366,7 +377,7 @@ export class Store {
   }
 
   counts(projectId: string): Record<Status, number> {
-    const out: Record<Status, number> = { 'needs-you': 0, received: 0, 'needs-more': 0, complete: 0 };
+    const out: Record<Status, number> = { 'needs-you': 0, received: 0, 'deferred': 0, complete: 0 };
     const rows: any[] = this.db.query('SELECT status, COUNT(*) AS n FROM items WHERE project_id = ? GROUP BY status').all(projectId);
     for (const row of rows) if (row.status in out) out[row.status as Status] = row.n;
     return out;

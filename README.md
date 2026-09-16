@@ -39,9 +39,12 @@ this repository**, so your content never lands in the app's git history.
 ## Using it
 
 Create a project, add the things you need decided, and answer them in place.
-Each item has a status — **Needs you**, **Received**, **Needs more**,
-**Complete** — so you can tell at a glance what is genuinely waiting on you and
-what an agent has already picked up.
+
+Each item has a status, and the four are chosen so none of them overlap — each
+answers *whose move is it*: **Needs you**, **Received** (the agent has it),
+**Deferred** (parked on purpose, waiting on neither), **Complete**. Filter the
+list by status; completed work is hidden by default, because a board that shows
+everything ever decided stops answering the only question it is for.
 
 Replies are threaded, because most of these are a short back-and-forth rather
 than a single answer.
@@ -50,6 +53,14 @@ than a single answer.
 
 Point your agent at [`AGENTS.md`](AGENTS.md). It is written to be handed to any
 coding agent, from any vendor, and describes the whole interface.
+
+Ready-made wiring, including a copy-paste instruction block that works in
+anything:
+
+- [Claude Code](docs/integrations/claude-code.md) — via `CLAUDE.md` or a skill
+- [Codex and GPT-based agents](docs/integrations/openai-codex.md) — via
+  `AGENTS.md`, plus the pattern for hosted models with no shell access
+- [All of them](docs/integrations/README.md) — the portable block
 
 The short version:
 

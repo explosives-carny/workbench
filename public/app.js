@@ -4,7 +4,7 @@ window.WB = (function () {
   const STATUS_LABELS = {
     'needs-you': 'Needs you',
     received: 'Received',
-    'needs-more': 'Needs more',
+    'deferred': 'Deferred',
     complete: 'Complete',
   };
 

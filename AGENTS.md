@@ -29,19 +29,26 @@ title, context, optional choice buttons, a status, and a thread.
 
 ### Status vocabulary
 
-Four states, and they exist because "open" and "closed" cannot express the thing
-that actually goes wrong — a human answering and nobody knowing whether the
-answer was read.
+Four states, chosen so that no two overlap. Each answers one question: **whose
+move is it?**
+
+`received` exists because "open" and "closed" cannot express the thing that
+actually goes wrong — a human answering and nobody knowing whether the answer
+was read.
 
 | Status | Means | Who sets it |
 |---|---|---|
 | `needs-you` | Waiting on the human. | An agent, when it asks. |
 | `received` | The human answered. | Set automatically when the human replies. |
-| `needs-more` | The answer raised a further question. | Either side. |
+| `deferred` | Parked on purpose — waiting on neither of us. | Either side, with a reason in the thread. |
 | `complete` | Done; nothing outstanding. | Usually the agent, once the work landed. |
 
 Setting `complete` is a claim that the work is finished, not that you asked. Do
 not set it when you post a question.
+
+Do not reach for `deferred` to mean "still waiting on them" — that is
+`needs-you`. It means the decision was consciously parked, and the thread should
+say what would bring it back.
 
 ## The calls
 
