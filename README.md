@@ -61,6 +61,17 @@ anything:
 - [Codex and GPT-based agents](docs/integrations/openai-codex.md) — via
   `AGENTS.md`, plus the pattern for hosted models with no shell access
 - [All of them](docs/integrations/README.md) — the portable block
+- [What goes here](docs/what-goes-here.md) — what to create, when, and how to
+  segment projects. The part agents get wrong without being told.
+- [Contributing](CONTRIBUTING.md) — including the rule that an agent opens a
+  pull request rather than editing your installed copy.
+
+### The check-in word
+
+Say **`workbench`** (or `wb`) to any wired-up agent and it means: read the
+board, act on everything answered since it last looked, reply underneath, and
+summarise in one line each. It exists so you never re-type a decision you
+already recorded.
 
 The short version:
 

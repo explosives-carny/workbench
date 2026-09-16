@@ -257,3 +257,35 @@ footer {
   .replybox { flex-direction: column; }
   .replybox button { width: 100%; }
 }
+
+/* ---- rendered markdown ---- */
+.mddoc { max-width: 74ch; margin: 8px 0 28px; }
+.mddoc h1 { font-size: 26px; margin: 34px 0 10px; }
+.mddoc h2 { font-size: 20px; margin: 30px 0 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.mddoc h3 { font-size: 16px; margin: 22px 0 6px; }
+.mddoc h4 { font-size: 14px; margin: 18px 0 6px; color: var(--soft); }
+.mddoc p { margin: 0 0 13px; }
+.mddoc ul, .mddoc ol { margin: 0 0 13px; padding-left: 22px; }
+.mddoc li { margin-bottom: 5px; }
+.mddoc code {
+  font-family: var(--mono); font-size: .88em; background: var(--rule-2);
+  padding: 1px 5px; border-radius: 3px;
+}
+.mddoc pre {
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 5px;
+  padding: 13px 15px; overflow-x: auto; margin: 0 0 15px;
+}
+.mddoc pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.55; }
+.mddoc blockquote {
+  margin: 0 0 14px; padding: 2px 0 2px 14px; border-left: 3px solid var(--accent);
+  color: var(--soft);
+}
+.mddoc hr { border: 0; border-top: 1px solid var(--rule); margin: 24px 0; }
+.mddoc .tablewrap { overflow-x: auto; margin: 0 0 16px; border: 1px solid var(--rule); border-radius: 5px; }
+.mddoc table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.mddoc th, .mddoc td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+.mddoc th {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--soft); font-weight: 500; background: var(--ground);
+}
+.mddoc tr:last-child td { border-bottom: 0; }

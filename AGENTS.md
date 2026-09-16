@@ -113,6 +113,31 @@ the human's browser may all be working on the same project at the same moment.
 - Identify yourself with `author` on messages and `actor` on edits. When two
   sessions are working, "who changed this" is the first question a human asks.
 
+## The check-in word
+
+The human says **`workbench`** (or `wb`) and it means exactly one thing:
+
+> Read every project I am working on, find items where the last word was mine,
+> act on them, and reply underneath what you did.
+
+Concretely:
+
+```bash
+curl -s localhost:4317/api/projects
+curl -s localhost:4317/api/projects/<slug>
+```
+
+For each item whose newest message has `who: "you"`, or whose `choice` changed
+and has no agent reply after it: do the work, post a message saying what you
+did, and set the status. Report back a one-line summary per item — not the full
+threads, which they just wrote.
+
+If nothing is waiting, say so in one line. Do not create new items on a
+check-in; it is a command to catch up, not to ask.
+
+This word exists because the alternative is the human re-typing a decision they
+already recorded, which is the exact failure the board removes.
+
 ## Rules that keep this useful
 
 1. **Ask once, in one item.** Do not restate a pending question in conversation;
@@ -125,6 +150,18 @@ the human's browser may all be working on the same project at the same moment.
    something the human actually said, and say so in the text.
 5. **Close what you finish.** An item left at `received` forever is as bad as a
    lost question.
+6. **Do not change this application to add a feature.** A limitation is a pull
+   request, not an edit to the copy in front of you — see
+   [`CONTRIBUTING.md`](CONTRIBUTING.md). Most "I need a new type" is a section,
+   a status or a document body; [`docs/what-goes-here.md`](docs/what-goes-here.md)
+   says which.
+
+## Deciding what to create
+
+[`docs/what-goes-here.md`](docs/what-goes-here.md) is the companion to this
+file: what belongs on a board, the four kinds of item, when to create one and
+when not to, and how to segment projects rather than splitting them so finely
+that nobody scans the gallery. Read it once before your first write.
 
 ## Errors
 
