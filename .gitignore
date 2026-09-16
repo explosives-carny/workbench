@@ -8,3 +8,5 @@ node_modules/
 # which is somebody's real content and does not belong in the app repository.
 interceptor-screenshot-*.png
 *.screenshot.png
+# Demo images under docs/images/ are deliberate and committed; the ignore above
+# catches stray captures at the repository root only.
