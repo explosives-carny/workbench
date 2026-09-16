@@ -629,3 +629,67 @@ describe('claiming work survives a lost session', () => {
       .toThrow(VersionConflict);
   });
 });
+
+// The handshake is symmetric, and it was not. A human reply always moved an
+// issue to `received`; an agent reply moved nothing — so an agent that answered
+// an item and forgot the separate status call left it reading `received`,
+// indistinguishable from an item nobody had touched. "Post a message, set the
+// status" had only one of its two halves enforced by anything.
+describe('an agent reply claims what it answers', () => {
+  let store: Store;
+  let projectId: string;
+  beforeEach(() => {
+    store = freshStore();
+    projectId = store.createProject({ name: 'Acme' }).id;
+  });
+
+  function answered() {
+    const item = store.createItem(projectId, { title: 'a' });
+    store.addMessage(item.id, { who: 'you', text: 'go ahead' });
+    return item.id;
+  }
+
+  it('moves a received item to in-progress when the agent replies', () => {
+    const id = answered();
+    expect(store.getItem(id)!.status).toBe('received');
+    store.addMessage(id, { who: 'agent', author: 'claude-code', text: 'on it' });
+    expect(store.getItem(id)!.status).toBe('in-progress');
+  });
+
+  it('records who claimed it, so the claim is recoverable', () => {
+    const id = answered();
+    store.addMessage(id, { who: 'agent', author: 'codex', text: 'on it' });
+    expect(store.getItem(id)!.updatedBy).toBe('codex');
+  });
+
+  // The reply that hands it back must still be able to say so.
+  it('honours an explicit status over the claim', () => {
+    const id = answered();
+    store.addMessage(id, { who: 'agent', author: 'claude-code', text: 'your call', status: 'needs-decision' });
+    expect(store.getItem(id)!.status).toBe('needs-decision');
+  });
+
+  // Narrow on purpose: only `received` is unambiguous. An agent adding context
+  // to a question still waiting on the human leaves the move where it is.
+  it('leaves an item that is waiting on the human alone', () => {
+    for (const status of ['needs-decision', 'needs-qa'] as const) {
+      const item = store.createItem(projectId, { title: `t-${status}`, status });
+      store.addMessage(item.id, { who: 'agent', author: 'claude-code', text: 'one more thing' });
+      expect(store.getItem(item.id)!.status).toBe(status);
+    }
+  });
+
+  it('does not resurrect a deferred or completed item', () => {
+    for (const status of ['deferred', 'complete'] as const) {
+      const item = store.createItem(projectId, { title: `d-${status}`, status });
+      store.addMessage(item.id, { who: 'agent', author: 'claude-code', text: 'noting this' });
+      expect(store.getItem(item.id)!.status).toBe(status);
+    }
+  });
+
+  it('never claims a document', () => {
+    const doc = store.createItem(projectId, { title: 'spec', kind: 'document' });
+    store.addMessage(doc.id, { who: 'agent', author: 'claude-code', text: 'updated' });
+    expect(store.getItem(doc.id)!.status).toBe('active');
+  });
+});

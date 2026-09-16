@@ -343,6 +343,35 @@ made, which you should be *acting on*, not re-asking.
 **One item per question.** Two decisions in one item means one of them gets
 answered and the other is silently lost.
 
+## The handshake, and the half that used to be silent
+
+Two sides move an item, and for a long time only one of them was enforced.
+
+**A human reply moved an issue to `received` automatically.** They answer, it
+becomes the agent's, and nobody has to remember anything.
+
+**An agent reply moved nothing.** The contract said "post a message, set the
+status" — two actions, one of them a separate call that an agent had to remember
+after writing the reply. So an agent could answer an item at length and leave it
+reading `received`: identical, on the board, to an item nobody had looked at.
+
+It happened exactly where you would expect. Not on the careful first item of a
+round, but at the end of a long one, across a context compaction, with six items
+answered and the reply written and the status call forgotten. Memory is what
+fails under load, and under load is when the board most needs to be true.
+
+**Both halves are now automatic.** An agent message on an item at `received`
+claims it — `in-progress`, with the author recorded. Narrow on purpose:
+`received` is the one status that unambiguously means "yours, nobody has
+started". An agent adding context to something still waiting on the human leaves
+the move where it is, and a reply that hands the item back passes an explicit
+status.
+
+The general lesson, which applies past this one field: **if the board's state
+depends on somebody remembering to declare it separately from doing the thing,
+the board will eventually be wrong.** Make the state a consequence of the action
+wherever the action is unambiguous.
+
 ## Claiming, and why a status for it exists
 
 There is a status for "somebody is working on this right now", and it is there

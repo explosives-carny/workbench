@@ -230,6 +230,11 @@ Errors are `{"ok":false,"error":"..."}` — `400` malformed · `404` bad id or s
 
 ## Concurrency
 
+- **A reply claims what it answers.** Posting an agent message on an item at
+  `received` moves it to `in-progress` and records you as the actor. You do not
+  have to remember a second call. Pass an explicit `status` when the reply hands
+  the item back instead — `needs-decision` if it is their call now, `needs-qa` if
+  you built something, `complete` if it landed.
 - **Messages never conflict.** Append one rather than editing an item whenever
   you are recording something that happened.
 - **Item edits can.** Send `ifVersion` from the copy you read. On `409`, merge
@@ -271,6 +276,10 @@ Human says **`workbench`** or **`wb`** →
    is somebody else's move or nobody's.
 3. **Plan across the whole set, not item by item.** Then execute the plan.
 4. Report the plan, then the outcome. Nothing waiting → say so in one line.
+5. **Before you finish, re-read the set you just worked.** Every item you
+   touched should have moved off `received`. Any still sitting there is one you
+   answered in the transcript and not on the board, and the board is the only
+   half that survives this session.
 
 A document never reaches `received` — it has no such state — so a comment on one
 is never itself actionable. If they want something done about a document, that

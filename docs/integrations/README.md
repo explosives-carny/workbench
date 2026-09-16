@@ -25,8 +25,10 @@ A decision board runs at http://localhost:4317. Read its contract at
 2. Need a human decision? Create an item — do not ask in conversation, where it
    will scroll away and be invisible to the next session. `POST` an array to
    create several at once.
-3. Acted on one? `POST` a message saying what you did, and set the status.
-   Identify yourself with `author` and `actor`.
+3. Acted on one? `POST` a message saying what you did. That alone claims it —
+   an agent message on a `received` item moves it to `in-progress` with you as
+   the actor. Pass an explicit `status` when the reply hands it back instead.
+   Identify yourself with `author` and `actor` either way.
 4. You are not the only session. Pass `ifVersion` on edits and merge on `409`.
    Messages are append-only and never conflict — prefer one over an edit.
 5. Statuses mean whose move it is, and an item's `kind` decides which it may
