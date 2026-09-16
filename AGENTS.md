@@ -218,6 +218,44 @@ something is two items*.
 
 Never create items on a check-in. It means catch up, not ask.
 
+### `wb --auto` — keep going without being asked again
+
+The default above exists because reacting to each reply as it lands is wasteful
+and gets ahead of the human. Sometimes that is exactly what they want: they are
+working through a batch of answers and would rather not type `wb` after each one.
+
+| Said | Means |
+|---|---|
+| `wb` / `workbench` | one round, then stop. Does not change the mode. |
+| `wb --auto` | stay in it: keep folding in new work until turned off |
+| `wb --auto off` | back to one round at a time |
+
+Record it so it is never ambiguous, and **say once, in one line, that you are in
+auto** — a mode that changes how much it costs must never be silently on:
+
+```bash
+PATCH /api/settings {"autoMode": true}
+```
+
+Read `settings.autoMode` at session start with everything else. If it is on, you
+are in auto from the first check-in without being told again.
+
+**Auto does not mean polling.** Do not re-read the board on a timer; that is the
+expensive habit this whole section exists to stop, and a 5-second loop spends a
+full pass over the work to discover nothing changed. Auto means: **at each
+natural boundary — you have finished a piece of work and are about to report
+back — re-read the board and fold anything now at `received` into the next
+round.** Same rule as always for what counts; the only difference is that you do
+not wait to be asked.
+
+Everything else still holds. Plan across the set rather than item by item. Never
+create items. Do not answer an item the moment you notice it — finish the piece
+you are on, then pick up the round.
+
+Turn it off yourself if the rounds stop being worth it — three consecutive
+check-ins that find one small item each are three full passes over the board for
+very little, and saying so is better than quietly burning it.
+
 ### Planning the set
 
 The point of batching is that the set tells you things no single item does.
