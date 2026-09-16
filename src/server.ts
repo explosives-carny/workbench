@@ -52,6 +52,9 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
       throw new Error('options must be an array of strings');
     }
   }
+  if (body.bodyFormat !== undefined && !['text', 'markdown', 'html'].includes(body.bodyFormat)) {
+    throw new Error('bodyFormat must be text, markdown or html');
+  }
   return {
     title: typeof body.title === 'string' ? body.title.trim() : undefined!,
     context: typeof body.context === 'string' ? body.context : undefined,
@@ -59,6 +62,13 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     choice: typeof body.choice === 'string' ? body.choice : undefined,
     status: asStatus(body.status),
     section: typeof body.section === 'string' ? body.section : undefined,
+    // These were added to the store and forgotten here, so every document
+    // imported as an empty one and the API cheerfully reported success. A
+    // field the store accepts and the parser drops is a silent data loss, and
+    // the only thing that catches it is checking what landed rather than what
+    // the response said.
+    body: typeof body.body === 'string' ? body.body : undefined,
+    bodyFormat: body.bodyFormat,
   };
 }
 
@@ -154,6 +164,29 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       }
       if (method === 'DELETE') return json({ ok: store.deleteItem(item.id) });
       return badRequest(`${method} not supported here`);
+    }
+
+    // The document itself, at its own URL. It used to be inlined into a
+    // `srcdoc` attribute, which meant a 150KB document travelled as one HTML
+    // attribute inside the page — slow, and it rendered blank. A real URL also
+    // means the document can be opened in its own tab, which is what you want
+    // for anything long enough to be called a document.
+    if (parts[2] === 'body' && method === 'GET') {
+      const types: Record<string, string> = {
+        html: 'text/html; charset=utf-8',
+        markdown: 'text/plain; charset=utf-8',
+        text: 'text/plain; charset=utf-8',
+      };
+      return new Response(item.body, {
+        headers: {
+          'content-type': types[item.bodyFormat] || types.text,
+          // Belt and braces with the iframe sandbox: an imported document is
+          // somebody else's markup and must not be able to frame-bust or be
+          // treated as trusted by anything else.
+          'content-security-policy': "sandbox; default-src 'none'; img-src data: https:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com",
+          'x-content-type-options': 'nosniff',
+        },
+      });
     }
 
     if (parts[2] === 'messages') {

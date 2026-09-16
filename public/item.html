@@ -20,6 +20,7 @@
   <div id="panel"></div>
 </div>
 <script src="/app.js"></script>
+<script src="/md.js"></script>
 <script>
 (function () {
   const m = location.pathname.match(/^\/p\/([^/]+)\/i\/([^/]+)/);
@@ -51,12 +52,29 @@
       frame.className = 'bodyframe';
       frame.setAttribute('sandbox', '');
       frame.setAttribute('title', item.title);
-      frame.srcdoc = item.body;
+      // src, not srcdoc. The document is served from its own URL with its own
+      // content-security-policy, which is both faster for a large document and
+      // the only way to open it in a tab of its own.
+      frame.src = '/api/items/' + encodeURIComponent(item.id) + '/body';
       el.appendChild(frame);
       const note = document.createElement('p');
       note.className = 'framenote mono';
-      note.textContent = 'Imported document · scripts disabled · ' + Math.round(item.body.length / 1024) + ' KB';
+      const size = Math.round(item.bodyLength || item.body.length) / 1024;
+      note.textContent = 'Imported document · scripts disabled · ' + size.toFixed(0) + ' KB · ';
+      const open = document.createElement('a');
+      open.href = frame.src;
+      open.target = '_blank';
+      open.rel = 'noopener';
+      open.textContent = 'open in a new tab';
+      note.appendChild(open);
       el.appendChild(note);
+    } else if (item.bodyFormat === 'markdown') {
+      // Rendered here rather than iframed: Markdown is our own content, it
+      // inherits the board's typography, and it stays selectable and printable.
+      const doc = document.createElement('article');
+      doc.className = 'mddoc';
+      doc.innerHTML = MD(item.body);
+      el.appendChild(doc);
     } else {
       const pre = document.createElement('pre');
       pre.className = 'doc';
