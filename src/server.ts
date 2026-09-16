@@ -9,7 +9,10 @@
 // Deliberately local-only: it binds to 127.0.0.1 and has no authentication,
 // because adding accounts to a single-user tool on a laptop buys nothing and
 // costs a login. Do not expose this port.
-import { openDb, Store, STATUSES, VersionConflict, type Status, type ItemInput } from './db.ts';
+import {
+  openDb, Store, STATUSES, VersionConflict, findSimilarSection,
+  type Status, type ItemInput, type Project,
+} from './db.ts';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -82,6 +85,34 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
   };
 }
 
+// Section policy, applied wherever an item gets one.
+//
+// declared → refuse an unlisted section, and say what IS allowed plus how to add
+//            one. A refusal that does not tell the caller the way forward just
+//            gets worked around.
+// adhoc    → accept anything, but hand back a warning when it looks like a
+//            near-duplicate of a section already in use. The tool cannot know
+//            two names mean the same area; the human can, and now gets told.
+function sectionPolicy(store: Store, project: Project, section: string | undefined): { warning?: string } {
+  if (!section) return {};
+  const inUse = store.sectionsInUse(project).map((s) => s.name);
+  if (project.sectionMode === 'declared') {
+    if (!project.sections.includes(section)) {
+      const allowed = project.sections.length ? project.sections.join(', ') : '(none declared yet)';
+      throw new Error(
+        `section "${section}" is not declared on this project. Allowed: ${allowed}. ` +
+        `Use an existing one, leave it empty, or propose a new area to the human and add it with ` +
+        `PATCH /api/projects/${project.slug} {"sections":[...]}.`
+      );
+    }
+    return {};
+  }
+  const similar = findSimilarSection(section, inUse);
+  return similar
+    ? { warning: `section "${section}" looks like a duplicate of "${similar}" already in use. Reuse that one, or merge later with PATCH /api/projects/${project.slug}/sections {"from":"...","to":"..."}.` }
+    : {};
+}
+
 async function readJson(req: Request): Promise<any> {
   const text = await req.text();
   if (!text.trim()) return {};
@@ -131,16 +162,54 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
 
     if (parts.length === 2) {
       if (method === 'GET') {
-        return json({ ok: true, project, items: store.listItems(project.id), counts: store.counts(project.id) });
+        // `sections` is returned so an agent can read the vocabulary in the same
+        // call it reads the board, and reuse a name instead of inventing a
+        // near-synonym. Deriving it by scanning items is what agents skip.
+        return json({
+          ok: true,
+          project,
+          items: store.listItems(project.id),
+          counts: store.counts(project.id),
+          sections: store.sectionsInUse(project),
+        });
       }
       if (method === 'PATCH') {
         const body = await readJson(req);
         if (typeof body.archived === 'boolean') {
           return json({ ok: true, project: store.archiveProject(project.slug, body.archived) });
         }
-        return badRequest('nothing to update; supported: archived');
+        if (body.sectionMode !== undefined || body.sections !== undefined) {
+          if (body.sectionMode !== undefined && !['adhoc', 'declared'].includes(body.sectionMode)) {
+            return badRequest("sectionMode must be 'adhoc' or 'declared'");
+          }
+          if (body.sections !== undefined && (!Array.isArray(body.sections) || body.sections.some((x: unknown) => typeof x !== 'string'))) {
+            return badRequest('sections must be an array of strings');
+          }
+          const updated = store.setProjectSections(project.slug, body)!;
+          return json({ ok: true, project: updated, sections: store.sectionsInUse(updated) });
+        }
+        return badRequest('nothing to update; supported: archived, sectionMode, sections');
       }
       return badRequest(`${method} not supported here`);
+    }
+
+    // Rename or merge a section across the whole project. The repair tool —
+    // without one, a vocabulary can only ever get worse.
+    if (parts[2] === 'sections' && parts.length === 3 && method === 'PATCH') {
+      const body = await readJson(req);
+      if (typeof body.from !== 'string' || !body.from || typeof body.to !== 'string') {
+        return badRequest('from (non-empty string) and to (string) are required');
+      }
+      const moved = store.renameSection(project.id, body.from, body.to, typeof body.actor === 'string' ? body.actor : '');
+      const after = store.getProject(project.slug)!;
+      // Keep the declared list honest with what just happened.
+      if (after.sections.includes(body.from)) {
+        const next = after.sections.filter((s) => s !== body.from);
+        if (body.to && !next.includes(body.to)) next.push(body.to);
+        store.setProjectSections(after.slug, { sections: next });
+      }
+      const fresh = store.getProject(project.slug)!;
+      return json({ ok: true, moved, sections: store.sectionsInUse(fresh) });
     }
 
     if (parts[2] === 'items' && parts.length === 3) {
@@ -152,8 +221,16 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         // need decided" — and doing it one request at a time is how half-built
         // lists happen when something fails in the middle.
         const inputs = Array.isArray(body) ? body : [body];
-        const created = inputs.map((input) => store.createItem(project.id, asItemInput(input, true)));
-        return json({ ok: true, items: created }, 201);
+        const parsed = inputs.map((input) => asItemInput(input, true));
+        // Policy first, for every item, so a batch either lands whole or is
+        // refused whole — half a set is worse than none.
+        const warnings: string[] = [];
+        for (const input of parsed) {
+          const { warning } = sectionPolicy(store, project, input.section);
+          if (warning) warnings.push(warning);
+        }
+        const created = parsed.map((input) => store.createItem(project.id, input));
+        return json({ ok: true, items: created, ...(warnings.length ? { warnings } : {}) }, 201);
       }
       return badRequest(`${method} not supported here`);
     }
@@ -169,12 +246,17 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
         const body = await readJson(req);
         const patch = asItemInput(body, false);
         if (typeof body.position === 'number') (patch as any).position = body.position;
+        let sectionWarning: string | undefined;
+        if (patch.section !== undefined) {
+          const owner = store.listProjects(true).find((p) => p.id === item.projectId);
+          if (owner) sectionWarning = sectionPolicy(store, owner, patch.section).warning;
+        }
         try {
           const updated = store.updateItem(item.id, patch, {
             ifVersion: typeof body.ifVersion === 'number' ? body.ifVersion : undefined,
             actor: typeof body.actor === 'string' ? body.actor : undefined,
           });
-          return json({ ok: true, item: updated });
+          return json({ ok: true, item: updated, ...(sectionWarning ? { warning: sectionWarning } : {}) });
         } catch (error) {
           if (error instanceof VersionConflict) {
             // 409 with the live item attached, so the caller merges onto what is

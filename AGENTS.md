@@ -128,7 +128,10 @@ POST /api/projects/<slug>/items
   "options":["A private git repo","Somewhere else I already back up","Accept the risk, no backup"]},
  {"section":"Setup","title":"Where should new items land by default?",
   "context":"If you work across several projects, name the one that should catch anything I do not place explicitly.",
-  "options":["This project","I will say each time"]}
+  "options":["This project","I will say each time"]},
+ {"section":"Setup","title":"How should we organise sections?",
+  "context":"A section is the area of work — Ship it, Design, Infrastructure. Loose: I use my judgement, reuse what is there, and flag anything that looks like a duplicate. Fixed: we agree the list now and I am refused anything outside it. Loose is recommended; you rarely know the areas on day one, and we can fix the list later once the shape is obvious.",
+  "options":["Loose — let it emerge","Fixed — let's agree the list now"]}
 ]
 ```
 
@@ -151,6 +154,18 @@ PATCH /api/items/<id> {"status":"complete","actor":"<you>"}
 | `summariseOnExit` | question 4 | `false` |
 | `backupPlan` | question 5 | ask again next session; never assume `"none"` |
 | `defaultProject` | question 6 | infer from the repository |
+| project `sectionMode` | question 7 | `adhoc` |
+
+If they choose **Fixed**, have the conversation before setting it: ask what the
+areas of this work actually are, propose a starting list from what you can see
+in the repository, and agree six to eight. Then:
+
+```bash
+PATCH /api/projects/<slug> {"sectionMode":"declared","sections":["Ship it","Design","..."]}
+```
+
+If they choose **Loose**, do nothing — it is the default — and simply honour the
+section rules below.
 
 `"none"` for `backupPlan` is a real answer. Record it and **never raise backups
 again** — nagging about a knowingly accepted risk is how people stop reading
@@ -162,15 +177,32 @@ asking.
 ## Sections
 
 `section` is the **area of work** — one axis, always. Not the kind of item
-(`bodyLength` and `checks` say that) and not its state (`status` says that).
+(`bodyLength` and `checks` say that), not its state (`status` says that).
 
-Before setting one, read the sections already on the board and **reuse one**.
-Inventing "Deploys" next to an existing "Ship it" splits one area in two and
-neither list is complete afterwards. No good fit → leave it empty; an
-unsectioned item sorts to the top and gets placed, a mis-sectioned one is
-filed and invisible.
+`GET /api/projects/<slug>` returns `sections` — the vocabulary in use, with
+counts. **Read it and reuse a name.** Do not derive it by scanning items and do
+not invent a synonym; "Deploys" beside "Ship it" splits one area into two lists
+and both then look complete.
 
-Full reasoning and the failure modes: `docs/what-goes-here.md`.
+Two modes, set per project by the human at onboarding:
+
+| `project.sectionMode` | Behaviour |
+|---|---|
+| `adhoc` (default) | Any section accepted. A near-duplicate comes back as a `warning` on the response — read it and act on it. |
+| `declared` | Only `project.sections` accepted. Anything else is a `400` listing what is allowed. |
+
+Never switch the mode yourself; it is the human's call.
+
+No good fit → **leave `section` empty.** An unsectioned item sorts to the top and
+gets placed; a mis-sectioned one is filed and invisible.
+
+Repair, when two names turn out to be one area:
+
+```bash
+PATCH /api/projects/<slug>/sections  {"from":"Deploys","to":"Ship it","actor":"<you>"}
+```
+
+Full reasoning and failure modes: `docs/what-goes-here.md`.
 
 ## Rules
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { openDb, Store, VersionConflict } from '../src/db.ts';
+import { openDb, Store, VersionConflict, findSimilarSection } from '../src/db.ts';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
@@ -148,5 +148,80 @@ describe('counts', () => {
     const counts = store.counts(projectId);
     expect(counts['needs-you']).toBe(2);
     expect(counts.complete).toBe(1);
+  });
+});
+
+describe('section vocabulary', () => {
+  let store: Store;
+  let projectId: string;
+  let slug: string;
+  beforeEach(() => {
+    store = freshStore();
+    const p = store.createProject({ name: 'P' });
+    projectId = p.id;
+    slug = p.slug;
+  });
+
+  // Ad-hoc is the default because a project rarely knows its areas on day one,
+  // and forcing a guess produces a worse taxonomy than letting one emerge.
+  it('starts ad-hoc with no declared sections', () => {
+    expect(store.getProject(slug)!.sectionMode).toBe('adhoc');
+    expect(store.getProject(slug)!.sections).toEqual([]);
+  });
+
+  it('reports the vocabulary in use with counts', () => {
+    store.createItem(projectId, { title: 'a', section: 'Ship it' });
+    store.createItem(projectId, { title: 'b', section: 'Ship it' });
+    store.createItem(projectId, { title: 'c', section: 'Design' });
+    store.createItem(projectId, { title: 'd' });
+    const inUse = store.sectionsInUse(store.getProject(slug)!);
+    expect(inUse.find((s) => s.name === 'Ship it')!.count).toBe(2);
+    expect(inUse.find((s) => s.name === 'Design')!.count).toBe(1);
+    // An unsectioned item is not a section called "".
+    expect(inUse.some((s) => s.name === '')).toBe(false);
+  });
+
+  it('includes a declared section nobody has used yet', () => {
+    store.setProjectSections(slug, { sections: ['Design', 'Unused'] });
+    const inUse = store.sectionsInUse(store.getProject(slug)!);
+    expect(inUse.find((s) => s.name === 'Unused')).toEqual({ name: 'Unused', count: 0, declared: true });
+  });
+
+  // The way a vocabulary actually rots: not a wild new name, but a synonym that
+  // splits one area into two lists, both of which then look complete.
+  it('spots the near-duplicates that matter', () => {
+    const existing = ['Ship it', 'Design', 'People and access'];
+    expect(findSimilarSection('Ship its', existing)).toBe('Ship it');
+    expect(findSimilarSection('ship it', existing)).toBe('Ship it');
+    expect(findSimilarSection('Designs', existing)).toBe('Design');
+    expect(findSimilarSection('DESIGN', existing)).toBe('Design');
+  });
+
+  it('does not cry duplicate over a genuinely different area', () => {
+    const existing = ['Ship it', 'Design'];
+    expect(findSimilarSection('People and access', existing)).toBe(null);
+    expect(findSimilarSection('Cycle count', existing)).toBe(null);
+  });
+
+  it('treats an exact match as reuse, not duplication', () => {
+    expect(findSimilarSection('Design', ['Design', 'Ship it'])).toBe(null);
+  });
+
+  // Without a repair tool a vocabulary can only get worse, so this is the one
+  // piece that makes ad-hoc mode safe rather than merely permissive.
+  it('merges one section into another across every item', () => {
+    store.createItem(projectId, { title: 'a', section: 'Deploys' });
+    store.createItem(projectId, { title: 'b', section: 'Deploys' });
+    store.createItem(projectId, { title: 'c', section: 'Design' });
+    expect(store.renameSection(projectId, 'Deploys', 'Ship it', 'tidy')).toBe(2);
+    const inUse = store.sectionsInUse(store.getProject(slug)!);
+    expect(inUse.find((s) => s.name === 'Ship it')!.count).toBe(2);
+    expect(inUse.some((s) => s.name === 'Deploys')).toBe(false);
+  });
+
+  it('bumps the version of every item a merge touched', () => {
+    const item = store.createItem(projectId, { title: 'a', section: 'Deploys' });
+    store.renameSection(projectId, 'Deploys', 'Ship it');
+    expect(store.getItem(item.id)!.version).toBe(2);
   });
 });

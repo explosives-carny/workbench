@@ -55,6 +55,47 @@ So: **name the part of the work, not the shape or the stage of the item.**
 Good sections read like the areas somebody would say out loud — `Ship it`,
 `Design`, `People and access`, `Housekeeping`, `Cycle count`, `Magazine flip`.
 
+### Two modes, because this is genuinely a preference
+
+Neither answer is right for everybody, so the human picks at onboarding and the
+project records it.
+
+**Loose (`adhoc`, the default).** Any section is accepted. When a new one looks
+like a near-duplicate of one already in use, the response carries a `warning`
+naming the likely intended section. Nothing is blocked.
+
+Right when the work is new. You rarely know the areas on day one, and a
+taxonomy guessed up front is usually wrong in a way that is then expensive to
+admit. Let it emerge over a fortnight and tidy it once the shape is obvious.
+
+**Fixed (`declared`).** Only the project's declared sections are accepted;
+anything else is refused with the allowed list and instructions for proposing an
+addition.
+
+Right for long-running or shared work, where consistency is worth more than
+convenience and several agents write to the same board. It is also the honest
+choice if you have been burned once — the refusal is what actually stops drift,
+where a warning only reports it.
+
+```bash
+PATCH /api/projects/<slug> {"sectionMode":"declared","sections":["Ship it","Design"]}
+```
+
+Switch whenever. Going loose→fixed does not retroactively refuse existing
+sections; declare the ones you want to keep and merge the rest.
+
+### Repair, in both modes
+
+A vocabulary that cannot be repaired only gets worse, so the merge is part of the
+design rather than an admin afterthought:
+
+```bash
+PATCH /api/projects/<slug>/sections {"from":"Deploys","to":"Ship it"}
+```
+
+Every item moves, each one's version bumps, and a declared list is updated to
+match. Merging into `""` unsections the items rather than deleting them.
+
 ### Choosing one, as an agent
 
 1. `GET /api/projects/<slug>` and read the sections already in use. **Reuse one.**
