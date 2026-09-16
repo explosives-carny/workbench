@@ -70,8 +70,25 @@ moves, cannot be worked by two people, and leaves every item on the board saying
 "see the runbook" — which is how a board stops being the record. Steps belong on
 the thing they verify.
 
-Write a step as something to do and a result to expect, numbered. Three precise
-steps beat twenty vague ones.
+**The worker has your item and nothing else** — not your session, not your
+terminal, not the conversation where you decided any of this. Two rounds of real
+QA produced 30 skipped and 4 falsely-failed steps and *none* was a product
+defect; every one was a defect in the instruction. So:
+
+| Rule | Because |
+|---|---|
+| Step 1 reaches the preconditions, with the command and how to tell it worked | one unstated identity made 20 steps unrunnable |
+| Never write a step your own rules make unreachable | a step said "assign a recount then take it yourself"; the next said the system refuses exactly that |
+| Name what will be on screen — the string, the number, the row | "confirm it works" has no baseline in their head |
+| Say when a refusal IS the pass | a correct refusal recorded as a failure sends somebody hunting a bug that is working |
+| Ask only for what they control | not the OS appearance setting, not a second person, not a device they lack |
+| Never production, never editing source | "run a production deploy" is an action, not a check; "add a duplicate and confirm the test fails" is a unit test |
+| Say how to know the environment is current | an environment serving yesterday's build manufactures findings |
+| Delete steps when the feature goes | a step for removed code reads as a real gap and costs a real investigation |
+| One step, one observation | if three things must be true first, those are three steps |
+
+Three precise steps beat twenty vague ones. Full reasoning and the failures each
+rule came from: `docs/what-goes-here.md`.
 
 `needs-decision` and `needs-qa` are both "waiting on them" and they are **not**
 interchangeable. "Choose between these options" and "I finished, check it" take

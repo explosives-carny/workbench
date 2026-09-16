@@ -215,6 +215,59 @@ A standalone checklist is still right for something that genuinely is one
 procedure — a release runbook, an audit with a single sign-off. It is not right
 for "here is everything we did this week".
 
+#### Writing a step somebody else can actually execute
+
+This is the part that goes wrong, and it goes wrong the same handful of ways
+every time. Two rounds of real QA on the reference board produced 30 skipped and
+4 falsely-failed steps, and **not one of them was a defect in the product.** Every
+one was a defect in the instruction.
+
+A QA worker has your item and nothing else. Not your session, not your terminal,
+not the conversation where you decided any of this.
+
+**State the precondition, or make step 1 reach it.** The single biggest cost:
+one walkthrough assumed a second signed-in identity that no step told anybody to
+create, and twenty steps were unrunnable because of it. If three steps share a
+setup, that setup is step 1 — with the command, the URL and how to tell it
+worked.
+
+**Never write a step the system's own rules make unreachable.** One step asked
+the worker to assign a recount and then take it themselves; the next step
+asserted the system refuses assigning a recount to that person. The two tested
+the same wall from opposite sides and one could not be reached. Walk your own
+preconditions against your own rules before you write the step.
+
+**Name what will be on screen.** "Confirm it works" and "nothing changed
+visually" cannot be answered — there is no baseline in the worker's head. Give
+the string, the number, the row: *"the banner reads 'Lot saved'"*, *"Record 0 /
+Counted 3 / Delta 3"*, *"the thumb is dark against the orange track"*.
+
+**When a refusal is the pass, say so in the step.** Otherwise a correct refusal
+gets recorded as a failure, which is the most expensive mistake on this list —
+somebody goes looking for a bug that is working.
+
+**Ask only for what the worker controls.** Not the operating system's appearance
+setting. Not a second person. Not a device they do not have. If the check needs
+it, say what to do when it is unavailable, so the step records a reason rather
+than a shrug.
+
+**Never ask QA to touch production, and never ask them to edit source.** "Run a
+production deploy" is not a QA step, it is a production action. "Add a duplicate
+and confirm the test fails" is not a QA step either — that is a unit test, and it
+belongs in the suite where it runs every time rather than once, by hand, on
+somebody's afternoon.
+
+**Say how to know the environment is current.** A QA environment that can serve
+yesterday's build manufactures findings. If a rebuild, a restart or a pull is
+required, that is step 1 — and the step says how to confirm it took.
+
+**Delete steps when the feature goes.** A step testing something that has been
+removed is worse than no step: it reads as a real gap and costs a real
+investigation.
+
+**One step, one observation.** If answering it needs three things to be true
+first, those are three steps.
+
 #### The mechanics either way
 
 A QA walkthrough, a release runbook, an audit. It reads like a document but it
