@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Workbench</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="mast">
+    <p class="eyebrow">Local · nothing leaves this machine</p>
+    <h1>Workbench</h1>
+    <p class="lede">Projects that have something waiting on you. Answer in place; agents read your answers from here.</p>
+    <div class="rule"></div>
+  </header>
+
+  <div id="list" class="projects" aria-live="polite"></div>
+
+  <section class="newproj">
+    <h2>New project</h2>
+    <form id="newproj">
+      <input type="text" id="pname" placeholder="Project name" aria-label="Project name" required>
+      <input type="text" id="pdesc" placeholder="One line about it (optional)" aria-label="Project description">
+      <button type="submit">Create</button>
+    </form>
+  </section>
+
+  <footer>
+    <span class="mono">GET /api/projects</span>
+    <a href="/agents.html">How agents use this</a>
+  </footer>
+</div>
+<script src="/app.js"></script>
+<script>
+(async function () {
+  const listEl = document.getElementById('list');
+
+  function card(p) {
+    const waiting = p.counts['needs-you'] || 0;
+    const a = document.createElement('a');
+    a.className = 'proj' + (waiting ? ' hot' : '');
+    a.href = '/p/' + encodeURIComponent(p.slug);
+    a.innerHTML =
+      '<div class="row"><span class="t"></span>' +
+      (waiting ? '<span class="badge you">' + waiting + ' waiting on you</span>' : '<span class="badge">clear</span>') +
+      '</div><div class="d"></div><div class="counts mono"></div>';
+    a.querySelector('.t').textContent = p.name;
+    a.querySelector('.d').textContent = p.description || '';
+    a.querySelector('.counts').textContent =
+      ['needs-you', 'received', 'needs-more', 'complete']
+        .map((s) => WB.STATUS_LABELS[s] + ' ' + (p.counts[s] || 0))
+        .join('  ·  ');
+    return a;
+  }
+
+  async function render() {
+    const data = await WB.get('/api/projects');
+    listEl.innerHTML = '';
+    if (!data.projects.length) {
+      listEl.innerHTML = '<p class="empty">No projects yet. Create one below, or let an agent create one.</p>';
+      return;
+    }
+    for (const p of data.projects) listEl.appendChild(card(p));
+  }
+
+  document.getElementById('newproj').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('pname').value.trim();
+    if (!name) return;
+    await WB.post('/api/projects', { name, description: document.getElementById('pdesc').value.trim() });
+    document.getElementById('pname').value = '';
+    document.getElementById('pdesc').value = '';
+    render();
+  });
+
+  render();
+  // Cheap and good enough: an agent writing while this page is open should show
+  // up without a manual refresh, and the payload is small.
+  setInterval(render, 5000);
+})();
+</script>
+</body>
+</html>

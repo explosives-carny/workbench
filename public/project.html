@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Workbench</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">&#8592; All projects</a>
+  <header class="mast">
+    <p class="eyebrow" id="eyebrow">Project</p>
+    <h1 id="pname">…</h1>
+    <p class="lede" id="pdesc"></p>
+    <div class="rule"></div>
+  </header>
+
+  <div id="items" aria-live="polite"></div>
+
+  <section class="newproj">
+    <h2>Add an item</h2>
+    <form id="newitem">
+      <input type="text" id="ititle" placeholder="What needs deciding or doing" aria-label="Item title" required>
+      <input type="text" id="isection" placeholder="Section (optional)" aria-label="Section">
+      <button type="submit">Add</button>
+    </form>
+  </section>
+
+  <footer>
+    <span class="mono" id="apihint"></span>
+    <a href="/agents.html">How agents use this</a>
+  </footer>
+</div>
+<script src="/app.js"></script>
+<script>
+(function () {
+  const slug = decodeURIComponent(location.pathname.replace(/^\/p\//, '').replace(/\/$/, ''));
+  const itemsEl = document.getElementById('items');
+  document.getElementById('apihint').textContent = 'GET /api/projects/' + slug;
+
+  // Drafts and in-flight state live outside the render, so a redraw triggered by
+  // an agent's write can never take the sentence you are typing with it. This is
+  // the failure the tool exists to stop repeating.
+  const drafts = {};
+  let deferred = null;
+  let items = [];
+
+  function statusChip(status) {
+    const el = document.createElement('span');
+    el.className = 'chip s-' + status;
+    el.textContent = WB.STATUS_LABELS[status] || status;
+    return el;
+  }
+
+  function renderItem(item) {
+    const card = document.createElement('section');
+    card.className = 'item s-' + item.status;
+    card.id = 'item-' + item.id;
+
+    const head = document.createElement('div');
+    head.className = 'row';
+    const h = document.createElement('h3');
+    h.textContent = item.title;
+    head.appendChild(h);
+    head.appendChild(statusChip(item.status));
+    card.appendChild(head);
+
+    if (item.context) {
+      const ctx = document.createElement('p');
+      ctx.className = 'ctx';
+      ctx.textContent = item.context;
+      card.appendChild(ctx);
+    }
+
+    if (item.messages && item.messages.length) {
+      const thread = document.createElement('div');
+      thread.className = 'thread';
+      for (const m of item.messages) {
+        const d = document.createElement('div');
+        d.className = 'msg ' + (m.who === 'you' ? 'you' : 'agent');
+        const who = document.createElement('div');
+        who.className = 'who';
+        who.textContent = m.who === 'you' ? 'You' : (m.author || 'Agent');
+        const p = document.createElement('p');
+        p.textContent = m.text;
+        const when = document.createElement('div');
+        when.className = 'when';
+        when.textContent = WB.fmt(m.createdAt);
+        d.append(who, p, when);
+        thread.appendChild(d);
+      }
+      card.appendChild(thread);
+    }
+
+    if (item.options && item.options.length) {
+      const opts = document.createElement('div');
+      opts.className = 'opts';
+      opts.setAttribute('role', 'group');
+      opts.setAttribute('aria-label', item.title);
+      for (const o of item.options) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = o;
+        b.setAttribute('aria-pressed', item.choice === o ? 'true' : 'false');
+        b.addEventListener('click', () => choose(item.id, o));
+        opts.appendChild(b);
+      }
+      card.appendChild(opts);
+    }
+
+    const box = document.createElement('div');
+    box.className = 'replybox';
+    const ta = document.createElement('textarea');
+    ta.id = 'ta-' + item.id;
+    ta.placeholder = item.messages && item.messages.length ? 'Reply' : 'Add a note (optional)';
+    ta.setAttribute('aria-label', 'Reply on: ' + item.title);
+    ta.value = drafts[item.id] || '';
+    ta.addEventListener('input', () => { drafts[item.id] = ta.value; });
+    ta.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(item.id); }
+    });
+    const sb = document.createElement('button');
+    sb.type = 'button';
+    sb.className = 'send';
+    sb.textContent = 'Send';
+    sb.addEventListener('click', () => send(item.id));
+    box.append(ta, sb);
+    card.appendChild(box);
+
+    const bar = document.createElement('div');
+    bar.className = 'statusbar';
+    const lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    lbl.textContent = 'Set status';
+    bar.appendChild(lbl);
+    for (const s of WB.STATUSES) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ghost';
+      b.textContent = WB.STATUS_LABELS[s];
+      b.setAttribute('aria-pressed', item.status === s ? 'true' : 'false');
+      b.addEventListener('click', () => setStatus(item.id, s));
+      bar.appendChild(b);
+    }
+    card.appendChild(bar);
+
+    const saved = document.createElement('div');
+    saved.className = 'saved';
+    saved.id = 'saved-' + item.id;
+    card.appendChild(saved);
+
+    return card;
+  }
+
+  function note(id, text, isErr) {
+    const el = document.getElementById('saved-' + id);
+    if (el) { el.textContent = text; el.className = 'saved' + (isErr ? ' err' : ''); }
+  }
+
+  function render() {
+    const sections = [];
+    const bySection = new Map();
+    for (const item of items) {
+      const key = item.section || '';
+      if (!bySection.has(key)) { bySection.set(key, []); sections.push(key); }
+      bySection.get(key).push(item);
+    }
+    itemsEl.innerHTML = '';
+    if (!items.length) {
+      itemsEl.innerHTML = '<p class="empty">Nothing here yet. Add an item below, or let an agent add them.</p>';
+      return;
+    }
+    for (const key of sections) {
+      if (key) {
+        const head = document.createElement('div');
+        head.className = 'sec-head';
+        const h2 = document.createElement('h2');
+        h2.textContent = key;
+        head.appendChild(h2);
+        itemsEl.appendChild(head);
+      }
+      for (const item of bySection.get(key)) itemsEl.appendChild(renderItem(item));
+    }
+  }
+
+  // A redraw while a reply box has focus is held back until it does not, and
+  // the caret is restored exactly rather than jumped to the end. Both halves
+  // matter: without the first, keystrokes land in a element that is being
+  // replaced; without the second, typing into the middle of a sentence throws
+  // the cursor to the end of it.
+  function safeRender() {
+    const live = document.activeElement;
+    const typing = live && live.tagName === 'TEXTAREA' && live.id && live.id.indexOf('ta-') === 0;
+    if (typing) {
+      clearTimeout(deferred);
+      deferred = setTimeout(safeRender, 2500);
+      return;
+    }
+    const fid = live && live.id ? live.id : null;
+    const start = live && live.selectionStart !== undefined ? live.selectionStart : null;
+    const end = live && live.selectionEnd !== undefined ? live.selectionEnd : null;
+    render();
+    if (fid) {
+      const again = document.getElementById(fid);
+      if (again) {
+        again.focus();
+        if (again.setSelectionRange && start !== null) {
+          try { again.setSelectionRange(start, end); } catch (e) { /* not a text field */ }
+        }
+      }
+    }
+  }
+
+  async function load(redraw) {
+    const data = await WB.get('/api/projects/' + encodeURIComponent(slug));
+    document.getElementById('pname').textContent = data.project.name;
+    document.getElementById('pdesc').textContent = data.project.description || '';
+    document.getElementById('eyebrow').textContent =
+      (data.counts['needs-you'] || 0) + ' waiting on you · ' + items.length + ' items';
+    items = data.items;
+    document.getElementById('eyebrow').textContent =
+      (data.counts['needs-you'] || 0) + ' waiting on you · ' + items.length + ' items';
+    if (redraw !== false) safeRender();
+  }
+
+  async function choose(id, option) {
+    note(id, 'saving…');
+    try {
+      // Choosing an option is an answer, so it lands as `received`: the agent
+      // has something to act on and has not yet acknowledged it.
+      await WB.patch('/api/items/' + id, { choice: option, status: 'received' });
+      await load();
+      note(id, 'saved');
+    } catch (e) { note(id, e.message, true); }
+  }
+
+  async function setStatus(id, status) {
+    note(id, 'saving…');
+    try {
+      await WB.patch('/api/items/' + id, { status });
+      await load();
+      note(id, 'saved');
+    } catch (e) { note(id, e.message, true); }
+  }
+
+  async function send(id) {
+    const text = (drafts[id] || '').trim();
+    if (!text) return;
+    note(id, 'sending…');
+    try {
+      await WB.post('/api/items/' + id + '/messages', { who: 'you', text });
+      drafts[id] = '';
+      await load();
+      note(id, 'sent');
+    } catch (e) { note(id, e.message, true); }
+  }
+
+  document.getElementById('newitem').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = document.getElementById('ititle').value.trim();
+    if (!title) return;
+    await WB.post('/api/projects/' + encodeURIComponent(slug) + '/items', {
+      title,
+      section: document.getElementById('isection').value.trim(),
+    });
+    document.getElementById('ititle').value = '';
+    await load();
+  });
+
+  load();
+  setInterval(() => load(), 5000);
+})();
+</script>
+</body>
+</html>

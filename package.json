@@ -1,0 +1,19 @@
+{
+  "name": "workbench",
+  "version": "0.1.0",
+  "private": false,
+  "description": "A local, human-in-the-loop decision board for AI-assisted projects. Agents ask; you answer in a browser; every session reads the same answers.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "dev": "bun --watch src/server.ts",
+    "export": "bun run src/cli.ts export",
+    "import": "bun run src/cli.ts import",
+    "test": "bun test"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "keywords": ["agents", "decisions", "local-first", "project-management"]
+}
