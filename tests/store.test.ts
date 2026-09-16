@@ -393,13 +393,23 @@ describe('grouping', () => {
   let store: Store;
   beforeEach(() => { store = freshStore(); });
 
-  it('groups by section until told otherwise', () => {
-    expect(store.createProject({ name: 'Acme' }).groupBy).toBe('section');
+  // A board exists to answer "what is waiting on me", and status grouping
+  // answers it directly. Sections answer "what area is this" — useful, but a
+  // second question, and labels cover the relating without forcing one axis.
+  it('groups a new project by status', () => {
+    expect(store.createProject({ name: 'Acme' }).groupBy).toBe('status');
   });
 
-  it('switches to status grouping and stays there', () => {
+  it('can still be put on sections', () => {
     const project = store.createProject({ name: 'Acme' });
-    expect(store.setProjectSections(project.slug, { groupBy: 'status' })!.groupBy).toBe('status');
+    expect(store.setProjectSections(project.slug, { groupBy: 'section' })!.groupBy).toBe('section');
+  });
+
+  it('keeps a grouping choice once made', () => {
+    const project = store.createProject({ name: 'Acme' });
+    store.setProjectSections(project.slug, { groupBy: 'section' });
+    expect(store.getProject(project.slug)!.groupBy).toBe('section');
+    store.setProjectSections(project.slug, { groupBy: 'status' });
     expect(store.getProject(project.slug)!.groupBy).toBe('status');
   });
 

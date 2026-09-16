@@ -162,10 +162,11 @@ export type Project = {
    *   section — one group per area of work (the original behaviour)
    *   status  — Open, Deferred, Documents, Archived
    *
-   * `status` answers the question a board exists for — what is waiting, what is
-   * parked, what is done — and leaves `labels` to carry the relationships that
-   * sections used to. `section` stays the default so an existing board does not
-   * silently regroup under whoever opens it next.
+   * `status` is the default for a new project: it answers the question a board
+   * exists for — what is waiting, what is parked, what is done — and leaves
+   * `labels` to carry the relationships that sections used to. `section` remains
+   * fully supported for anyone who wants the board grouped by area of work
+   * instead, and any project created before this default keeps what it holds.
    */
   groupBy: GroupBy;
   createdAt: string;
@@ -357,8 +358,11 @@ export function openDb(path: string): Database {
       -- emerge and tidying it later.
       section_mode TEXT NOT NULL DEFAULT 'adhoc',
       sections     TEXT NOT NULL DEFAULT '[]',
-      -- What the board groups rows by: 'section' or 'status'. Defaults to
-      -- section so an existing board keeps the shape its owner already knows.
+      -- What the board groups rows by: 'section' or 'status'. The COLUMN default
+      -- is section, deliberately different from the default for a NEW project:
+      -- this value is what an existing row gets when the column is added, and
+      -- regrouping a board somebody already uses is a surprise, not a default.
+      -- createProject sets 'status' for anything made from now on.
       group_by     TEXT NOT NULL DEFAULT 'section'
     );
     CREATE TABLE IF NOT EXISTS items (
@@ -572,7 +576,16 @@ export class Store {
       description: input.description || '',
       sectionMode: 'adhoc',
       sections: [],
-      groupBy: 'section',
+      // The default for anything created from now on. A board exists to answer
+      // "what is waiting on me", and status grouping answers it directly, where
+      // sections answer "what area is this" — useful, but a second question.
+      // Labels carry the relating that sections used to, without forcing one
+      // axis on every item.
+      //
+      // Existing projects are untouched: they already hold a stored value, and
+      // silently regrouping somebody's board under them is not a default, it is
+      // a surprise.
+      groupBy: 'status',
       createdAt: now(),
       archivedAt: null,
     };

@@ -5,7 +5,7 @@ browser; every session — any agent, any vendor — reads the same answers.
 
 Nothing leaves your machine. There is no account, no service and no build step.
 
-![A workbench board: six items across three sections, three waiting on a decision, each with its options and status inline.](docs/images/board.png)
+![A workbench board: items grouped by what is waiting, each row showing its labels, who spoke last and its status.](docs/images/board.png)
 
 *Example data. Rows collapse to one line each; the filters hide completed work by
 default.*
@@ -45,8 +45,8 @@ If someone points you at this page and says "install it", do exactly this:
    backed up: it is a single file on one machine, and they are entitled to
    accept that risk, but not to be unaware of it.
 
-Do not seed example projects or sample data. The one thing you *should* create
-is the `Setup` section described in `AGENTS.md` — the setup questions belong on
+Do not seed example projects or sample data. The one thing you *should* post
+are the `Setup`-labelled questions described in `AGENTS.md` — they belong on
 the board, where answering them is also the introduction to using it.
 
 ## Why
@@ -84,11 +84,26 @@ this repository**, so your content never lands in the app's git history.
 
 Create a project, add the things you need decided, and answer them in place.
 
-Each item has a status, and the four are chosen so none of them overlap — each
-answers *whose move is it*: **Needs you**, **Received** (the agent has it),
-**Deferred** (parked on purpose, waiting on neither), **Complete**. Filter the
-list by status; completed work is hidden by default, because a board that shows
-everything ever decided stops answering the only question it is for.
+Every item is one of two kinds, and the kind decides the statuses it can hold.
+
+An **issue** is something to decide or do, and its status answers *whose move is
+it*: **Decision** (yours, and nothing is built yet), **QA** (yours, the work is
+built and needs checking), **Received** (the agent has it), **Deferred** (parked
+on purpose, waiting on neither), **Complete**.
+
+A **document** — a specification, a review, a history — is not a task and never
+becomes one. It is **Active** while people still work from it and **Archived**
+once it has been superseded. Filing a document as "complete" to get it off the
+board is how the most-read material ends up hidden on the day it was written.
+
+Rows group by **Open · Deferred · Documents · Archived**, newest activity first,
+and a group with nothing visible in it does not appear. Finished work and
+superseded documents are hidden by default, because a board showing everything
+ever decided stops answering the only question it is for.
+
+**Labels** cut across all of that — any number per item, for the things one axis
+cannot say: the three items that are one release, the two waiting on the same
+person. Click one on a row to see only that thread of work.
 
 Replies are threaded, because most of these are a short back-and-forth rather
 than a single answer.
