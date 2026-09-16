@@ -16,6 +16,14 @@ window.WB = (function () {
   // Not tasks. A document is either the current reference or it has been
   // superseded; it is never waiting on anybody and never finished.
   const DOCUMENT_STATUSES = ['active', 'archived'];
+  const ISSUE_STATUSES = Object.keys(STATUS_LABELS).filter((s) => DOCUMENT_STATUSES.indexOf(s) === -1);
+
+  // The statuses an item may hold, by what it IS. The two sets do not overlap:
+  // offering all seven let a specification be set to "Received", which is the
+  // exact confusion the split exists to prevent.
+  function statusesFor(kind) {
+    return kind === 'document' ? DOCUMENT_STATUSES : ISSUE_STATUSES;
+  }
 
   // Statuses that mean the human owes something. The index card counts these
   // together, because "how much is on me" is one number to a person even though
@@ -60,6 +68,8 @@ window.WB = (function () {
     STATUS_LABELS,
     WAITING_ON_YOU,
     DOCUMENT_STATUSES,
+    ISSUE_STATUSES,
+    statusesFor,
     STATUSES: Object.keys(STATUS_LABELS),
     get: (p) => req('GET', p),
     post: (p, b) => req('POST', p, b),

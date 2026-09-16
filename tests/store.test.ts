@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { openDb, Store, VersionConflict, findSimilarSection, asHistoricInstant, asStatusValue, normaliseLabels, STATUSES, STATUS_GROUPS, DOCUMENT_STATUSES } from '../src/db.ts';
+import { openDb, Store, VersionConflict, findSimilarSection, asHistoricInstant, asStatusValue, normaliseLabels, STATUSES, STATUS_GROUPS, DOCUMENT_STATUSES, statusesFor } from '../src/db.ts';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
@@ -476,5 +476,83 @@ describe('the status split', () => {
   it('counts every status, including the ones at zero', () => {
     const project = store.createProject({ name: 'Acme' });
     expect(Object.keys(store.counts(project.id)).sort()).toEqual([...STATUSES].sort());
+  });
+});
+
+// Kind decides which statuses an item may hold. The two sets do not overlap:
+// offering all seven let a specification be set to "Received", which is the
+// exact confusion the split exists to prevent.
+describe('kind and status', () => {
+  let store: Store;
+  let projectId: string;
+  beforeEach(() => {
+    store = freshStore();
+    projectId = store.createProject({ name: 'Acme' }).id;
+  });
+
+  it('defaults to an issue', () => {
+    expect(store.createItem(projectId, { title: 'a' }).kind).toBe('issue');
+  });
+
+  it('splits the statuses with no overlap and no gaps', () => {
+    expect(statusesFor('document')).toEqual(['active', 'archived']);
+    expect(statusesFor('issue')).toEqual(['needs-decision', 'needs-qa', 'received', 'deferred', 'complete']);
+    expect([...statusesFor('issue'), ...statusesFor('document')].sort()).toEqual([...STATUSES].sort());
+    for (const s of statusesFor('document')) expect(statusesFor('issue')).not.toContain(s);
+  });
+
+  it('starts a document Active and an issue needing a decision', () => {
+    expect(store.createItem(projectId, { title: 'a', kind: 'document' }).status).toBe('active');
+    expect(store.createItem(projectId, { title: 'b', kind: 'issue' }).status).toBe('needs-decision');
+  });
+
+  // Replaced rather than refused on create: the caller told us what the thing
+  // IS, which is the more reliable half, and losing the item over a status an
+  // older writer could not have known about is the worse failure.
+  it('replaces a status the kind cannot hold', () => {
+    expect(store.createItem(projectId, { title: 'a', kind: 'document', status: 'received' }).status).toBe('active');
+    expect(store.createItem(projectId, { title: 'b', kind: 'issue', status: 'archived' }).status).toBe('needs-decision');
+  });
+
+  it('keeps a status the kind can hold', () => {
+    expect(store.createItem(projectId, { title: 'a', kind: 'document', status: 'archived' }).status).toBe('archived');
+    expect(store.createItem(projectId, { title: 'b', status: 'needs-qa' }).status).toBe('needs-qa');
+  });
+
+  // Changing kind is legitimate — a decision that turns out to be a spec — but
+  // it must never leave the item holding a status its new kind does not have.
+  it('carries the status with it when the kind changes', () => {
+    const item = store.createItem(projectId, { title: 'a', status: 'received' });
+    store.updateItem(item.id, { kind: 'document' });
+    const after = store.getItem(item.id)!;
+    expect(after.kind).toBe('document');
+    expect(after.status).toBe('active');
+  });
+
+  it('accepts a valid status in the same patch that changes the kind', () => {
+    const item = store.createItem(projectId, { title: 'a', status: 'received' });
+    store.updateItem(item.id, { kind: 'document', status: 'archived' });
+    expect(store.getItem(item.id)!.status).toBe('archived');
+  });
+
+  it('refuses to let an unrelated patch move a status off its kind', () => {
+    const doc = store.createItem(projectId, { title: 'a', kind: 'document' });
+    store.updateItem(doc.id, { status: 'complete' });
+    expect(store.getItem(doc.id)!.status).toBe('active');
+  });
+
+  // A document has no "the agent is working on it" state, so a human reply must
+  // not drag it there — that would put a specification in a status its own
+  // dropdown cannot show.
+  it('does not move a document to received when the human replies', () => {
+    const doc = store.createItem(projectId, { title: 'a', kind: 'document', status: 'archived' });
+    store.addMessage(doc.id, { who: 'you', text: 'still relevant' });
+    expect(store.getItem(doc.id)!.status).toBe('archived');
+  });
+
+  it('still moves an issue to received when the human replies', () => {
+    const item = store.createItem(projectId, { title: 'a' });
+    store.addMessage(item.id, { who: 'you', text: 'do it' });
+    expect(store.getItem(item.id)!.status).toBe('received');
   });
 });

@@ -11,7 +11,8 @@
 // costs a login. Do not expose this port.
 import {
   openDb, Store, STATUSES, VersionConflict, findSimilarSection, asStatusValue,
-  type Status, type ItemInput, type Project,
+  isStatusAllowed, statusesFor, KINDS,
+  type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -60,6 +61,19 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
   if (body.bodyFormat !== undefined && !['text', 'markdown', 'html'].includes(body.bodyFormat)) {
     throw new Error('bodyFormat must be text, markdown or html');
   }
+  if (body.kind !== undefined && !KINDS.includes(body.kind)) {
+    throw new Error(`kind must be one of: ${KINDS.join(', ')}`);
+  }
+  // The two status sets do not overlap, and a caller who names both a kind and a
+  // status it cannot hold has a real mistake rather than an old spelling — say
+  // so, rather than silently storing something they did not ask for.
+  const status = asStatusValue(body.status);
+  if (body.kind !== undefined && status && !isStatusAllowed(body.kind as Kind, status)) {
+    throw new Error(
+      `a ${body.kind} cannot be "${status}". Allowed: ${statusesFor(body.kind as Kind).join(', ')}. ` +
+      `An issue is something to decide or do; a document is something to read.`
+    );
+  }
   return {
     title: typeof body.title === 'string' ? body.title.trim() : undefined!,
     context: typeof body.context === 'string' ? body.context : undefined,
@@ -67,6 +81,7 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     choice: typeof body.choice === 'string' ? body.choice : undefined,
     status: asStatus(body.status),
     section: typeof body.section === 'string' ? body.section : undefined,
+    kind: body.kind === undefined ? undefined : body.kind,
     // These were added to the store and forgotten here, so every document
     // imported as an empty one and the API cheerfully reported success. A
     // field the store accepts and the parser drops is a silent data loss, and
