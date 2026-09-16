@@ -29,7 +29,43 @@ Segment further only when the answer is genuinely different:
 | You would archive it separately | You would archive them together |
 | The lists never need reading together | You triage them in one sitting |
 
-## Sections — one axis, and only one
+## How a board is organised
+
+**The default, and what a new project gets:**
+
+| Field | Answers | How many |
+|---|---|---|
+| `status` | whose move is it | exactly one — and it groups the board |
+| `kind` | is this a task or something to read | exactly one |
+| `labels` | how does this relate to other items | any number, including none |
+
+Rows group by status: **Open · Deferred · Documents · Archived**. Newest activity
+first within each group, and a group with nothing visible does not appear at all.
+
+That is deliberately the shape of the question a board is for. "What is waiting
+on me" is answered by the layout itself rather than by reading down a list, and
+nobody has to invent a taxonomy on their first day to get there.
+
+**Labels do the relating.** They are the field for the things one axis cannot
+express — three items that are one release, two blocked on the same person, the
+four that all touch one subsystem. Any number per item, nothing governs them on
+the way in beyond trimming and case-folding, and a label exists exactly as long
+as an item carries it.
+
+Reuse before you invent: `GET /api/projects/<slug>` returns `labels` with counts
+for exactly that reason. Because nothing polices them, they rot faster than
+sections do, and the repair (`PATCH /api/projects/<slug>/labels`) is not an
+afterthought — merging two labels that turned out to be one is normal
+maintenance, not an admission of failure.
+
+### Sections, if you want the board grouped by area of work instead
+
+Fully supported, and the right answer for some work — an agency board where the
+client is the first thing you need to see, a repository where the subsystem
+matters more than the state. Switch with
+`PATCH /api/projects/<slug> {"groupBy":"section"}`.
+
+Everything below applies when you do.
 
 **A section is the AREA OF WORK. Never the kind of item, never its state.**
 
@@ -45,7 +81,7 @@ They duplicated it because:
 
 | Tempting section | Already answered by |
 |---|---|
-| "Documents", "Specs", "Notes" | `bodyLength` — the item has a body or it does not |
+| "Documents", "Specs", "Notes" | `kind` — it is a document or it is not |
 | "Checklists" | `checks` — it has steps or it does not |
 | "Done", "Shipped", "Settled", "Archive" | `status` |
 | "Waiting on Billy", "Blocked" | `status` |
@@ -266,7 +302,8 @@ waits on in the thread, or `received` starts reading as `forgotten`.
 
 The mirror of that mistake is leaving something at `received` when the human is
 the one doing it. `received` claims you are working; if they are, the move is
-theirs and the status is `needs-you`, whether or not you intend to help.
+theirs and the status is `needs-decision` or `needs-qa`, whether or not you
+intend to help.
 
 And when you notice you set the wrong one — say so and change it. A wrong status
 is worse than a stale one, because people act on it. Quietly flipping it is
@@ -295,7 +332,8 @@ worse still: the thread is the record, and a correction is part of the record.
 - **While working:** post a message when you act on a decision. The thread is
   the record of why the code looks the way it does.
 - **End of a session:** make sure nothing you finished is still sitting at
-  `received`, and nothing you are waiting on is still at `needs-you` without the
+  `received`, and nothing you are waiting on is still at `needs-decision` or
+  `needs-qa` without the
   context somebody would need to answer it.
 
 ## Signing your work

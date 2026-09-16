@@ -307,34 +307,37 @@ than asking in chat.** It is the shortest possible introduction to the tool: the
 human answers their first items in the interface they will use from then on, and
 the answers are already recorded where every later session can read them.
 
-Create a `Setup` section in the project you are working in (or a `Workbench
-setup` project if there is none yet), then say one line in chat: *"I have put
-six setup questions on the board — answer them there and I will pick them up."*
+Label them `Setup` in the project you are working in (or a `Workbench setup`
+project if there is none yet), then say one line in chat: *"I have put seven
+setup questions on the board — answer them there and I will pick them up."*
+
+A label rather than a section, because the default grouping is by status and a
+section would file them where nothing displays.
 
 ```bash
 POST /api/projects/<slug>/items
 [
- {"section":"Setup","title":"Should I put decisions on the board automatically?",
+ {"labels":["Setup"],"title":"Should I put decisions on the board automatically?",
   "context":"Automatic means anything needing your call becomes an item without you asking. Recommended.",
   "options":["Automatic","Only when I ask"]},
- {"section":"Setup","title":"Should I read the board at the start of every session?",
+ {"labels":["Setup"],"title":"Should I read the board at the start of every session?",
   "context":"So a decision you make today is acted on tomorrow without you re-raising it. Recommended.",
   "options":["Yes","Only when I say so"]},
- {"section":"Setup","title":"Should defects and risks I find go on the board?",
+ {"labels":["Setup"],"title":"Should defects and risks I find go on the board?",
   "context":"Otherwise they live in the transcript and disappear with it. Recommended.",
   "options":["Put them on the board","Tell me in chat"]},
- {"section":"Setup","title":"Should I post a summary before I finish a session?",
+ {"labels":["Setup"],"title":"Should I post a summary before I finish a session?",
   "context":"Useful if somebody else picks the work up; noise if it is only you.",
   "options":["Yes","No"]},
- {"section":"Setup","title":"Where should the database be backed up?",
+ {"labels":["Setup"],"title":"Where should the database be backed up?",
   "context":"It is one file on one machine. Nothing here replicates it. `bun run export <dir>` writes one JSON file per project — point it at a private git repository. Declining is a legitimate answer and I will not ask again.",
   "options":["A private git repo","Somewhere else I already back up","Accept the risk, no backup"]},
- {"section":"Setup","title":"Where should new items land by default?",
+ {"labels":["Setup"],"title":"Where should new items land by default?",
   "context":"If you work across several projects, name the one that should catch anything I do not place explicitly.",
   "options":["This project","I will say each time"]},
- {"section":"Setup","title":"How should we organise sections?",
-  "context":"A section is the area of work — Ship it, Design, Infrastructure. Loose: I use my judgement, reuse what is there, and flag anything that looks like a duplicate. Fixed: we agree the list now and I am refused anything outside it. Loose is recommended; you rarely know the areas on day one, and we can fix the list later once the shape is obvious.",
-  "options":["Loose — let it emerge","Fixed — let's agree the list now"]}
+ {"labels":["Setup"],"title":"How should the board be organised?",
+  "context":"THE STANDARD FRAMEWORK, recommended, and already the default: rows group by Open / Deferred / Documents / Archived, and labels carry how items relate to each other — a release, a person they are blocked on, a subsystem. It answers the question a board is for, 'what is waiting on me', without you deciding a taxonomy on day one. BY AREA OF WORK: rows group by section instead — Ship it, Design, Infrastructure — one per item, and we agree either to let the list emerge or to fix it now. SOMETHING ELSE: tell me how you want to work and I will propose a configuration; the statuses themselves are fixed, but grouping, labels and sections are all yours to arrange.",
+  "options":["The standard framework","By area of work","Something else — let's talk"]}
 ]
 ```
 
@@ -357,18 +360,45 @@ PATCH /api/items/<id> {"status":"complete","actor":"<you>"}
 | `summariseOnExit` | question 4 | `false` |
 | `backupPlan` | question 5 | ask again next session; never assume `"none"` |
 | `defaultProject` | question 6 | infer from the repository |
-| project `sectionMode` | question 7 | `adhoc` |
+| project `groupBy` | question 7 | `status` — the standard framework |
 
-If they choose **Fixed**, have the conversation before setting it: ask what the
-areas of this work actually are, propose a starting list from what you can see
-in the repository, and agree six to eight. Then:
+**The standard framework** is the default, so choosing it means doing nothing.
+Say what they have, once, rather than staying silent — most people have never
+seen this tool before:
+
+> Rows group by Open, Deferred, Documents and Archived. Labels relate items
+> across those groups. Newest activity sits at the top of each group, and a
+> group with nothing in it does not appear.
+
+**By area of work** switches the grouping and then needs the loose-or-fixed
+conversation, which is the one thing worth getting right up front:
 
 ```bash
-PATCH /api/projects/<slug> {"sectionMode":"declared","sections":["Ship it","Design","..."]}
+PATCH /api/projects/<slug> {"groupBy":"section"}
 ```
 
-If they choose **Loose**, do nothing — it is the default — and simply honour the
-section rules below.
+Loose (`adhoc`, the default) accepts any section and warns on a near-duplicate.
+Fixed (`declared`) refuses anything unlisted. Loose is the better answer on day
+one — you rarely know the areas yet, and a taxonomy guessed early is expensive to
+admit was wrong. For fixed, agree six to eight first:
+
+```bash
+PATCH /api/projects/<slug> {"groupBy":"section","sectionMode":"declared","sections":["Ship it","Design"]}
+```
+
+**Something else** is a real conversation, not a menu. Ask how they actually
+work, what they need to see first thing in the morning, and whether anything
+else reads this board. Then propose a configuration and set it.
+
+What is arrangeable: the grouping (`status` or `section`), the section
+vocabulary and whether it is enforced, and labels — which need no configuration
+at all and cost nothing to start using.
+
+What is **not**: the status vocabulary itself. Those seven are fixed, and that is
+deliberate — they are the contract every agent writing to this board speaks, and
+a set that varies per install means no instruction about status can ever be
+written down. If the framework does not fit their work, that is a pull request
+against this repository, not a local setting. See `CONTRIBUTING.md`.
 
 `"none"` for `backupPlan` is a real answer. Record it and **never raise backups
 again** — nagging about a knowingly accepted risk is how people stop reading

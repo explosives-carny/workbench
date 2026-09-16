@@ -28,11 +28,14 @@ A decision board runs at http://localhost:4317. Read its contract at
    Identify yourself with `author` and `actor`.
 4. You are not the only session. Pass `ifVersion` on edits and merge on `409`.
    Messages are append-only and never conflict — prefer one over an edit.
-5. Statuses mean whose move it is: `needs-you` (human), `received` (you),
-   `deferred` (nobody, on purpose), `complete` (done). Do not set `complete`
-   when you ask — it is a claim that the work landed.
-6. When I say **`workbench`** (or `wb`), that means: read the board, act on
-   everything I have answered since you last looked, reply underneath what you
+5. Statuses mean whose move it is, and an item's `kind` decides which it may
+   hold. An **issue**: `needs-decision` (human must choose), `needs-qa` (human
+   must check work you finished — attach the steps as `checks`), `received`
+   (you), `deferred` (nobody, on purpose), `complete` (landed). A **document**:
+   `active` or `archived`, never the others. Do not set `complete` when you ask
+   — it is a claim that the work landed.
+6. When I say **`workbench`** (or `wb`), that means: read the board once, act on
+   everything at `received` — and nothing else — reply underneath what you
    did, and summarise in one line each. Do not create new items on a check-in.
 7. Do not modify this application to add a feature. Open a branch and a pull
    request and tell me. See CONTRIBUTING.md.

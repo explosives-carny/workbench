@@ -27,7 +27,7 @@ nobody else can reproduce.
 
 | Change | PR? |
 |---|---|
-| A new section, project, or naming convention | No — that is data |
+| A new label, section, project, or naming convention | No — that is data |
 | A new status in `STATUSES` | **Yes** — every board speaks this vocabulary |
 | A new `bodyFormat` | **Yes** — the renderer and the contract both move |
 | A schema column, table or index | **Yes**, and it must migrate (below) |
@@ -89,9 +89,9 @@ leave the branch locally with a clear commit. Do not work around it.
 
 Worth trying first, because it needs nobody's permission:
 
-- **Types** — a `section` per kind, or a title prefix. `Documents`, `Findings`,
-  `Decisions` are sections in the reference board and were never a schema
-  feature.
+- **Types** — `labels`, or a title prefix. `Release 3`, `Findings`, `blocked on
+  Ops` are labels in the reference board and were never a schema feature. A
+  label costs nothing to invent and nothing to abandon.
 - **Templates** — an agent posting a set of items with consistent titles and
   contexts is a document type. Keep the template in your own instructions.
 - **Structured bodies** — `bodyFormat: "markdown"` holds tables, checklists and
