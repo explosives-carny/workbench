@@ -43,7 +43,7 @@ back afterwards. The board stays the record; the model never touches it directly
 
 ```
 Open items needing a decision:
-1. [id abc123] Deploy to production — Prod is 200 commits behind. Options: Do it / Hold
+1. [id abc123] Deploy to production — Production is 40 commits behind. Options: Do it / Hold
 2. [id def456] Branches to delete — Two are from an earlier session. Options: Delete both / Keep both
 
 Answer each as: <id> :: <option or free text>

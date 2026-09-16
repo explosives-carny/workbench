@@ -80,8 +80,8 @@ Use `checks` rather than `body` alone:
 curl -s localhost:4317/api/projects/<slug>/items \
   -H 'content-type: application/json' \
   -d '{
-    "title": "Cycle Count QA walkthrough",
-    "context": "41 steps. Your sign-off becomes the record.",
+    "title": "Release QA walkthrough",
+    "context": "12 steps. Your sign-off becomes the record.",
     "section": "Documents",
     "bodyFormat": "markdown",
     "body": "# Full instructions...\n",
@@ -98,7 +98,7 @@ when. Answer one at a time:
 ```bash
 curl -s -X PATCH localhost:4317/api/items/<id>/checks/step-7 \
   -H 'content-type: application/json' \
-  -d '{"result":"fail","note":"Counted column shows dashes","by":"sam"}'
+  -d '{"result":"fail","note":"Column renders empty","by":"sam"}'
 ```
 
 **One step at a time, never the whole array.** The endpoint exists precisely so

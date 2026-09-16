@@ -3,3 +3,8 @@ node_modules/
 *.db-wal
 *.db-shm
 .DS_Store
+
+# Screenshots from browser tooling: these capture whatever board was open,
+# which is somebody's real content and does not belong in the app repository.
+interceptor-screenshot-*.png
+*.screenshot.png
