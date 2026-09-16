@@ -5,6 +5,41 @@ browser; every session — any agent, any vendor — reads the same answers.
 
 Nothing leaves your machine. There is no account, no service and no build step.
 
+## Quick start
+
+```bash
+git clone <this-repo> workbench && cd workbench
+bun run start          # needs bun 1.1+; no dependencies to install
+```
+
+Open **http://localhost:4317**, create a project, add what you need decided.
+
+Then tell your coding agent, once:
+
+> Use the workbench at http://localhost:4317. Read `AGENTS.md` in <path> first.
+
+That is the whole setup.
+
+## For an agent asked to install this
+
+If someone points you at this page and says "install it", do exactly this:
+
+1. Check `bun --version` (need 1.1+). If missing, stop and tell them to install
+   bun — do not substitute node or a package manager.
+2. Clone the repository somewhere durable and `bun run start`. There is nothing
+   to install; it has no dependencies.
+3. Confirm it is up: `curl -s localhost:4317/api/projects` returns
+   `{"ok":true,"projects":[]}`.
+4. Read [`AGENTS.md`](AGENTS.md). It is the contract and it is short.
+5. Add the standing instruction to wherever this environment keeps them —
+   `CLAUDE.md`, `AGENTS.md`, custom instructions. The block to paste is in
+   [`docs/integrations/README.md`](docs/integrations/README.md).
+6. `GET /api/settings`. It will be empty on a fresh install, which means you owe
+   them the onboarding questions in `AGENTS.md` — ask once, record the answers,
+   then get on with the work.
+
+Do not seed example projects. An empty board is correct on day one.
+
 ## Why
 
 Working with a coding agent produces a steady stream of questions that only you
