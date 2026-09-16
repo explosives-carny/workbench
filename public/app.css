@@ -433,3 +433,10 @@ button.labeledit:focus-visible { outline: 2px solid var(--accent); outline-offse
      The label alone carries the split. */
   .filterset + .filterset { padding-left: 0; margin-left: 0; border-left: 0; }
 }
+
+/* QA steps on an item that has no document behind it — the normal case now that
+   steps ride on the thing they verify rather than in a separate runbook. */
+.checklist { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 26px; }
+.checklist .checkrow {
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px;
+}

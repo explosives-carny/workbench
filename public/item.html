@@ -118,10 +118,20 @@
     head.appendChild(bar);
     el.appendChild(head);
 
-    // Rows are NOT listed here. They are placed inline under the step they
-    // belong to, inside the rendered document, by placeChecks() — recording a
-    // result belongs where you finish reading the instruction, not in a
-    // detached list at the top that you have to match back up by number.
+    // When there IS a document, rows are not listed here — placeChecks() puts
+    // each one under the step it belongs to, because recording a result belongs
+    // where you finish reading the instruction rather than in a detached list
+    // you have to match back up by number.
+    //
+    // When there is not, this is the only place they can go. QA steps now ride
+    // on the item they verify rather than living in a separate runbook, so most
+    // checklists have no document at all — a handful of steps under the thread
+    // that says what changed.
+    if (item.bodyFormat === 'markdown' && item.body) return;
+    const list = document.createElement('div');
+    list.className = 'checklist';
+    for (const c of checks) list.appendChild(checkRow(c, true));
+    el.appendChild(list);
   }
 
   function checkRow(c, withLabel) {
