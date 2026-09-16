@@ -81,7 +81,12 @@ Errors are `{"ok":false,"error":"..."}` — `400` malformed · `404` bad id or s
 - **Item edits can.** Send `ifVersion` from the copy you read. On `409`, merge
   onto the item in the response and retry — do not re-read and blind-write.
 - Omit `ifVersion` only for an item you just created.
-- Always send `author` / `actor`. "Who changed this" is the first question asked.
+- **Always send `author` on messages and `actor` on edits.** Omit them and the
+  board records the literal string `agent` — so every row reads the same and the
+  "who answered last" column is useless exactly when it matters, with two agents
+  working. Use a short, stable name a human will recognise: the tool you run as
+  (`claude-code`, `codex`, `cursor`), or the name they call you. Keep it the same
+  between sessions; a name that changes is no better than none.
 - Checklist steps: one `PATCH` per step. Sending the array loses concurrent
   answers.
 

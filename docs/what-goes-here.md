@@ -233,6 +233,19 @@ answered and the other is silently lost.
   `received`, and nothing you are waiting on is still at `needs-you` without the
   context somebody would need to answer it.
 
+## Signing your work
+
+Every message takes an `author` and every edit an `actor`. Send them.
+
+The board falls back to the literal `agent`, which is honest but useless: a
+board where six rows all say "agent" cannot answer the question the column
+exists for. Pick a short stable name — the tool you run as, or whatever the
+human calls you — and keep it identical across sessions. A name that drifts
+between runs is no more useful than the default.
+
+The human's own messages are recorded as `you` unless you pass something else,
+and you should not: `who: "you"` with an invented author is a fabricated record.
+
 ## Writing for the person reading it
 
 They may open this hours later, on a phone, having forgotten the conversation.
