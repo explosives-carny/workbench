@@ -16,6 +16,7 @@
     <div class="rule"></div>
   </header>
 
+  <div id="checks"></div>
   <div id="doc"></div>
   <div id="panel"></div>
 </div>
@@ -34,7 +35,10 @@
   let lastSig = null;
 
   function sig() {
-    return JSON.stringify([item.version, item.status, item.choice, (item.messages || []).length, item.body.length]);
+    return JSON.stringify([
+      item.version, item.status, item.choice, (item.messages || []).length, item.body.length,
+      (item.checks || []).map((c) => c.id + c.result + c.note).join('|'),
+    ]);
   }
 
   function renderDoc() {
@@ -81,6 +85,83 @@
       pre.textContent = item.body;
       el.appendChild(pre);
     }
+  }
+
+  // A checklist item: every step separately answerable, all on one item. The
+  // note field saves on blur rather than per keystroke, so walking forty-one
+  // steps is forty-one writes rather than several hundred.
+  function renderChecks() {
+    const el = document.getElementById('checks');
+    el.innerHTML = '';
+    const checks = item.checks || [];
+    if (!checks.length) return;
+
+    const done = checks.filter((c) => c.result).length;
+    const failed = checks.filter((c) => c.result === 'fail').length;
+
+    const head = document.createElement('div');
+    head.className = 'checkhead';
+    const prog = document.createElement('span');
+    prog.className = 'mono';
+    prog.textContent = done + ' of ' + checks.length + ' recorded' + (failed ? ' · ' + failed + ' failed' : '');
+    head.appendChild(prog);
+    const bar = document.createElement('div');
+    bar.className = 'progress';
+    const fill = document.createElement('div');
+    fill.className = 'fill' + (failed ? ' hasfail' : '');
+    fill.style.width = (checks.length ? (done / checks.length) * 100 : 0) + '%';
+    bar.appendChild(fill);
+    head.appendChild(bar);
+    el.appendChild(head);
+
+    for (const c of checks) {
+      const row = document.createElement('div');
+      row.className = 'checkrow r-' + (c.result || 'none');
+
+      const label = document.createElement('div');
+      label.className = 'ck-label';
+      label.textContent = c.label;
+      row.appendChild(label);
+
+      const btns = document.createElement('div');
+      btns.className = 'ck-btns';
+      for (const r of ['pass', 'fail', 'skip']) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ck-btn ck-' + r;
+        b.textContent = r === 'pass' ? 'Pass' : r === 'fail' ? 'Fail' : 'Skip';
+        b.setAttribute('aria-pressed', c.result === r ? 'true' : 'false');
+        b.setAttribute('aria-label', r + ': ' + c.label);
+        // Clicking the recorded answer again clears it. A step answered by
+        // accident must be returnable to unanswered, which is not the same as
+        // recording a failure.
+        b.addEventListener('click', () => setCheck(c.id, { result: c.result === r ? '' : r }));
+        btns.appendChild(b);
+      }
+      row.appendChild(btns);
+
+      const note = document.createElement('input');
+      note.type = 'text';
+      note.className = 'ck-note';
+      note.placeholder = 'Note';
+      note.value = c.note || '';
+      note.setAttribute('aria-label', 'Note for ' + c.label);
+      note.addEventListener('blur', () => {
+        if (note.value !== (c.note || '')) setCheck(c.id, { note: note.value });
+      });
+      note.addEventListener('keydown', (e) => { if (e.key === 'Enter') note.blur(); });
+      row.appendChild(note);
+
+      el.appendChild(row);
+    }
+  }
+
+  async function setCheck(checkId, patch) {
+    try {
+      const res = await WB.patch('/api/items/' + itemId + '/checks/' + checkId, patch);
+      item = res.item;
+      paint(true);
+    } catch (e) { note(e.message, true); }
   }
 
   function renderPanel() {
@@ -193,7 +274,7 @@
     const s = sig();
     if (!force && s === lastSig) return;
     const live = document.activeElement;
-    if (live && live.id === 'ta-main') {
+    if (live && (live.id === 'ta-main' || live.classList.contains('ck-note'))) {
       clearTimeout(deferred);
       deferred = setTimeout(() => paint(true), 2500);
       return;
@@ -204,6 +285,7 @@
     document.getElementById('eyebrow').textContent =
       (item.section ? item.section + ' · ' : '') + WB.STATUS_LABELS[item.status] +
       (item.choice ? ' · ' + item.choice : '');
+    renderChecks();
     renderDoc();
     renderPanel();
   }

@@ -22,8 +22,16 @@ function exportAll(): void {
   mkdirSync(dir, { recursive: true });
   const projects = store.listProjects(true);
   for (const project of projects) {
-    const items = store.listItems(project.id).map((item: Item) => ({
-      ...item,
+    // getItem per row, not listItems: the list deliberately strips `body` so a
+    // 150KB document does not ride along in every poll — and an export that
+    // inherited that would write a content repository in which every document
+    // is empty, silently. Caught by comparing the exported size against what
+    // the board reported holding.
+    const items = store
+      .listItems(project.id, false)
+      .map((row) => store.getItem(row.id)!)
+      .map((item: Item) => ({
+        ...item,
       // projectId is an internal identifier and means nothing outside this
       // database; the file is keyed by the project's slug instead, so an import
       // into a fresh machine does not depend on ids matching.

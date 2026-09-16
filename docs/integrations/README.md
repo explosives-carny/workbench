@@ -36,6 +36,9 @@ A decision board runs at http://localhost:4317. Read its contract at
    did, and summarise in one line each. Do not create new items on a check-in.
 7. Do not modify this application to add a feature. Open a branch and a pull
    request and tell me. See CONTRIBUTING.md.
+8. On your FIRST use in a session, `GET /api/settings`. If `onboardedAt` is
+   missing, ask me once how I want this used, record my answers there, and
+   honour them. If it is present, say nothing about setup.
 ```
 
 ## What makes this work in practice
