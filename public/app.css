@@ -19,6 +19,8 @@
   --qa-soft: #f1ecf9;
   --wait: #8a6a12;       /* received — amber */
   --wait-soft: #f8f0da;
+  --busy: #1f5d9e;       /* in-progress — blue, the only status that means somebody is on it right now */
+  --busy-soft: #e7eef7;
   --park: #4a5a6b;       /* deferred — slate */
   --park-soft: #eaeef2;
   --live: #12665f;       /* active — teal, a document still in use */
@@ -38,7 +40,9 @@
     --you: #ef9270; --you-soft: #33211a;
     --qa: #b79bea; --qa-soft: #241c33;
     --wait: #d9b45c; --wait-soft: #2b2415;
-    --park: #9fb3c8; --park-soft: #1d242b;
+    --busy: #7fb3e8; --busy-soft: #15202c;
+    --busy: #7fb3e8; --busy-soft: #15202c;
+  --park: #9fb3c8; --park-soft: #1d242b;
     --live: #6ec4b8; --live-soft: #142826;
     --gone: #9aa0a8; --gone-soft: #24262a;
     --live: #6ec4b8; --live-soft: #142826;
@@ -118,6 +122,7 @@ button.filter {
 button.filter.s-needs-decision { color: var(--you); background: var(--you-soft); }
 button.filter.s-needs-qa { color: var(--qa); background: var(--qa-soft); }
 button.filter.s-received { color: var(--wait); background: var(--wait-soft); }
+button.filter.s-in-progress { color: var(--busy); background: var(--busy-soft); }
 button.filter.s-deferred { color: var(--park); background: var(--park-soft); }
 button.filter.s-active { color: var(--live); background: var(--live-soft); }
 button.filter.s-archived { color: var(--gone); background: var(--gone-soft); }
@@ -150,6 +155,7 @@ button.viewtoggle:disabled { opacity: .4; cursor: default; border-color: var(--r
 .listrow.s-needs-decision { border-left: 3px solid var(--you); }
 .listrow.s-needs-qa { border-left: 3px solid var(--qa); }
 .listrow.s-received { border-left: 3px solid var(--wait); }
+.listrow.s-in-progress { border-left: 3px solid var(--busy); }
 .listrow.s-deferred { border-left: 3px solid var(--park); }
 .listrow.s-active { border-left: 3px solid var(--live); }
 .listrow.s-archived { border-left: 3px solid var(--gone); }
@@ -238,6 +244,7 @@ pre.doc {
 .item.s-needs-decision { border-left: 3px solid var(--you); }
 .item.s-needs-qa { border-left: 3px solid var(--qa); }
 .item.s-received { border-left: 3px solid var(--wait); }
+.item.s-in-progress { border-left: 3px solid var(--busy); }
 .item.s-deferred { border-left: 3px solid var(--park); }
 .item.s-active { border-left: 3px solid var(--live); }
 .item.s-archived { border-left: 3px solid var(--gone); }
@@ -252,6 +259,7 @@ pre.doc {
 .chip.s-needs-decision { color: var(--you); background: var(--you-soft); }
 .chip.s-needs-qa { color: var(--qa); background: var(--qa-soft); }
 .chip.s-received { color: var(--wait); background: var(--wait-soft); }
+.chip.s-in-progress { color: var(--busy); background: var(--busy-soft); }
 .chip.s-deferred { color: var(--park); background: var(--park-soft); }
 .chip.s-active { color: var(--live); background: var(--live-soft); }
 .chip.s-archived { color: var(--gone); background: var(--gone-soft); }
@@ -299,6 +307,7 @@ select.status {
 select.status.s-needs-decision { color: var(--you); background: var(--you-soft); }
 select.status.s-needs-qa { color: var(--qa); background: var(--qa-soft); }
 select.status.s-received { color: var(--wait); background: var(--wait-soft); }
+select.status.s-in-progress { color: var(--busy); background: var(--busy-soft); }
 select.status.s-deferred { color: var(--park); background: var(--park-soft); }
 select.status.s-active { color: var(--live); background: var(--live-soft); }
 select.status.s-archived { color: var(--gone); background: var(--gone-soft); }

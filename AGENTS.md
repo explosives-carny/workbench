@@ -49,7 +49,8 @@ Five are work. Two are documents. They are not one scale.
 |---|---|---|
 | `needs-decision` | the human's — they must choose | you, when you ask |
 | `needs-qa` | the human's — the work is built, it needs checking | you, when you finish something they must approve — **with the steps attached** |
-| `received` | yours — you have the answer | automatic when the human replies |
+| `received` | yours — the answer landed, nobody has started | automatic when the human replies |
+| `in-progress` | yours — **you claimed it and are working now** | you, before you start |
 | `deferred` | nobody's, on purpose | either, with a reason in the thread |
 | `complete` | done | you, once the work landed |
 
@@ -138,13 +139,54 @@ Set the status to whose move it actually is, not to how much effort you spent:
 |---|---|
 | You need them to choose | `needs-decision` |
 | You built it; they must approve it | `needs-qa` |
-| They answered, you are working | `received` |
+| They answered; you have not started | `received` |
+| You have started | `in-progress` — claim it first |
 | Written, PR open, not merged | `received` — and say so |
 | Merged and running | `complete` |
 | They are doing it, not you | `needs-decision` |
 | Parked by agreement | `deferred` |
 | A document people still work from | `active` |
 | A document overtaken by events | `archived` |
+
+## Claim before you start
+
+**Set `in-progress` with your `actor` before doing the work, not after.**
+
+```bash
+PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","ifVersion":7}
+POST  /api/items/<id>/messages {"who":"agent","author":"<you>","text":"Picking this up: <what you are about to do>"}
+```
+
+This is the only thing that survives losing your session. A human reply moves an
+item to `received`; if the only trigger for the work is that reply arriving in a
+live session, then an outage, a crash or a context reset takes the trigger with
+it. The item still reads `received`, nobody is on it, and nothing says so.
+
+The message matters as much as the status. It is the note your replacement reads
+— which may be you, after a reset, with none of the context you have now.
+
+**Move it off when you stop**, whichever way it went: `needs-qa` if it is built
+and needs checking, `complete` if it landed, `received` if you are handing it
+back unfinished, `deferred` by agreement. An item left at `in-progress` is a
+claim, and a claim nobody is honouring is worse than no claim.
+
+### Recovering an abandoned claim
+
+On a check-in, an item at `in-progress` is one of three things. `updatedBy` and
+`updatedAt` tell you which, and no lock table or heartbeat is needed:
+
+| What you see | What it is | What to do |
+|---|---|---|
+| `updatedBy` is you, from this session | your own work | carry on |
+| `updatedBy` is you, from before this session | **you crashed** | read the thread, resume or hand it back |
+| `updatedBy` is another agent, `updatedAt` older than your session began | **their claim is stale** | say so in the thread, reclaim it, and name whose claim you took |
+| `updatedBy` is another agent, recent | somebody is on it | leave it alone |
+
+No fixed timeout, deliberately. "Older than my session began" is answerable
+without a clock everyone has to agree on, and it is the question that actually
+matters: is anybody still here who could be doing this.
+
+Reclaiming is not rude, but doing it silently is. Post the message.
 
 **Correct your own status when you get it wrong.** A status that misdescribes
 the state is worse than a stale one, because somebody trusts it. Post a message
@@ -221,10 +263,12 @@ Human says **`workbench`** or **`wb`** →
 
 1. `GET /api/projects`, then each project. **Read everything before doing
    anything.**
-2. **The actionable set is every item at `received`.** That is the whole rule.
-   Do not go looking for other signals — the status already carries it, because
-   a human replying to an issue moves it to `received` automatically. An item at
-   any other status is somebody else's move or nobody's.
+2. **The actionable set is every item at `received`, plus any stale claim at
+   `in-progress`.** That is the whole rule. Do not go looking for other signals —
+   the status already carries it, because a human replying to an issue moves it
+   to `received` automatically. A stale claim is one whose `updatedAt` predates
+   your session; see *Recovering an abandoned claim*. An item at any other status
+   is somebody else's move or nobody's.
 3. **Plan across the whole set, not item by item.** Then execute the plan.
 4. Report the plan, then the outcome. Nothing waiting → say so in one line.
 

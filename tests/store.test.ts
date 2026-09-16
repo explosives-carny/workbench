@@ -424,9 +424,9 @@ describe('grouping', () => {
 
   // Every live status belongs to Open. Splitting them would move a piece of work
   // between groups every time it changed hands.
-  it('puts both needs-* states and received under Open', () => {
+  it('puts every live task state under Open', () => {
     const open = STATUS_GROUPS.find((g) => g.id === 'open')!;
-    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received']);
+    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress']);
     expect(STATUS_GROUPS.map((g) => g.label)).toEqual(['Open', 'Deferred', 'Documents', 'Archived']);
     // Every status lands in exactly one group, or a row would vanish from the board.
     const placed = STATUS_GROUPS.flatMap((g) => g.statuses);
@@ -440,8 +440,8 @@ describe('the status split', () => {
   let store: Store;
   beforeEach(() => { store = freshStore(); });
 
-  it('has seven distinct states', () => {
-    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'deferred', 'active', 'archived', 'complete']);
+  it('has eight distinct states', () => {
+    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'active', 'archived', 'complete']);
     expect(new Set(STATUSES).size).toBe(STATUSES.length);
   });
 
@@ -506,7 +506,7 @@ describe('kind and status', () => {
 
   it('splits the statuses with no overlap and no gaps', () => {
     expect(statusesFor('document')).toEqual(['active', 'archived']);
-    expect(statusesFor('issue')).toEqual(['needs-decision', 'needs-qa', 'received', 'deferred', 'complete']);
+    expect(statusesFor('issue')).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'complete']);
     expect([...statusesFor('issue'), ...statusesFor('document')].sort()).toEqual([...STATUSES].sort());
     for (const s of statusesFor('document')) expect(statusesFor('issue')).not.toContain(s);
   });
@@ -564,5 +564,68 @@ describe('kind and status', () => {
     const item = store.createItem(projectId, { title: 'a' });
     store.addMessage(item.id, { who: 'you', text: 'do it' });
     expect(store.getItem(item.id)!.status).toBe('received');
+  });
+});
+
+// `received` used to mean both "the answer arrived" and "somebody is working on
+// it", and the only thing that ever started work was a human reply landing in a
+// live session. Lose the session — outage, crash, context reset — and that
+// trigger goes with it: the item still reads `received`, nobody is on it, and
+// nothing on the board says so.
+describe('claiming work survives a lost session', () => {
+  let store: Store;
+  let projectId: string;
+  beforeEach(() => {
+    store = freshStore();
+    projectId = store.createProject({ name: 'Acme' }).id;
+  });
+
+  it('separates the answer arriving from somebody picking it up', () => {
+    const item = store.createItem(projectId, { title: 'a' });
+    store.addMessage(item.id, { who: 'you', text: 'go ahead' });
+    // The human's reply hands it back, and says nothing about anyone starting.
+    expect(store.getItem(item.id)!.status).toBe('received');
+    store.updateItem(item.id, { status: 'in-progress' }, { actor: 'claude-code' });
+    expect(store.getItem(item.id)!.status).toBe('in-progress');
+  });
+
+  // The whole point: a claim has to say WHO, or a survivor cannot tell an
+  // abandoned claim from somebody else's live work.
+  it('records who claimed it', () => {
+    const item = store.createItem(projectId, { title: 'a' });
+    store.updateItem(item.id, { status: 'in-progress' }, { actor: 'codex' });
+    expect(store.getItem(item.id)!.updatedBy).toBe('codex');
+  });
+
+  // And WHEN, so staleness is answerable without a heartbeat or a lock table.
+  it('records when, so an abandoned claim is visible', () => {
+    const item = store.createItem(projectId, { title: 'a' });
+    const before = Date.now();
+    store.updateItem(item.id, { status: 'in-progress' }, { actor: 'claude-code' });
+    expect(Date.parse(store.getItem(item.id)!.updatedAt)).toBeGreaterThanOrEqual(before - 1000);
+  });
+
+  it('is a live task state, so a claimed item stays visible under Open', () => {
+    const open = STATUS_GROUPS.find((g) => g.id === 'open')!;
+    expect(open.statuses).toContain('in-progress');
+  });
+
+  // A document is never claimed — there is no work to pick up on something you
+  // read — so the kind guard has to keep it out.
+  it('is an issue state only', () => {
+    expect(statusesFor('document')).not.toContain('in-progress');
+    const doc = store.createItem(projectId, { title: 'a', kind: 'document' });
+    store.updateItem(doc.id, { status: 'in-progress' });
+    expect(store.getItem(doc.id)!.status).toBe('active');
+  });
+
+  // Two agents on one board: the second must be refused rather than silently
+  // taking work the first is already doing.
+  it('refuses a second claim from a writer holding an older copy', () => {
+    const item = store.createItem(projectId, { title: 'a' });
+    const read = store.getItem(item.id)!;
+    store.updateItem(item.id, { status: 'in-progress' }, { actor: 'codex', ifVersion: read.version });
+    expect(() => store.updateItem(item.id, { status: 'in-progress' }, { actor: 'claude-code', ifVersion: read.version }))
+      .toThrow(VersionConflict);
   });
 });

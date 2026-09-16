@@ -36,7 +36,8 @@ import { dirname } from 'path';
 // What the seven now answer is "whose move is it, and what KIND of thing is it":
 //   needs-decision  the human's, and it is a decision — nothing is built yet
 //   needs-qa        the human's, and the work is done — it needs checking
-//   received        the agent's — it has the answer and is working
+//   received        the agent's — the answer has landed, nobody has started
+//   in-progress     the agent's — somebody has CLAIMED it and is working now
 //   deferred        nobody's, on purpose; revisit when something changes
 //   active          not a task: a document that is current and still referenced
 //   archived        not a task: a document superseded, kept for the record
@@ -45,7 +46,16 @@ import { dirname } from 'path';
 // `received` exists because a flat open/closed cannot express the thing that
 // actually goes wrong: the human answers and cannot tell whether the answer was
 // read. It is the agent's acknowledgement to give, never the human's.
-export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'deferred', 'active', 'archived', 'complete'] as const;
+//
+// `in-progress` exists because of the failure after that one. `received` was
+// carrying two meanings — "the answer arrived" and "somebody is working on it" —
+// and the only thing that ever started the work was a human reply arriving in a
+// live session. Lose the session to an outage, a crash or a context reset and
+// that trigger is gone with it: the item still says `received`, nobody is on it,
+// and nothing on the board says so. Splitting the two makes an abandoned claim
+// visible, because an item sitting at `in-progress` with an `updatedAt` older
+// than your session began is a claim whose owner is gone.
+export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'active', 'archived', 'complete'] as const;
 export type Status = (typeof STATUSES)[number];
 
 // Display labels. Short on purpose: these sit in a chip, a filter button and a
@@ -56,6 +66,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   'needs-decision': 'Decision',
   'needs-qa': 'QA',
   received: 'Received',
+  'in-progress': 'Working',
   'deferred': 'Deferred',
   active: 'Active',
   archived: 'Archived',
@@ -137,7 +148,7 @@ export type GroupBy = 'section' | 'status';
  * still says which it is, in its own colour.
  */
 export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] = [
-  { id: 'open', label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received'] },
+  { id: 'open', label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress'] },
   { id: 'deferred', label: 'Deferred', statuses: ['deferred'] },
   // Documents sit above Archived and below the work, because a current
   // reference is something you reach for while working rather than something
@@ -915,7 +926,7 @@ export class Store {
   }
 
   counts(projectId: string): Record<Status, number> {
-    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'deferred': 0, active: 0, archived: 0, complete: 0 };
+    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'deferred': 0, active: 0, archived: 0, complete: 0 };
     const rows: any[] = this.db.query('SELECT status, COUNT(*) AS n FROM items WHERE project_id = ? GROUP BY status').all(projectId);
     for (const row of rows) if (row.status in out) out[row.status as Status] = row.n;
     return out;

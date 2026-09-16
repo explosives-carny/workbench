@@ -7,6 +7,7 @@ window.WB = (function () {
     'needs-decision': 'Decision',
     'needs-qa': 'QA',
     received: 'Received',
+    'in-progress': 'Working',
     'deferred': 'Deferred',
     active: 'Active',
     archived: 'Archived',
