@@ -248,15 +248,16 @@
     const card = document.createElement('section');
     card.className = 'item s-' + item.status;
 
+    // No status chip here. The dropdown at the foot of this card IS the status —
+    // it shows the current value and is how you change it. A chip above the
+    // reply box restated it a second time, and the eyebrow at the top of the
+    // page a third, so the page asserted the same fact three ways and none of
+    // them was the control.
     const head = document.createElement('div');
     head.className = 'row';
     const h = document.createElement('h3');
     h.textContent = 'Discussion';
     head.appendChild(h);
-    const chip = document.createElement('span');
-    chip.className = 'chip s-' + item.status;
-    chip.textContent = WB.STATUS_LABELS[item.status];
-    head.appendChild(chip);
     card.appendChild(head);
 
     const msgs = item.messages || [];
@@ -318,7 +319,7 @@
     const bar = document.createElement('div');
     bar.className = 'statusbar';
     const lbl = document.createElement('label');
-    lbl.className = 'lbl';
+    lbl.className = 'lbl visually-hidden';
     lbl.setAttribute('for', 'st-main');
     lbl.textContent = 'Status';
     const sel = document.createElement('select');
@@ -360,9 +361,9 @@
     lastSig = s;
     document.getElementById('title').textContent = item.title;
     document.getElementById('ctx').textContent = item.context || '';
-    document.getElementById('eyebrow').textContent =
-      (item.section ? item.section + ' · ' : '') + WB.STATUS_LABELS[item.status] +
-      (item.choice ? ' · ' + item.choice : '');
+    // Section only. Status is the dropdown; the chosen option is the pressed
+    // button. Neither needs restating in the masthead.
+    document.getElementById('eyebrow').textContent = item.section || 'Item';
     renderChecks();
     renderDoc();
     renderPanel();

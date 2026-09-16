@@ -38,7 +38,11 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; }
+/* The background belongs on html as well as body. A page shorter than the
+   viewport leaves body's box ending partway down, and the canvas below it falls
+   back to the browser default — white, under a dark theme, which looked like
+   the page had broken. */
+html, body { margin: 0; min-height: 100%; background: var(--ground); }
 body {
   background: var(--ground);
   color: var(--ink);
@@ -333,3 +337,11 @@ input.ck-note { flex: 1 1 180px; width: auto; font-size: 12.5px; padding: 5px 9p
    expansion and reads like two different items. */
 .item.expandedcard > .row:first-child { display: none; }
 .item.expandedcard > .ctx { margin-top: 2px; }
+
+/* Present to a screen reader, absent to the eye. For a control whose current
+   value already names what it is — a status select reading "Needs you" does not
+   also need the word "Status" beside it. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
