@@ -49,6 +49,7 @@ They duplicated it because:
 | "Checklists" | `checks` — it has steps or it does not |
 | "Done", "Shipped", "Settled", "Archive" | `status` |
 | "Waiting on Sam", "Blocked" | `status` |
+| "Release 3", "blocked on Ops" | `labels` — that is what they are for |
 | "Urgent" | say so in the context, or do it |
 
 So: **name the part of the work, not the shape or the stage of the item.**
@@ -134,6 +135,16 @@ database?" is not answerable. "Postgres or SQLite — SQLite unless you expect
 more than one writer, which I do not; going the other way costs a day" is.
 
 ### 2. A document — a thing to read
+
+**Give it `active` or `archived`, never `complete`.** A document is not a task:
+it is never waiting on anybody and never finished, only current or superseded.
+Filing one as `complete` puts it behind the completed filter on the day it is
+written, which is how a board ends up hiding the material people actually read.
+
+`active` while somebody still works from it. `archived` once the thing it
+describes has shipped, or a newer document has replaced it. Moving one to
+`archived` is not a demotion — it is how the board says "this is history",
+which is a useful thing for it to be able to say.
 
 A walkthrough, a specification, a review, a proposal. It has a `body` and
 usually little context.

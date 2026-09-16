@@ -9,12 +9,24 @@
   --rule-2: #efefec;
   --accent: #b2451d;
   --accent-soft: #fbeee7;
-  --you: #a6401d;
+  /* One hue per status, so the five are told apart at a glance rather than by
+     reading the chip. Deferred moved off --accent deliberately: accent is the
+     link and brand colour, and a parked item reading as the most emphatic thing
+     on the page was exactly backwards. */
+  --you: #a6401d;        /* needs-decision — rust */
   --you-soft: #fbe9e1;
-  --ok: #216c43;
-  --ok-soft: #e6f2ea;
-  --wait: #8a6a12;
+  --qa: #6b3fa0;         /* needs-qa — violet */
+  --qa-soft: #f1ecf9;
+  --wait: #8a6a12;       /* received — amber */
   --wait-soft: #f8f0da;
+  --park: #4a5a6b;       /* deferred — slate */
+  --park-soft: #eaeef2;
+  --live: #12665f;       /* active — teal, a document still in use */
+  --live-soft: #e3f0ee;
+  --gone: #6b7078;       /* archived — grey, kept but not current */
+  --gone-soft: #ececea;
+  --ok: #216c43;         /* complete — green */
+  --ok-soft: #e6f2ea;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -24,8 +36,14 @@
     --soft: #9aa0a8; --faint: #71767d; --rule: #32353a; --rule-2: #26282c;
     --accent: #e8825a; --accent-soft: #2e2019;
     --you: #ef9270; --you-soft: #33211a;
-    --ok: #6fc292; --ok-soft: #17291f;
+    --qa: #b79bea; --qa-soft: #241c33;
     --wait: #d9b45c; --wait-soft: #2b2415;
+    --park: #9fb3c8; --park-soft: #1d242b;
+    --live: #6ec4b8; --live-soft: #142826;
+    --gone: #9aa0a8; --gone-soft: #24262a;
+    --live: #6ec4b8; --live-soft: #142826;
+  --gone: #9aa0a8; --gone-soft: #24262a;
+  --ok: #6fc292; --ok-soft: #17291f;
   }
 }
 :root[data-theme="dark"] {
@@ -33,8 +51,10 @@
   --soft: #9aa0a8; --faint: #71767d; --rule: #32353a; --rule-2: #26282c;
   --accent: #e8825a; --accent-soft: #2e2019;
   --you: #ef9270; --you-soft: #33211a;
-  --ok: #6fc292; --ok-soft: #17291f;
+  --qa: #b79bea; --qa-soft: #241c33;
   --wait: #d9b45c; --wait-soft: #2b2415;
+  --park: #9fb3c8; --park-soft: #1d242b;
+  --ok: #6fc292; --ok-soft: #17291f;
 }
 
 * { box-sizing: border-box; }
@@ -95,9 +115,12 @@ button.filter {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
   padding: 5px 10px; border-radius: 3px; border: 1px solid currentColor;
 }
-button.filter.s-needs-you { color: var(--you); background: var(--you-soft); }
+button.filter.s-needs-decision { color: var(--you); background: var(--you-soft); }
+button.filter.s-needs-qa { color: var(--qa); background: var(--qa-soft); }
 button.filter.s-received { color: var(--wait); background: var(--wait-soft); }
-button.filter.s-deferred { color: var(--accent); background: var(--accent-soft); }
+button.filter.s-deferred { color: var(--park); background: var(--park-soft); }
+button.filter.s-active { color: var(--live); background: var(--live-soft); }
+button.filter.s-archived { color: var(--gone); background: var(--gone-soft); }
 button.filter.s-complete { color: var(--ok); background: var(--ok-soft); }
 /* An off filter stays readable rather than disappearing — it is a control, and
    a control you cannot find is not a control. */
@@ -124,9 +147,12 @@ button.viewtoggle:disabled { opacity: .4; cursor: default; border-color: var(--r
 /* Square off the join when the card below is open, so the two read as one
    object rather than two stacked ones. */
 .listrow.open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
-.listrow.s-needs-you { border-left: 3px solid var(--you); }
+.listrow.s-needs-decision { border-left: 3px solid var(--you); }
+.listrow.s-needs-qa { border-left: 3px solid var(--qa); }
 .listrow.s-received { border-left: 3px solid var(--wait); }
-.listrow.s-deferred { border-left: 3px solid var(--accent); }
+.listrow.s-deferred { border-left: 3px solid var(--park); }
+.listrow.s-active { border-left: 3px solid var(--live); }
+.listrow.s-archived { border-left: 3px solid var(--gone); }
 .listrow.s-complete { border-left: 3px solid var(--ok); }
 button.lr-toggle {
   flex: none; width: 24px; height: 24px; padding: 0; border-radius: 4px;
@@ -147,6 +173,26 @@ a.lr-title:hover, a.lr-title:focus-visible { color: var(--accent); text-decorati
   font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent);
   border: 1px solid currentColor; border-radius: 2px; padding: 1px 5px; flex: none;
 }
+/* A label is a chip AND a control, so it reads as neutral until it is the one
+   filtering — then it takes the accent and stops being decoration. Deliberately
+   quieter than the status colours: five hues already carry meaning on this row
+   and labels must not compete with them. */
+button.lr-label {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--soft); background: var(--rule-2); border: 1px solid transparent;
+  border-radius: 2px; padding: 2px 6px; flex: none; cursor: pointer; line-height: 1.4;
+}
+button.lr-label:hover { color: var(--ink-2); border-color: var(--rule); }
+button.lr-label.on { color: var(--accent); background: var(--accent-soft); border-color: currentColor; }
+button.lr-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+button.labelfilter {
+  font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--accent); background: var(--accent-soft); border: 1px solid currentColor;
+  border-radius: 999px; padding: 4px 11px; cursor: pointer;
+}
+button.labelfilter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .lr-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-left: auto; }
 .lr-who { font-size: 10.5px; color: var(--faint); white-space: nowrap; }
 .lr-who.you { color: var(--you); }
@@ -182,13 +228,19 @@ pre.doc {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .13em;
   text-transform: uppercase; color: var(--soft); font-weight: 500; margin: 0;
 }
+/* How many rows are under this heading, after filtering. Sentence-case digits
+   rather than another uppercase label: the heading is the shouting one. */
+.sec-count { font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .item {
   background: var(--panel); border: 1px solid var(--rule); border-radius: 6px;
   padding: 16px 18px; margin-bottom: 11px;
 }
-.item.s-needs-you { border-left: 3px solid var(--you); }
+.item.s-needs-decision { border-left: 3px solid var(--you); }
+.item.s-needs-qa { border-left: 3px solid var(--qa); }
 .item.s-received { border-left: 3px solid var(--wait); }
-.item.s-deferred { border-left: 3px solid var(--accent); }
+.item.s-deferred { border-left: 3px solid var(--park); }
+.item.s-active { border-left: 3px solid var(--live); }
+.item.s-archived { border-left: 3px solid var(--gone); }
 .item.s-complete { border-left: 3px solid var(--ok); }
 .item h3 { font-size: 16px; font-weight: 600; margin: 0 0 4px; text-wrap: balance; }
 .item .ctx { color: var(--soft); font-size: 13.5px; margin: 0 0 12px; max-width: 70ch; }
@@ -197,9 +249,12 @@ pre.doc {
   text-transform: uppercase; padding: 3px 8px; border-radius: 3px; white-space: nowrap;
   border: 1px solid currentColor;
 }
-.chip.s-needs-you { color: var(--you); background: var(--you-soft); }
+.chip.s-needs-decision { color: var(--you); background: var(--you-soft); }
+.chip.s-needs-qa { color: var(--qa); background: var(--qa-soft); }
 .chip.s-received { color: var(--wait); background: var(--wait-soft); }
-.chip.s-deferred { color: var(--accent); background: var(--accent-soft); }
+.chip.s-deferred { color: var(--park); background: var(--park-soft); }
+.chip.s-active { color: var(--live); background: var(--live-soft); }
+.chip.s-archived { color: var(--gone); background: var(--gone-soft); }
 .chip.s-complete { color: var(--ok); background: var(--ok-soft); }
 
 .thread { display: grid; gap: 8px; margin: 0 0 13px; }
@@ -241,9 +296,12 @@ select.status {
      it sets are visibly the same thing. */
   border-color: currentColor;
 }
-select.status.s-needs-you { color: var(--you); background: var(--you-soft); }
+select.status.s-needs-decision { color: var(--you); background: var(--you-soft); }
+select.status.s-needs-qa { color: var(--qa); background: var(--qa-soft); }
 select.status.s-received { color: var(--wait); background: var(--wait-soft); }
-select.status.s-deferred { color: var(--accent); background: var(--accent-soft); }
+select.status.s-deferred { color: var(--park); background: var(--park-soft); }
+select.status.s-active { color: var(--live); background: var(--live-soft); }
+select.status.s-archived { color: var(--gone); background: var(--gone-soft); }
 select.status.s-complete { color: var(--ok); background: var(--ok-soft); }
 
 .newproj { margin-top: 44px; border-top: 1px solid var(--rule); padding-top: 20px; }
@@ -344,4 +402,34 @@ input.ck-note { flex: 1 1 180px; width: auto; font-size: 12.5px; padding: 5px 9p
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Labels on the single-item page: the same chip as the list, plus the one
+   control that keeps them honest. Read-only chips here — the row's click-to-
+   filter has nothing to filter on a page showing one item. */
+.labelrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+.labelrow .lr-label { cursor: default; }
+button.labeledit {
+  font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--soft); background: transparent; border: 1px dashed var(--rule);
+  border-radius: 2px; padding: 2px 7px; cursor: pointer;
+}
+button.labeledit:hover { color: var(--accent); border-color: var(--accent); }
+button.labeledit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The filter row is two clusters, not one scale. Work runs Decision → QA →
+   Received → Deferred → Complete; a document is only ever Active or Archived.
+   The rule and the label say so, so nobody reads seven buttons as a pipeline. */
+.filterset { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.filterset + .filterset {
+  padding-left: 14px; margin-left: 4px; border-left: 1px solid var(--rule);
+}
+.filterset-label {
+  font-size: 9px; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--faint); margin-right: 2px;
+}
+@media (max-width: 620px) {
+  /* At phone width the clusters stack, so a left rule would sit above nothing.
+     The label alone carries the split. */
+  .filterset + .filterset { padding-left: 0; margin-left: 0; border-left: 0; }
 }

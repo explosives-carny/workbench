@@ -11,6 +11,7 @@
   <a class="back" id="back" href="/">&#8592; Back</a>
   <header class="mast">
     <p class="eyebrow" id="eyebrow">Item</p>
+    <div class="labelrow" id="labels"></div>
     <h1 id="title">…</h1>
     <p class="lede" id="ctx"></p>
     <div class="rule"></div>
@@ -370,9 +371,46 @@
     const raised = item.createdAt ? 'Raised ' + WB.fmt(item.createdAt) : '';
     document.getElementById('eyebrow').textContent =
       [item.section, raised].filter(Boolean).join(' · ') || 'Item';
+    renderLabels();
     renderChecks();
     renderDoc();
     renderPanel();
+  }
+
+  // Labels, shown and editable. Editable here rather than only through the API
+  // because a label's whole value is being applied consistently, and a field you
+  // can read but not correct drifts within a week. One comma-separated box: the
+  // set is small, and chip-with-an-x is more interface than the job needs.
+  function renderLabels() {
+    const host = document.getElementById('labels');
+    host.innerHTML = '';
+    const current = item.labels || [];
+    for (const label of current) {
+      const chip = document.createElement('span');
+      chip.className = 'lr-label mono';
+      chip.textContent = label;
+      host.appendChild(chip);
+    }
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'labeledit mono';
+    edit.textContent = current.length ? 'Edit labels' : 'Add labels';
+    edit.addEventListener('click', async () => {
+      const next = prompt('Labels, comma separated', current.join(', '));
+      if (next === null) return;
+      note('saving…');
+      try {
+        const res = await WB.patch('/api/items/' + encodeURIComponent(itemId), {
+          labels: next.split(',').map((l) => l.trim()).filter(Boolean),
+          actor: 'you',
+          ifVersion: item.version,
+        });
+        item = res.item;
+        paint();
+        note('saved');
+      } catch (e) { note(e.message, true); }
+    });
+    host.appendChild(edit);
   }
 
   async function load() {

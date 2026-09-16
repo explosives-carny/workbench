@@ -12,33 +12,109 @@ import { randomUUID } from 'crypto';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-// The four states an item can be in, and the vocabulary the whole tool speaks.
-// They are chosen so that no two of them overlap, which took a correction: an
-// earlier set had `needs-you` and `needs-more` side by side, and both meant "the
-// human owes something". The only difference was whether it was the first ask or
-// a follow-up — provenance, which the thread already shows. In the one view that
-// matters, the human's queue, they were the same state twice.
+// The states an item can be in, and the vocabulary the whole tool speaks. They
+// are chosen so that no two of them overlap, which has taken two corrections.
 //
-// What the four now answer is "whose move is it":
-//   needs-you  the human's
-//   received   the agent's — it has the answer and is working
-//   deferred   nobody's, on purpose; revisit when something changes
-//   complete   done
+// The first: an earlier set had `needs-you` and `needs-more` side by side and
+// both meant "the human owes something". The only difference was whether it was
+// the first ask or a follow-up — provenance, which the thread already shows.
+//
+// The second: `needs-you` then covered two genuinely different asks. "Choose
+// between these options so I can proceed" and "I have finished the work, check
+// it" are not the same request, do not take the same amount of the human's
+// attention, and cannot be triaged together. A board where a five-second yes/no
+// sits in the same bucket as a forty-one step walkthrough teaches people to scan
+// past both.
+//
+// The third correction: a specification, a review or a history is not a task at
+// all. It is never "waiting on" anybody and it is never "done" — it is either
+// the current reference or it has been superseded. Forced through a task
+// vocabulary, every document on the board had to be filed as `complete`, which
+// hid it behind the completed filter on the day it was written and made the
+// board's most-read material its least visible.
+//
+// What the seven now answer is "whose move is it, and what KIND of thing is it":
+//   needs-decision  the human's, and it is a decision — nothing is built yet
+//   needs-qa        the human's, and the work is done — it needs checking
+//   received        the agent's — it has the answer and is working
+//   deferred        nobody's, on purpose; revisit when something changes
+//   active          not a task: a document that is current and still referenced
+//   archived        not a task: a document superseded, kept for the record
+//   complete        done
 //
 // `received` exists because a flat open/closed cannot express the thing that
 // actually goes wrong: the human answers and cannot tell whether the answer was
 // read. It is the agent's acknowledgement to give, never the human's.
-export const STATUSES = ['needs-you', 'received', 'deferred', 'complete'] as const;
+export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'deferred', 'active', 'archived', 'complete'] as const;
 export type Status = (typeof STATUSES)[number];
 
+// Display labels. Short on purpose: these sit in a chip, a filter button and a
+// dropdown at once, and "Needs decision" wrapped to two lines in the chip. The
+// word "Needs" carried nothing the group heading and the colour did not already
+// say. The IDs keep the longer name — they are the agent contract.
 export const STATUS_LABELS: Record<Status, string> = {
-  'needs-you': 'Needs you',
+  'needs-decision': 'Decision',
+  'needs-qa': 'QA',
   received: 'Received',
   'deferred': 'Deferred',
+  active: 'Active',
+  archived: 'Archived',
   complete: 'Complete',
 };
 
+/**
+ * The statuses a document carries, as opposed to a task.
+ *
+ * Exported because the distinction matters to more than the grouping: an agent
+ * deciding what to set, and a human reading why a thing is where it is, both
+ * need to know these two are a pair and not two more points on the task scale.
+ */
+export const DOCUMENT_STATUSES: Status[] = ['active', 'archived'];
+
+/**
+ * Old status spellings, accepted on input and mapped forward.
+ *
+ * `needs-you` was the single "waiting on the human" state before it split. It is
+ * written into agent instructions, earlier exports, and any session running from
+ * a cached copy of the contract — so refusing it would break writers that are
+ * not wrong, merely older. It maps to `needs-decision`, which is what it meant
+ * in every case that predates the split.
+ */
+export const STATUS_ALIASES: Record<string, Status> = {
+  'needs-you': 'needs-decision',
+};
+
+/** A status string from any writer, current spelling or old, or null. */
+export function asStatusValue(value: unknown): Status | null {
+  if (typeof value !== 'string') return null;
+  if ((STATUSES as readonly string[]).includes(value)) return value as Status;
+  return STATUS_ALIASES[value] ?? null;
+}
+
 export type SectionMode = 'adhoc' | 'declared';
+
+export type GroupBy = 'section' | 'status';
+
+/**
+ * The status groups, in board order, when a project groups by status.
+ *
+ * Open is deliberately every TASK status that is still live — the two waiting on
+ * a person and the one waiting on an agent. Splitting them here would put the same
+ * piece of work in a different group every time it changed hands, which is
+ * exactly the churn the grouping is meant to absorb; the per-row status chip
+ * still says which it is, in its own colour.
+ */
+export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] = [
+  { id: 'open', label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received'] },
+  { id: 'deferred', label: 'Deferred', statuses: ['deferred'] },
+  // Documents sit above Archived and below the work, because a current
+  // reference is something you reach for while working rather than something
+  // waiting on you. An archived document joins finished work in the last group:
+  // both are "kept, not current", and separating them would give the board two
+  // graveyards.
+  { id: 'documents', label: 'Documents', statuses: ['active'] },
+  { id: 'archived', label: 'Archived', statuses: ['archived', 'complete'] },
+];
 
 export type Project = {
   id: string;
@@ -48,6 +124,18 @@ export type Project = {
   sectionMode: SectionMode;
   /** Declared vocabulary. Advisory in adhoc mode, enforced in declared mode. */
   sections: string[];
+  /**
+   * What the board groups its rows by.
+   *
+   *   section — one group per area of work (the original behaviour)
+   *   status  — Open, Deferred, Documents, Archived
+   *
+   * `status` answers the question a board exists for — what is waiting, what is
+   * parked, what is done — and leaves `labels` to carry the relationships that
+   * sections used to. `section` stays the default so an existing board does not
+   * silently regroup under whoever opens it next.
+   */
+  groupBy: GroupBy;
   createdAt: string;
   archivedAt: string | null;
 };
@@ -63,6 +151,46 @@ export type Project = {
 // this project and the human can.
 export function normaliseSection(name: string): string {
   return String(name).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/s\b/g, '');
+}
+
+/**
+ * Clean a label set: trimmed, de-duplicated case-insensitively, order kept.
+ *
+ * Deliberately permissive about WHAT a label says — unlike a section, which is
+ * one axis with a governed vocabulary, labels are the free field and policing
+ * them would defeat the point. What is not permissive is the SHAPE: a trailing
+ * space or a stray capital produces two labels that look identical in the
+ * filter list and match different items, which is the only way a free-text
+ * field silently lies.
+ *
+ * First spelling wins on a case clash, so whoever used it first sets the
+ * casing and later writers join that label rather than forking it.
+ */
+export function normaliseLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue;
+    const label = raw.trim().replace(/\s+/g, ' ');
+    if (!label || label.length > 60) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  return out;
+}
+
+function parseLabels(raw: unknown): string[] {
+  if (typeof raw !== 'string') return [];
+  try {
+    return normaliseLabels(JSON.parse(raw));
+  } catch {
+    // Same reasoning as options: a malformed blob on one item must not take the
+    // list down with it. An item with no labels is still readable.
+    return [];
+  }
 }
 
 export function findSimilarSection(name: string, existing: string[]): string | null {
@@ -107,6 +235,16 @@ export type Item = {
   choice: string;
   status: Status;
   section: string;
+  /**
+   * How this item relates to others, crosswise to everything else.
+   *
+   * A `section` answers "which area of work"; exactly one, chosen from a
+   * vocabulary. Labels answer "what does this have in common with that", any
+   * number of them, and an item can carry none. They are the field for the
+   * relationships a single axis cannot express — the three items that are all
+   * one release, the two that both wait on the same person.
+   */
+  labels: string[];
   position: number;
   version: number;
   updatedBy: string;
@@ -128,6 +266,7 @@ export type ItemInput = {
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
   checks?: Check[];
+  labels?: string[];
   /**
    * When this thing actually came into being, for an import carrying history.
    *
@@ -182,7 +321,10 @@ export function openDb(path: string): Database {
       -- one and being forced to guess produces a worse taxonomy than letting one
       -- emerge and tidying it later.
       section_mode TEXT NOT NULL DEFAULT 'adhoc',
-      sections     TEXT NOT NULL DEFAULT '[]'
+      sections     TEXT NOT NULL DEFAULT '[]',
+      -- What the board groups rows by: 'section' or 'status'. Defaults to
+      -- section so an existing board keeps the shape its owner already knows.
+      group_by     TEXT NOT NULL DEFAULT 'section'
     );
     CREATE TABLE IF NOT EXISTS items (
       id         TEXT PRIMARY KEY,
@@ -191,7 +333,7 @@ export function openDb(path: string): Database {
       context    TEXT NOT NULL DEFAULT '',
       options    TEXT NOT NULL DEFAULT '[]',
       choice     TEXT NOT NULL DEFAULT '',
-      status     TEXT NOT NULL DEFAULT 'needs-you',
+      status     TEXT NOT NULL DEFAULT 'needs-decision',
       section    TEXT NOT NULL DEFAULT '',
       position   INTEGER NOT NULL DEFAULT 0,
       -- Concurrency. Several sessions and several people may hold this item open
@@ -214,6 +356,9 @@ export function openDb(path: string): Database {
       -- the board, and they share one context and one sign-off. JSON because
       -- the shape is a list the item owns, never queried across items.
       checks      TEXT NOT NULL DEFAULT '[]',
+      -- Labels: any number per item, crosswise to section and status. JSON
+      -- because the set is small, owned by the item, and only ever read with it.
+      labels      TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -243,12 +388,23 @@ export function openDb(path: string): Database {
   const pcols = new Set<string>(db.query('PRAGMA table_info(projects)').all().map((r: any) => r.name));
   if (!pcols.has('section_mode')) db.exec("ALTER TABLE projects ADD COLUMN section_mode TEXT NOT NULL DEFAULT 'adhoc'");
   if (!pcols.has('sections')) db.exec("ALTER TABLE projects ADD COLUMN sections TEXT NOT NULL DEFAULT '[]'");
+  if (!pcols.has('group_by')) db.exec("ALTER TABLE projects ADD COLUMN group_by TEXT NOT NULL DEFAULT 'section'");
   const columns = new Set<string>(db.query('PRAGMA table_info(items)').all().map((r: any) => r.name));
   if (!columns.has('version')) db.exec('ALTER TABLE items ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
   if (!columns.has('updated_by')) db.exec("ALTER TABLE items ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''");
   if (!columns.has('body')) db.exec("ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''");
   if (!columns.has('body_format')) db.exec("ALTER TABLE items ADD COLUMN body_format TEXT NOT NULL DEFAULT 'text'");
   if (!columns.has('checks')) db.exec("ALTER TABLE items ADD COLUMN checks TEXT NOT NULL DEFAULT '[]'");
+  if (!columns.has('labels')) db.exec("ALTER TABLE items ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
+  // `needs-you` split into `needs-decision` and `needs-qa`. Every existing row
+  // predates the split and therefore predates the distinction, so it becomes
+  // `needs-decision` — the meaning it actually had. Nothing is guessed as QA:
+  // an item nobody has marked as finished work is not finished work.
+  //
+  // Rewritten in place rather than translated on read, so the stored value and
+  // the vocabulary never disagree. A row already migrated matches nothing and
+  // the statement is a no-op, which is what makes reopening an old file safe.
+  db.exec("UPDATE items SET status = 'needs-decision' WHERE status = 'needs-you'");
   return db;
 }
 
@@ -274,6 +430,7 @@ function rowToProject(r: any): Project {
         return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
       } catch { return []; }
     })(),
+    groupBy: (r.group_by === 'status' ? 'status' : 'section') as GroupBy,
     createdAt: r.created_at,
     archivedAt: r.archived_at,
   };
@@ -307,6 +464,7 @@ function rowToItem(r: any): Item {
         return Array.isArray(parsed) ? parsed : [];
       } catch { return []; }
     })(),
+    labels: parseLabels(r.labels),
     body: r.body ?? '',
     bodyFormat: (r.body_format ?? 'text') as 'text' | 'markdown' | 'html',
     createdAt: r.created_at,
@@ -362,12 +520,13 @@ export class Store {
       description: input.description || '',
       sectionMode: 'adhoc',
       sections: [],
+      groupBy: 'section',
       createdAt: now(),
       archivedAt: null,
     };
     this.db
-      .query('INSERT INTO projects (id, slug, name, description, section_mode, sections, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)')
-      .run(project.id, project.slug, project.name, project.description, project.sectionMode, JSON.stringify(project.sections), project.createdAt);
+      .query('INSERT INTO projects (id, slug, name, description, section_mode, sections, group_by, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+      .run(project.id, project.slug, project.name, project.description, project.sectionMode, JSON.stringify(project.sections), project.groupBy, project.createdAt);
     return project;
   }
 
@@ -416,8 +575,8 @@ export class Store {
     const id = randomUUID();
     this.db
       .query(
-        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, labels, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -426,12 +585,13 @@ export class Store {
         input.context || '',
         JSON.stringify(input.options || []),
         input.choice || '',
-        input.status || 'needs-you',
+        input.status || 'needs-decision',
         input.section || '',
         position,
         input.body || '',
         input.bodyFormat || 'text',
         JSON.stringify(input.checks || []),
+        JSON.stringify(normaliseLabels(input.labels)),
         createdAt,
         at
       );
@@ -461,17 +621,18 @@ export class Store {
       body: patch.body ?? current.body,
       bodyFormat: patch.bodyFormat ?? current.bodyFormat,
       checks: JSON.stringify(patch.checks ?? current.checks),
+      labels: JSON.stringify(patch.labels === undefined ? current.labels : normaliseLabels(patch.labels)),
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
       next.title, next.context, next.options, next.choice, next.status, next.section, next.position,
-      next.body, next.bodyFormat, next.checks, now(), opts.actor || '', id,
+      next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
         `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, section = ?, position = ?,
-           body = ?, body_format = ?, checks = ?, updated_at = ?, updated_by = ?, version = version + 1
+           body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, version = version + 1
          WHERE id = ?${guard}`
       )
       .run(...params);
@@ -533,8 +694,8 @@ export class Store {
   // Appending a message is the one write both sides do constantly, so it also
   // carries the status transition rather than leaving it to a second call that
   // can fail on its own. A human reply means the agent has not seen it yet
-  // (`needs-you` would be a lie, `received` is the agent's word to give), so the
-  // human's own post moves it OFF needs-you and the agent's reply is what marks
+  // (a needs-* status would be a lie, `received` is the agent's word to give), so
+  // the human's own post moves it OFF the needs-* states and the agent's reply marks
   // it received. Callers can still override explicitly.
   addMessage(itemId: string, input: { who: 'you' | 'agent'; text: string; author?: string; status?: Status; createdAt?: string }): Message | null {
     const item = this.getItem(itemId);
@@ -596,15 +757,63 @@ export class Store {
     return out;
   }
 
-  setProjectSections(slug: string, patch: { sectionMode?: SectionMode; sections?: string[] }): Project | null {
+  setProjectSections(slug: string, patch: { sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy }): Project | null {
     const project = this.getProject(slug);
     if (!project) return null;
     const mode = patch.sectionMode ?? project.sectionMode;
     const sections = patch.sections ?? project.sections;
+    const groupBy = patch.groupBy ?? project.groupBy;
     this.db
-      .query('UPDATE projects SET section_mode = ?, sections = ? WHERE id = ?')
-      .run(mode, JSON.stringify(sections), project.id);
+      .query('UPDATE projects SET section_mode = ?, sections = ?, group_by = ? WHERE id = ?')
+      .run(mode, JSON.stringify(sections), groupBy, project.id);
     return this.getProject(slug);
+  }
+
+  /**
+   * Every label in use on this project, commonest first.
+   *
+   * Read for the same reason `sectionsInUse` is: so a writer reuses a label
+   * rather than inventing a near-synonym beside it. Computed rather than stored
+   * — a label exists exactly as long as an item carries it, and a list that
+   * outlives its last item is a list nobody trusts.
+   */
+  labelsInUse(projectId: string): { name: string; count: number }[] {
+    const counts = new Map<string, { name: string; count: number }>();
+    for (const row of this.db.query('SELECT labels FROM items WHERE project_id = ?').all(projectId) as any[]) {
+      for (const label of parseLabels(row.labels)) {
+        const key = label.toLowerCase();
+        const seen = counts.get(key);
+        if (seen) seen.count += 1;
+        else counts.set(key, { name: label, count: 1 });
+      }
+    }
+    return [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Rename or merge a label across every item that carries it, or remove it
+   * when `to` is empty. Same reasoning as renameSection: a vocabulary that
+   * cannot be repaired only gets worse, and labels rot faster than sections
+   * because nothing governs them on the way in.
+   */
+  renameLabel(projectId: string, from: string, to: string, actor = ''): number {
+    const target = normaliseLabels([to])[0] ?? '';
+    const key = String(from).trim().toLowerCase();
+    if (!key) return 0;
+    let changed = 0;
+    const rows: any[] = this.db.query('SELECT id, labels FROM items WHERE project_id = ?').all(projectId);
+    for (const row of rows) {
+      const labels = parseLabels(row.labels);
+      if (!labels.some((label) => label.toLowerCase() === key)) continue;
+      // Map then re-normalise: renaming onto an existing label merges rather
+      // than producing the same label twice on one item.
+      const next = normaliseLabels(labels.map((label) => (label.toLowerCase() === key ? target : label)).filter(Boolean));
+      this.db
+        .query('UPDATE items SET labels = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
+        .run(JSON.stringify(next), now(), actor, row.id);
+      changed += 1;
+    }
+    return changed;
   }
 
   /**
@@ -620,7 +829,7 @@ export class Store {
   }
 
   counts(projectId: string): Record<Status, number> {
-    const out: Record<Status, number> = { 'needs-you': 0, received: 0, 'deferred': 0, complete: 0 };
+    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'deferred': 0, active: 0, archived: 0, complete: 0 };
     const rows: any[] = this.db.query('SELECT status, COUNT(*) AS n FROM items WHERE project_id = ? GROUP BY status').all(projectId);
     for (const row of rows) if (row.status in out) out[row.status as Status] = row.n;
     return out;

@@ -1,12 +1,26 @@
 // Shared client helpers. Deliberately no framework: the whole point of this
 // tool is that it costs nothing to run and nothing to rebuild.
 window.WB = (function () {
+  // Order matters: this is the order the filter row and the status dropdown
+  // present, and it runs live → parked → done.
   const STATUS_LABELS = {
-    'needs-you': 'Needs you',
+    'needs-decision': 'Decision',
+    'needs-qa': 'QA',
     received: 'Received',
     'deferred': 'Deferred',
+    active: 'Active',
+    archived: 'Archived',
     complete: 'Complete',
   };
+
+  // Not tasks. A document is either the current reference or it has been
+  // superseded; it is never waiting on anybody and never finished.
+  const DOCUMENT_STATUSES = ['active', 'archived'];
+
+  // Statuses that mean the human owes something. The index card counts these
+  // together, because "how much is on me" is one number to a person even though
+  // the two asks are different in kind.
+  const WAITING_ON_YOU = ['needs-decision', 'needs-qa'];
 
   async function req(method, path, body) {
     const res = await fetch(path, {
@@ -44,6 +58,8 @@ window.WB = (function () {
 
   return {
     STATUS_LABELS,
+    WAITING_ON_YOU,
+    DOCUMENT_STATUSES,
     STATUSES: Object.keys(STATUS_LABELS),
     get: (p) => req('GET', p),
     post: (p, b) => req('POST', p, b),
