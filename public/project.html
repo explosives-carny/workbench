@@ -103,17 +103,32 @@
       });
       el.appendChild(b);
     }
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'viewtoggle mono';
-    toggle.textContent = mode === 'list' ? 'Cards' : 'List';
-    toggle.setAttribute('aria-label', mode === 'list' ? 'Switch to card view' : 'Switch to list view');
-    toggle.addEventListener('click', () => {
-      mode = mode === 'list' ? 'cards' : 'list';
-      try { localStorage.setItem(MODE_KEY, mode); } catch (e) { /* preference only */ }
+    const group = document.createElement('span');
+    group.className = 'viewgroup';
+    const shownIds = visible().map((i) => i.id);
+    const allOpen = shownIds.length > 0 && shownIds.every((id) => expanded.has(id));
+
+    const expandAll = document.createElement('button');
+    expandAll.type = 'button';
+    expandAll.className = 'viewtoggle mono';
+    expandAll.textContent = 'Expand all';
+    expandAll.disabled = allOpen;
+    expandAll.addEventListener('click', () => {
+      // Only what is currently visible: expanding items hidden by a filter
+      // would silently queue up work for the moment the filter comes off.
+      for (const id of shownIds) expanded.add(id);
       safeRender(true);
     });
-    el.appendChild(toggle);
+
+    const collapseAll = document.createElement('button');
+    collapseAll.type = 'button';
+    collapseAll.className = 'viewtoggle mono';
+    collapseAll.textContent = 'Collapse all';
+    collapseAll.disabled = expanded.size === 0;
+    collapseAll.addEventListener('click', () => { expanded.clear(); safeRender(true); });
+
+    group.append(expandAll, collapseAll);
+    el.appendChild(group);
 
     const hiddenCount = items.length - visible().length;
     if (hiddenCount > 0) {
@@ -130,11 +145,11 @@
   // across fourteen items without scrolling past fourteen threads; the cards
   // answer "what is this one about" and let you reply without leaving. Which one
   // you want is a per-viewer preference, so it lives beside the filters.
-  const MODE_KEY = 'wb.mode.' + slug;
-  let mode = (function () {
-    try { return localStorage.getItem(MODE_KEY) === 'cards' ? 'cards' : 'list'; }
-    catch (e) { return 'list'; }
-  })();
+  // Rows by default, each one expandable in place. The earlier design was a
+  // binary list/cards switch, which forced a choice between "see where
+  // everything stands" and "read this one" — the whole point is doing both at
+  // once, so expansion is per row and expand-all covers the old cards mode.
+  const expanded = new Set();
 
   function lastWord(item) {
     const msgs = item.messages || [];
@@ -143,14 +158,32 @@
   }
 
   function renderRow(item) {
-    const a = document.createElement('a');
-    a.className = 'listrow s-' + item.status;
-    a.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(item.id);
+    const wrap = document.createElement('div');
+    wrap.className = 'rowwrap';
+
+    const a = document.createElement('div');
+    a.className = 'listrow s-' + item.status + (expanded.has(item.id) ? ' open' : '');
+
+    // The disclosure is a real button so it is reachable by keyboard and
+    // announces its state; the title beside it is a link to the item's own page,
+    // because "expand here" and "open that" are different intentions.
+    const tog = document.createElement('button');
+    tog.type = 'button';
+    tog.className = 'lr-toggle';
+    tog.setAttribute('aria-expanded', expanded.has(item.id) ? 'true' : 'false');
+    tog.setAttribute('aria-label', (expanded.has(item.id) ? 'Collapse' : 'Expand') + ': ' + item.title);
+    tog.textContent = expanded.has(item.id) ? '\u2212' : '+';
+    tog.addEventListener('click', () => {
+      if (expanded.has(item.id)) expanded.delete(item.id); else expanded.add(item.id);
+      safeRender(true);
+    });
+    a.appendChild(tog);
 
     const main = document.createElement('div');
     main.className = 'lr-main';
-    const t = document.createElement('span');
+    const t = document.createElement('a');
     t.className = 'lr-title';
+    t.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(item.id);
     t.textContent = item.title;
     main.appendChild(t);
     // A document behind the row is worth saying so, because the row cannot show
@@ -184,7 +217,14 @@
     meta.appendChild(chip);
 
     a.appendChild(meta);
-    return a;
+    wrap.appendChild(a);
+
+    if (expanded.has(item.id)) {
+      const card = renderItem(item);
+      card.classList.add('expandedcard');
+      wrap.appendChild(card);
+    }
+    return wrap;
   }
 
   function statusChip(status) {
@@ -337,7 +377,7 @@
         head.appendChild(h2);
         itemsEl.appendChild(head);
       }
-      for (const item of bySection.get(key)) itemsEl.appendChild(mode === 'list' ? renderRow(item) : renderItem(item));
+      for (const item of bySection.get(key)) itemsEl.appendChild(renderRow(item));
     }
   }
 
@@ -349,7 +389,7 @@
   // instead of trying to dodge it.
   function signature() {
     return JSON.stringify([
-      mode,
+      [...expanded].sort(),
       [...hidden].sort(),
       items.map((i) => [i.id, i.version, i.status, i.choice, i.title, i.context, i.section, (i.messages || []).length, i.bodyLength || 0,
         (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
