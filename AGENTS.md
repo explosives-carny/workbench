@@ -59,16 +59,32 @@ different amounts of a person's attention and cannot be triaged together. If
 nothing is built yet, it is a decision; if something is built and needs their
 eyes, it is QA.
 
-**Documents are not tasks.** A specification, a review or a history is never
-waiting on anybody and never finished — it is either current or superseded:
+**Documents are not tasks**, and `kind` is what says so. Set it on create.
+
+| `kind` | Is | Statuses it may hold |
+|---|---|---|
+| `issue` (default) | something to decide or do | the five above |
+| `document` | something to read or work through | `active` · `archived` |
 
 | Status | Means |
 |---|---|
 | `active` | the current reference, still worth reading |
 | `archived` | superseded or shipped; kept for the record |
 
+The two sets do not overlap and the board enforces it: a status the kind cannot
+hold is replaced with that kind's default, and naming both a `kind` and an
+impossible `status` in one call is a `400`.
+
 Never file a document as `complete` to get it off the board. That hides the
 board's most-read material behind the completed filter on the day it is written.
+
+**A document that asks for something is two items.** The document is `active`;
+the ask is its own `issue`. A decision buried in a specification is a decision
+nobody can answer, because the document has nowhere to put the answer.
+
+Changing `kind` later is fine — a decision that turns out to be a specification,
+or the reverse. The status follows it automatically unless you set a valid one
+in the same call.
 
 `needs-you` is still accepted on input and stored as `needs-decision`.
 
