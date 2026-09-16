@@ -36,7 +36,9 @@ If someone points you at this page and says "install it", do exactly this:
    [`docs/integrations/README.md`](docs/integrations/README.md).
 6. `GET /api/settings`. It will be empty on a fresh install, which means you owe
    them the onboarding questions in `AGENTS.md` — ask once, record the answers,
-   then get on with the work.
+   then get on with the work. One of those questions is where the database gets
+   backed up: it is a single file on one machine, and they are entitled to
+   accept that risk, but not to be unaware of it.
 
 Do not seed example projects. An empty board is correct on day one.
 
@@ -139,7 +141,10 @@ bun run import ~/my-workbench-content   # read them back on another machine
 ```
 
 Point that at a private git repository and your own history — who decided what,
-and when — is versioned independently of this tool. Exports are plain JSON
+and when — is versioned independently of this tool. **This is also the only
+backup.** `~/.workbench/workbench.db` is one file on one machine; nothing here
+replicates it. Export somewhere durable, or decide knowingly that you would not
+mind losing the board. Exports are plain JSON
 rather than a copy of the database, because a binary file in git cannot be
 diffed and two people's changes cannot be merged.
 

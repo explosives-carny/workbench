@@ -110,12 +110,33 @@ instruction that must outlive the session.
 | `postFindings` | Defects and risks go on the board? | `true` |
 | `summariseOnExit` | Post what you did before finishing? | `false` |
 | `defaultProject` | Where do new items land? | ask, or infer from the repo |
+| `backupPlan` | Where does the database get backed up to? | `"none"` only if they say so |
 
 ```bash
 PATCH /api/settings  {"onboardedAt":"<iso>","autoCapture":true,"...":"..."}
 ```
 
-Then honour them. Asking and then behaving identically is worse than not asking.
+### Raise the backup question once, at onboarding
+
+The database is a single file on one machine. It is not replicated, not synced
+and not backed up by anything here. Say so plainly and offer:
+
+1. **A private git repository** — `bun run export <dir>` writes one JSON file
+   per project; point it at a repo and commit. This is the recommendation.
+2. **Any other durable location** they already trust — a synced folder, a
+   backup system, an external disk.
+3. **Nothing.** A legitimate answer for a board they would not mind losing.
+
+Record the outcome in `backupPlan` — a path, a repository URL, or the string
+`"none"`. If they accept the risk, write `"none"` and **do not raise it again**;
+nagging about a risk somebody has knowingly accepted is how people stop reading
+what you write.
+
+If `backupPlan` is a path or a repository, offer to run the export at the end of
+sessions where the board changed materially.
+
+Then honour all of it. Asking and then behaving identically is worse than not
+asking.
 
 ## Rules
 

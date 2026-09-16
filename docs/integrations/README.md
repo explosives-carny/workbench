@@ -37,8 +37,10 @@ A decision board runs at http://localhost:4317. Read its contract at
 7. Do not modify this application to add a feature. Open a branch and a pull
    request and tell me. See CONTRIBUTING.md.
 8. On your FIRST use in a session, `GET /api/settings`. If `onboardedAt` is
-   missing, ask me once how I want this used, record my answers there, and
-   honour them. If it is present, say nothing about setup.
+   missing, ask me once how I want this used — including where the database
+   should be backed up, since it is one file on one machine — record my answers
+   there, and honour them. If I accept the risk of no backup, record that and
+   never raise it again. If `onboardedAt` is present, say nothing about setup.
 ```
 
 ## What makes this work in practice
