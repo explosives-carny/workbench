@@ -195,14 +195,26 @@ still typing. An agent that reacts to each reply as it lands turns one round of
 decisions into a dozen half-plans, and each one costs a full pass over the work.
 Their answers keep. Read them all at once.
 
+**A reply is not a task.** Seeing that they answered something is never a reason
+to start on it, and neither is being asked to do something else on the board —
+tidy statuses, fix a field, back it up. Those are that job, not an excuse to
+sweep the rest. Only the check-in word opens the round.
+
 Human says **`workbench`** or **`wb`** →
 
 1. `GET /api/projects`, then each project. **Read everything before doing
    anything.**
-2. Collect every actionable: newest message is `who: "you"`, or a `choice` with
-   no agent reply after it, or an item at `received` you have not acted on.
+2. **The actionable set is every item at `received`.** That is the whole rule.
+   Do not go looking for other signals — the status already carries it, because
+   a human replying to an issue moves it to `received` automatically. An item at
+   any other status is somebody else's move or nobody's.
 3. **Plan across the whole set, not item by item.** Then execute the plan.
 4. Report the plan, then the outcome. Nothing waiting → say so in one line.
+
+A document never reaches `received` — it has no such state — so a comment on one
+is never itself actionable. If they want something done about a document, that
+ask is an issue of its own, which is the rule anyway: *a document that asks for
+something is two items*.
 
 Never create items on a check-in. It means catch up, not ask.
 
