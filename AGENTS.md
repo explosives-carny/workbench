@@ -48,10 +48,30 @@ Five are work. Two are documents. They are not one scale.
 | Status | Whose move | Set by |
 |---|---|---|
 | `needs-decision` | the human's — they must choose | you, when you ask |
-| `needs-qa` | the human's — the work is built, it needs checking | you, when you finish something they must approve |
+| `needs-qa` | the human's — the work is built, it needs checking | you, when you finish something they must approve — **with the steps attached** |
 | `received` | yours — you have the answer | automatic when the human replies |
 | `deferred` | nobody's, on purpose | either, with a reason in the thread |
 | `complete` | done | you, once the work landed |
+
+**Setting `needs-qa` without steps is incomplete.** Attach `checks` to that item
+— the specific things somebody must do to satisfy themselves the work is right —
+and post a message saying what changed. Anyone on the board can then pick it up
+and record a result per step, without you in the room.
+
+```bash
+PATCH /api/items/<id> {"status":"needs-qa","actor":"<you>","ifVersion":7,
+  "checks":[{"id":"s1","label":"1. Turn a switch on; the thumb is visible in both themes"},
+            {"id":"s2","label":"2. Helper text under a field is sentence case, not caps"}]}
+```
+
+Do **not** write a separate QA runbook document any more. A standalone
+walkthrough covering eight changes at once goes stale the moment one of them
+moves, cannot be worked by two people, and leaves every item on the board saying
+"see the runbook" — which is how a board stops being the record. Steps belong on
+the thing they verify.
+
+Write a step as something to do and a result to expect, numbered. Three precise
+steps beat twenty vague ones.
 
 `needs-decision` and `needs-qa` are both "waiting on them" and they are **not**
 interchangeable. "Choose between these options" and "I finished, check it" take

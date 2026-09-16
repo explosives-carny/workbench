@@ -158,7 +158,28 @@ builds itself at runtime will show up blank.
 Split a document into items only if each part is separately actionable. A
 41-step walkthrough is one document; the two defects it uncovered are two items.
 
-### 2b. A checklist — a document whose steps are each answerable
+### 2b. A checklist — steps on the thing they verify
+
+**QA steps belong on the item that is in QA, not in a runbook of their own.**
+
+When you finish work somebody must approve, set that item to `needs-qa`, attach
+its `checks`, and say in the thread what changed. Another person — or another
+agent — can then open the board, find it, and work it without reading anything
+else.
+
+The old pattern was a standalone QA document covering everything at once. It
+failed in three ways, all of which showed up on the first real run: a forty-one
+step walkthrough went stale the moment one of the eight things it covered
+changed; twenty-four of its steps were blocked by an environment assumption
+baked into step one; and every item on the board pointed at the runbook instead
+of saying anything itself. Steps on the item avoid all three, because each set
+is small, current, and owned by the change it belongs to.
+
+A standalone checklist is still right for something that genuinely is one
+procedure — a release runbook, an audit with a single sign-off. It is not right
+for "here is everything we did this week".
+
+#### The mechanics either way
 
 A QA walkthrough, a release runbook, an audit. It reads like a document but it
 is *worked*: somebody goes step by step and records what happened to each one.
