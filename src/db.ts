@@ -837,9 +837,20 @@ export class Store {
     // safe from any number of sessions at once. Only the status it carries
     // touches the item row, and it bumps the version so a concurrent editor
     // holding an older copy is refused rather than silently reverting it.
-    this.db
-      .query('UPDATE items SET status = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
-      .run(status, now(), message.author, itemId);
+    //
+    // A message that does NOT move the status leaves the item row alone
+    // entirely. It used to rewrite `updated_by`/`updated_at` on every message,
+    // which meant any comment by anyone repainted who holds the claim — and
+    // `updatedBy`/`updatedAt` on an `in-progress` item is the *only* thing
+    // "Recovering an abandoned claim" has to tell your own crashed session from
+    // somebody else's live one. One passing remark and the item read as though
+    // the commenter had taken it. The claim belongs to whoever changed the
+    // status, so only a status change may rewrite it.
+    if (status !== item.status) {
+      this.db
+        .query('UPDATE items SET status = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
+        .run(status, now(), message.author, itemId);
+    }
     return message;
   }
 
@@ -942,6 +953,32 @@ export class Store {
       .query('UPDATE items SET section = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE project_id = ? AND section = ?')
       .run(to, now(), actor, projectId, from);
     return result.changes;
+  }
+
+  /**
+   * Rename an author across one project: every message they signed and every
+   * item they last touched. Exact match, case-insensitive.
+   *
+   * Exists because the contract's naming rule once offered two answers and the
+   * reference board duly ended up with one agent under two names. Without a
+   * repair the "who spoke last" column stays wrong forever.
+   *
+   * `updated_at` is deliberately NOT touched: it is what the stale-claim rule
+   * reads, and a rename must not make an abandoned claim look fresh. The version
+   * bumps so an editor holding an older copy is refused rather than writing the
+   * old name back over the new one.
+   */
+  renameAuthor(projectId: string, from: string, to: string): { messages: number; items: number } {
+    const key = String(from).trim().toLowerCase();
+    const target = String(to).trim();
+    if (!key || !target) return { messages: 0, items: 0 };
+    const messages = this.db
+      .query('UPDATE messages SET author = ? WHERE lower(author) = ? AND item_id IN (SELECT id FROM items WHERE project_id = ?)')
+      .run(target, key, projectId);
+    const items = this.db
+      .query('UPDATE items SET updated_by = ?, version = version + 1 WHERE lower(updated_by) = ? AND project_id = ?')
+      .run(target, key, projectId);
+    return { messages: messages.changes, items: items.changes };
   }
 
   counts(projectId: string): Record<Status, number> {

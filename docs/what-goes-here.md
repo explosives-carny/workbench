@@ -447,7 +447,10 @@ worse still: the thread is the record, and a correction is part of the record.
   through a batch of answers and would rather not type `wb` after each one. It
   means "re-read at each natural boundary", never "poll on a timer" — the timer
   is the expensive habit, not the picking up. Say once that it is on, because a
-  mode that changes what a session costs must never be silently running.
+  mode that changes what a session costs must never be silently running. It is
+  a working order for that one session, held in the agent's own state — never a
+  setting on the board, where one session's auto became every session's. The
+  same goes for `wb --scope <slug>`, which limits a session to one project.
 - **While working:** post a message when you act on a decision. The thread is
   the record of why the code looks the way it does.
 - **End of a session:** make sure nothing you finished is still sitting at
