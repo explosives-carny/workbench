@@ -132,25 +132,34 @@ board, act on everything answered since it last looked, reply underneath, and
 summarise in one line each. It exists so you never re-type a decision you
 already recorded.
 
-The short version:
+`wb --scope <project>` confines a session to one project; `wb --auto` keeps it
+folding in new answers until you say `wb --auto off`. Both are working orders
+for that session, not settings.
+
+The short version, with the `wb` command (`bun run wb`) that encodes the
+contract's rules so the common calls cannot be made wrong:
 
 ```bash
-# what is waiting, at the start of a session
-curl -s localhost:4317/api/projects/<slug>
-
-# ask for a batch of decisions in one call
-curl -s localhost:4317/api/projects/<slug>/items -H 'content-type: application/json' \
-  -d '[{"title":"...","context":"...","options":["Do it","Hold"]}]'
-
-# answer underneath, once you have acted
-curl -s localhost:4317/api/items/<id>/messages -H 'content-type: application/json' \
-  -d '{"who":"agent","author":"your-name","text":"Done — here is what happened."}'
+wb board <slug>                          # what is waiting on the agent: received + in-progress
+wb ask <slug> '[{"title":"Deploy?","context":"...","options":["Do it","Hold"]}]'
+wb reply <id> "Landed: ..." --status complete
 ```
 
-**More than one session can work on a project at once.** Item edits take an
-optional `ifVersion` and are refused with `409` if somebody changed the item
-since you read it, with the current item attached so you can merge. Messages are
-append-only and never conflict.
+The same three over plain HTTP, for anything without a shell:
+
+```bash
+curl -s 'localhost:4317/api/projects/<slug>?status=received,in-progress&messages=last'
+curl -s localhost:4317/api/projects/<slug>/items -H 'content-type: application/json' \
+  -d '[{"title":"Deploy?","context":"...","options":["Do it","Hold"],"clientId":"r1-deploy"}]'
+curl -s localhost:4317/api/items/<id>/messages -H 'content-type: application/json' \
+  -d '{"who":"agent","actor":"your-name","status":"complete","text":"Landed — here is what happened."}'
+```
+
+**More than one session can work on a project at once.** Item edits take
+`ifVersion` and are refused with `409` if somebody changed the item since you
+read it, with the current item attached so you can merge. Messages are
+append-only and never conflict, and a comment never changes who holds an item.
+`GET /api` reports the contract version.
 
 ## Keeping your own content separate
 
@@ -162,13 +171,23 @@ bun run export ~/my-workbench-content   # one readable JSON file per project
 bun run import ~/my-workbench-content   # read them back on another machine
 ```
 
-Point that at a private git repository and your own history — who decided what,
-and when — is versioned independently of this tool. **This is also the only
-backup.** `~/.workbench/workbench.db` is one file on one machine; nothing here
-replicates it. Export somewhere durable, or decide knowingly that you would not
-mind losing the board. Exports are plain JSON
-rather than a copy of the database, because a binary file in git cannot be
-diffed and two people's changes cannot be merged.
+**The running server does this for you.** A few seconds after any change it
+exports every project to `WORKBENCH_CONTENT` (default `~/workbench-content`),
+and if that directory is a git repository it commits. It never pushes — that is
+your deliberate act. Point the directory at a private repository you push and
+your own history — who decided what, and when — is versioned independently of
+this tool. `~/.workbench/workbench.db` is one file on one machine; the export is
+the backup. `WORKBENCH_AUTO_EXPORT=0` turns it off if you would knowingly rather
+not. Exports are plain JSON rather than a copy of the database, because a binary
+file in git cannot be diffed and two people's changes cannot be merged.
+
+## Keeping it running
+
+`bun run start` is a foreground process. On macOS, `bun run install-service`
+writes a launchd agent so the board starts at login and restarts if it dies
+(`--remove` undoes it). On Linux, a user systemd unit running `bun run start` in
+this directory does the same. An agent that finds the board down should start it,
+not fall back to asking in chat — the contract says so.
 
 ## Scope
 
