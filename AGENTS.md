@@ -1,152 +1,126 @@
 # Workbench — agent contract
 
-Vendor-neutral. Plain HTTP and JSON. Base URL `http://localhost:4317`
-(`WORKBENCH_PORT` overrides).
+**Contract v2.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `2`,
+re-read this file.
 
-**Read this file once per session, then use the API.** Do not open the web UI to
-find something out — every fact below comes back from one call, and browsing is
-slower for you and invisible to the next session.
+Read this file once per session, then use the board — never the web UI, which is
+slower for you and invisible to the next session. The first screen is the whole
+working contract; everything after it is the same rules with their reasons.
 
-## Session start, in order
+## Cheat sheet
 
-```bash
-curl -s localhost:4317/api/settings          # 1. how this human wants it used
-curl -s localhost:4317/api/projects          # 2. what exists, with counts
-curl -s localhost:4317/api/projects/<slug>   # 3. one project: items + threads
-```
-
-1. `settings.onboardedAt` missing → ask the onboarding questions once (below),
-   record the answers, proceed. Present → say nothing about setup.
-2. Act on every item at `received` **before** creating anything new.
-3. `counts["needs-decision"]` + `counts["needs-qa"]` is what is waiting on the human.
-
-**Read once, here.** After this, the board is read again only on the check-in
-word — see below for why, and for how to plan a round once you have one.
-
-## Objects
-
-| Object | Is | Key fields |
-|---|---|---|
-| Project | one body of work | `slug` (its address), `name` |
-| Item | one thing needing a person | `title`, `context`, `options[]`, `choice`, `status`, `section`, `labels[]`, `version` |
-| Message | one turn in a thread | `who` (`you`\|`agent`), `author`, `text` |
-| Check | one step of a checklist | `id`, `label`, `result`, `note` |
-
-Every item and message carries `createdAt`. It is set for you. Send one **only**
-when you are importing history that already happened — a past ISO instant;
-anything unparseable or in the future is ignored and the clock is used instead.
-Never send one to make a fresh item look older.
-
-`body` + `bodyFormat` (`text`\|`markdown`\|`html`) hold long-form content.
-**`body` is stripped from list responses** — `GET /api/items/<id>` for the full
-text; `bodyLength` in a list tells you one is there.
-
-**Where the answer is.** The answer to an item is `choice` if it is set, **plus
-every message with `who:"you"` since your last agent message.** When they
-disagree, the newest message wins — a person who clicks a button and then types
-a correction underneath meant the correction. Everything a person wrote on the
-board is input to the work: never act on the button alone, never skip a message.
-
-## Status — whose move is it
-
-Five are work. Two are documents. They are not one scale.
-
-| Status | Whose move | Set by |
-|---|---|---|
-| `needs-decision` | the human's — they must choose | you, when you ask |
-| `needs-qa` | the human's — the work is built, it needs checking | you, when you finish something they must approve — **with the steps attached** |
-| `received` | yours — the answer landed, nobody has started | automatic when the human replies |
-| `in-progress` | yours — **you claimed it and are working now** | you, before you start |
-| `deferred` | nobody's, on purpose | either, with a reason in the thread |
-| `complete` | done | you, once the work landed |
-
-**Setting `needs-qa` without steps is incomplete.** Attach `checks` to that item
-— the specific things somebody must do to satisfy themselves the work is right —
-and post a message saying what changed. Anyone on the board can then pick it up
-and record a result per step, without you in the room.
+**Session start, in order.**
 
 ```bash
-PATCH /api/items/<id> {"status":"needs-qa","actor":"<you>","ifVersion":7,
-  "checks":[{"id":"s1","label":"1. Turn a switch on; the thumb is visible in both themes"},
-            {"id":"s2","label":"2. Helper text under a field is sentence case, not caps"}]}
+date -u                                       # 0. note the clock: the stale-claim rule compares against it
+wb resolve "$(git remote get-url origin)"     # 1. which project is mine (falls back: settings.defaultProject, then ask)
+curl -s localhost:4317/api/settings           # 2. onboardedAt? agentNames? — sign as agentNames[<your tool>], else the tool name
+wb board <slug>                               # 3. the actionable set: received + in-progress, last message each
 ```
 
-Do **not** write a separate QA runbook document any more. A standalone
-walkthrough covering eight changes at once goes stale the moment one of them
-moves, cannot be worked by two people, and leaves every item on the board saying
-"see the runbook" — which is how a board stops being the record. Steps belong on
-the thing they verify.
+Nothing at `received` → say so in one line. Never create items on a check-in.
+Do not read the board again until the check-in word.
 
-**The worker has your item and nothing else** — not your session, not your
-terminal, not the conversation where you decided any of this. Two rounds of real
-QA produced 30 skipped and 4 falsely-failed steps and *none* was a product
-defect; every one was a defect in the instruction. So:
+**Status is whose move it is.** An issue holds one of five; a document (`kind:
+"document"`) holds `active` or `archived`, nothing else.
 
-| Rule | Because |
-|---|---|
-| Step 1 reaches the preconditions, with the command and how to tell it worked | one unstated identity made 20 steps unrunnable |
-| Never write a step your own rules make unreachable | a step said "assign a recount then take it yourself"; the next said the system refuses exactly that |
-| Name what will be on screen — the string, the number, the row | "confirm it works" has no baseline in their head |
-| Say when a refusal IS the pass | a correct refusal recorded as a failure sends somebody hunting a bug that is working |
-| Ask only for what they control | not the OS appearance setting, not a second person, not a device they lack |
-| Never production, never editing source | "run a production deploy" is an action, not a check; "add a duplicate and confirm the test fails" is a unit test |
-| Say how to know the environment is current | an environment serving yesterday's build manufactures findings |
-| Delete steps when the feature goes | a step for removed code reads as a real gap and costs a real investigation |
-| One step, one observation | if three things must be true first, those are three steps |
-
-Three precise steps beat twenty vague ones. Full reasoning and the failures each
-rule came from: `docs/what-goes-here.md`.
-
-`needs-decision` and `needs-qa` are both "waiting on them" and they are **not**
-interchangeable. "Choose between these options" and "I finished, check it" take
-different amounts of a person's attention and cannot be triaged together. If
-nothing is built yet, it is a decision; if something is built and needs their
-eyes, it is QA.
-
-**Documents are not tasks**, and `kind` is what says so. Set it on create.
-
-| `kind` | Is | Statuses it may hold |
+| Status | Whose move | You set it when |
 |---|---|---|
-| `issue` (default) | something to decide or do | the five above |
-| `document` | something to read or work through | `active` · `archived` |
+| `needs-decision` | theirs — choose | you ask |
+| `needs-qa` | theirs — check built work | you finish something they must approve, **steps attached** |
+| `received` | yours — answer landed, nobody started | automatic on their reply; also "written, PR open, not merged" |
+| `in-progress` | yours — **claimed, working now** | **before** you start |
+| `deferred` | nobody's, on purpose | agreed, with the trigger that brings it back |
+| `complete` | done — **landed**, not typed | it is merged and running |
 
-| Status | Means |
+**Calls.** The `wb` command encodes every rule below (version check, retry on
+409, signature); use it when you have a shell. The HTTP under it is the contract
+for everything else.
+
+```bash
+wb board <slug>                                    GET  /api/projects/<slug>?status=received,in-progress&messages=last
+wb show <id>                                       GET  /api/items/<id>
+wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"labels":["…"],"clientId":"…"}]'
+                                                   POST /api/projects/<slug>/items     — an array files a set; clientId makes a retry safe
+wb claim <id> "what I am about to do"              PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","ifVersion":N} + a message
+wb reply <id> "…"                                  POST /api/items/<id>/messages {"who":"agent","actor":"<you>","text":"…"}
+wb reply <id> "Landed: …" --status complete        …same, with "status" — a reply that FINISHES work must carry one
+wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
+wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
+wb export                                          bun run export — the server also exports on its own after every change
+```
+
+Responses are `{"ok":true, …}` or `{"ok":false,"error":"…"}`: `400` malformed
+(the message says what to fix) · `404` bad slug or id · `405` no such operation ·
+`409` version conflict **with the live `item` attached**. A response may also
+carry `warning` (read it and act) and `ignored` (fields you sent that nothing
+understood — usually a typo).
+
+**Eight rules.**
+
+1. **Everything they wrote is input.** The answer to an item is `choice` if set
+   *plus every `who:"you"` message since your last reply*; the newest wins.
+   Never act on the button alone; never skip a message.
+2. **Claim before you start; move it off when you stop.** `in-progress` with
+   your `actor` and a note saying what you are doing. A comment never claims —
+   only a status change touches `updatedBy`.
+3. **A finishing reply carries a status.** Without one, "landed" reads as a
+   claim under your name, forever. The server warns; do not make it.
+4. **Sign every write with `actor`** — the name from `settings.agentNames` for
+   your tool, else the tool name. One name, every session.
+5. **Send `ifVersion` on every status change.** Warned today, refused later. On
+   `409`: re-apply only the fields you meant to change onto the returned item,
+   resend with its `version`, and after a second `409` stop and post a message.
+6. **One item per question**, context answerable without you in the room:
+   tradeoff, recommendation, cost of being wrong. Documents are `kind:
+   "document"`; a document that asks for something is two items.
+7. **`needs-qa` means steps attached.** Define steps with `checks:[…]` on the
+   item; record results one step at a time. The last `pass` signs it off and
+   hands it back at `received`.
+8. **Never edit this application to add a feature.** Branch, PR, tell them.
+   See `CONTRIBUTING.md`.
+
+**The check-in word.** `wb` / `workbench` → read the board once (scoped
+project only, if scoped), act on everything at `received` plus any stale claim,
+plan the set before touching it, reply under each, one line each. Flags are
+working orders for *this session*, never settings:
+
+| Said | Means |
 |---|---|
-| `active` | the current reference, still worth reading |
-| `archived` | superseded or shipped; kept for the record |
+| `wb` | one round, then stop |
+| `wb --auto` | keep folding new answers in at each natural boundary until `wb --auto off` — never a timer |
+| `wb --scope <slug>` | this session works ONLY that project; other projects are not read for work or touched |
 
-The two sets do not overlap and the board enforces it: a status the kind cannot
-hold is replaced with that kind's default, and naming both a `kind` and an
-impossible `status` in one call is a `400`.
+Say once, in one line, when you are in auto and what you are scoped to.
 
-Never file a document as `complete` to get it off the board. That hides the
-board's most-read material behind the completed filter on the day it is written.
+**Board not running** (`ECONNREFUSED`): `cd <workbench repo> && bun run start`
+in the background, wait for `GET /api`, continue. Never fall back to asking in
+chat. `bun run install-service` keeps it running across reboots.
 
-**A document that asks for something is two items.** The document is `active`;
-the ask is its own `issue`. A decision buried in a specification is a decision
-nobody can answer, because the document has nowhere to put the answer.
+---
 
-Changing `kind` later is fine — a decision that turns out to be a specification,
-or the reverse. The status follows it automatically unless you set a valid one
-in the same call.
+## The rules, with their reasons
 
-`needs-you` is still accepted on input and stored as `needs-decision`.
+### Whose move it is
 
-`complete` claims the work **landed**, not that you finished typing. Work that is
-written but sitting in an unmerged pull request, an undeployed branch or a queue
-is still `received` — you own it, it is not done. Say in the thread what it is
-waiting on, so "received" does not read as "forgotten".
+`needs-decision` and `needs-qa` are both "waiting on them" and are **not**
+interchangeable: a five-second choice and a forty-step walkthrough cannot be
+triaged in one bucket. Nothing built → decision; built and needs eyes → QA.
 
-`deferred` never means "still waiting on them" — that is `needs-decision` or `needs-qa`.
+`complete` claims the work **landed**. Written but sitting in an unmerged PR or
+an undeployed branch is `received` — you own it, it is not done — and the
+thread says what it waits on, so `received` does not read as `forgotten`.
 
-Set the status to whose move it actually is, not to how much effort you spent:
+`deferred` never means "still waiting on them". Say in the thread what brings
+it back, or it is a question you gave up on.
 
 | Situation | Status |
 |---|---|
 | You need them to choose | `needs-decision` |
 | You built it; they must approve it | `needs-qa` |
 | They answered; you have not started | `received` |
-| You have started | `in-progress` — claim it first |
+| You have started | `in-progress` — claim first |
 | Written, PR open, not merged | `received` — and say so |
 | Merged and running | `complete` |
 | They are doing it, not you | `needs-decision` |
@@ -154,439 +128,247 @@ Set the status to whose move it actually is, not to how much effort you spent:
 | A document people still work from | `active` |
 | A document overtaken by events | `archived` |
 
-## Claim before you start
+**Documents are not tasks.** `kind: "document"` is set on create and decides
+the statuses an item may hold; the two sets do not overlap and the board
+enforces it — a status the kind cannot hold is replaced with that kind's
+default, and naming both a `kind` and an impossible `status` in one call is a
+`400`. Never file a document as `complete` to get it off the board; that hides
+the most-read material behind the completed filter on the day it is written.
+`archived` is how the board says "this is history". Changing `kind` later is
+fine; the status follows.
 
-**Set `in-progress` with your `actor` before doing the work, not after.**
+`needs-you` is still accepted on input and stored as `needs-decision`.
 
-```bash
-PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","ifVersion":7}
-POST  /api/items/<id>/messages {"who":"agent","author":"<you>","text":"Picking this up: <what you are about to do>"}
-```
+### Claiming, and recovering a claim
 
-This is the only thing that survives losing your session. A human reply moves an
-item to `received`; if the only trigger for the work is that reply arriving in a
-live session, then an outage, a crash or a context reset takes the trigger with
-it. The item still reads `received`, nobody is on it, and nothing says so.
+A human reply moves an item to `received`. If the only trigger for the work is
+that reply arriving in a live session, an outage, a crash or a context reset
+takes the trigger with it: the item still says `received`, nobody is on it,
+nothing says so. The claim — `in-progress`, your `actor`, a message saying what
+you are about to do — is the only thing that survives losing your session. The
+message is the note your replacement reads, which may be you with none of the
+context you have now.
 
-The message matters as much as the status. It is the note your replacement reads
-— which may be you, after a reset, with none of the context you have now.
+Move it off when you stop, whichever way it went. A claim nobody is honouring
+is worse than no claim.
 
-**Move it off when you stop**, whichever way it went: `needs-qa` if it is built
-and needs checking, `complete` if it landed, `received` if you are handing it
-back unfinished, `deferred` by agreement. An item left at `in-progress` is a
-claim, and a claim nobody is honouring is worse than no claim.
+**A comment does not touch a claim.** A message that leaves the status where it
+is writes only the thread; `updatedBy`/`updatedAt` still name whoever last
+*moved* the item. So you can add context to somebody else's item without
+appearing to take it — and cannot take it by commenting. (Every message used to
+repaint `updatedBy`; three stand-down notes on another agent's items once made
+them read as the commenter's.)
 
-### Recovering an abandoned claim
+On a check-in, an item at `in-progress` is one of these — `updatedBy` and
+`updatedAt` say which, and the clock you noted at session start is the reference:
 
-On a check-in, an item at `in-progress` is one of three things. `updatedBy` and
-`updatedAt` tell you which, and no lock table or heartbeat is needed:
-
-| What you see | What it is | What to do |
+| What you see | What it is | Do |
 |---|---|---|
-| `updatedBy` is you, from this session | your own work | carry on |
-| `updatedBy` is you, from before this session | **you crashed** | read the thread, resume or hand it back |
-| `updatedBy` is another agent, `updatedAt` older than your session began | **their claim is stale** | say so in the thread, reclaim it, and name whose claim you took |
-| `updatedBy` is another agent, recent | somebody is on it | leave it alone |
+| `updatedBy` is you, `updatedAt` after your session began | your own work | carry on |
+| `updatedBy` is you, from before your session | **you crashed** | read the thread, resume or hand back |
+| another agent, `updatedAt` older than your session began | **stale claim** | say so in the thread, reclaim, name whose claim you took |
+| another agent, recent | somebody is on it | leave it alone |
 
-No fixed timeout, deliberately. "Older than my session began" is answerable
-without a clock everyone has to agree on, and it is the question that actually
-matters: is anybody still here who could be doing this.
+No fixed timeout, deliberately: "older than my session began" needs no clock
+everyone agrees on, and it is the real question — is anybody still here.
 
-Reclaiming is not rude, but doing it silently is. Post the message.
+**Correct your own status when you get it wrong**, with a message saying what
+and why. A wrong status is worse than a stale one, because somebody trusts it.
 
-**Correct your own status when you get it wrong.** A status that misdescribes
-the state is worse than a stale one, because somebody trusts it. Post a message
-saying what you are correcting and why, and change it — do not quietly flip it.
+### Replies, edits and the two things that go wrong
 
-## Calls
+**A reply claims what it answers.** An agent message on an item at `received`
+moves it to `in-progress` with you as the actor — one call, no second one to
+forget. It is narrow on purpose: `received` is the one status that
+unambiguously means "yours, nobody has started". A reply on a `needs-*` item
+leaves the move where it is.
 
-```bash
-# create a project (idempotent by slug)
-POST  /api/projects                      {"name":"Acme Site","description":"..."}
+**A finishing reply must carry a status.** "Landed, PR merged" with no `status`
+leaves the item at `in-progress` under your name. The server returns a
+`warning` when a reply sounds finished and carries none; it will not guess
+whether the work landed. `complete` if it did; `needs-qa` if it needs their
+eyes; `needs-decision` if it is their call now.
 
-# create items — POST AN ARRAY for a whole set in one call
-POST  /api/projects/<slug>/items         [{"title":"...","context":"...","options":["Do it","Hold"],"labels":["Ship it"]}]
+**Messages never conflict; edits can.** Record what happened as a message.
+Send `ifVersion` from the copy you read on any edit that changes status —
+today the server warns when you do not, and names the version to send; a later
+contract refuses it. On `409` the response carries the live item: re-apply
+only the fields you meant to change, resend with its `version`. A second `409`
+means two writers are on it — stop and post a message rather than a third
+blind write. `wb status` and `wb claim` do this for you.
 
-# labels in use on a project come back with the board (GET above), like sections
-# rename or merge a label everywhere; "to":"" removes it
-PATCH /api/projects/<slug>/labels        {"from":"Deploys","to":"Ship it","actor":"<you>"}
+**Retries duplicate unless you say who you are.** A batch `POST` that times out
+after the write leaves you not knowing whether it landed. Give each item a
+`clientId` (unique per project, any string) and the re-send returns the
+existing items instead of a second set. Without one, re-read the board before
+retrying.
 
-# one agent signed under two names? merge them everywhere in the project
-PATCH /api/projects/<slug>/authors       {"from":"claude-code","to":"spike","actor":"<you>"}
+**Unknown fields are reported.** `ignored: ["lables"]` on a response means the
+board dropped a field you sent. Fix the spelling; the write otherwise landed.
 
-# how the board groups its rows: "section" (default) or "status"
-PATCH /api/projects/<slug>                {"groupBy":"status"}
+**There is no delete.** `DELETE /api/items/<id>` is refused (`405`). The board
+is a record: archive a document, complete an issue. `position` is the UI's
+reorder handle, not yours.
 
-# reply — a bare reply on a `received` item CLAIMS it (see Concurrency)
-POST  /api/items/<id>/messages           {"who":"agent","actor":"<you>","text":"Picking this up: ..."}
+### Checks — QA on the item it verifies
 
-# a reply that FINISHES the work carries the status, or it reads as a claim
-POST  /api/items/<id>/messages           {"who":"agent","actor":"<you>","status":"complete","text":"Landed: ..."}
+Set `needs-qa` **with the steps attached**, and post a message saying what
+changed. No separate QA runbook document: one walkthrough covering eight
+changes goes stale when one moves, cannot be worked by two people, and leaves
+every item saying "see the runbook".
 
-# record a decision you acted on
-PATCH /api/items/<id>                    {"status":"complete","actor":"<you>","ifVersion":4}
+Two operations, two shapes. **Define** the steps by sending `checks:[…]` on the
+item — the whole list, only while no results are recorded. **Record** a result
+with `PATCH /api/items/<id>/checks/<step>`, one step per call, never by
+re-sending the array, which would overwrite a result somebody else just typed.
+A `fail` or `skip` needs a `note`; `pass` does not.
 
-# record ONE checklist result — the array is for defining steps, never for results
-PATCH /api/items/<id>/checks/<checkId>   {"result":"fail","note":"required unless pass","actor":"<you>"}
+**The last `pass` signs the item off.** The board posts "All N steps passed —
+signed off by <actor>" and hands the item back at `received` for you to land
+and close. A `fail` or `skip` anywhere leaves it at `needs-qa` with the note on
+the step. Whoever records the passes — a person, or a model doing the QA — is
+the sign-off.
 
-# a document in full
-GET   /api/items/<id>                    → item.body
-GET   /api/items/<id>/body               → raw, correct content-type
+The worker has your item and nothing else. Three precise steps beat twenty
+vague ones: each step names its precondition or reaches it, names what will be
+on screen, says when a refusal is the pass, asks only for what the worker
+controls, never touches production or source, and says how to know the
+environment is current. The full rule set and the failures each came from:
+`docs/what-goes-here.md` → *Writing a step somebody else can execute*.
 
-# preferences
-GET | PATCH /api/settings
-```
+### Where the answer is
 
-Errors are `{"ok":false,"error":"..."}` — `400` malformed · `404` bad id or slug
-· `409` version conflict, with the current item attached.
+`choice` holds the button they clicked, if you offered `options`. Their words
+are messages with `who:"you"`. The answer is **both**, from your last reply
+onward, and the newest wins — a person who clicks a button and then types a
+correction underneath meant the correction. `wb board` shows the last message;
+`wb show <id>` shows the thread. Read it.
 
-## Concurrency
+### Names
 
-- **A reply claims what it answers.** Posting an agent message on an item at
-  `received` moves it to `in-progress` and records you as the actor. You do not
-  have to remember a second call. Pass an explicit `status` when the reply hands
-  the item back instead — `needs-decision` if it is their call now, `needs-qa` if
-  you built something, `complete` if it landed. **A reply that finishes the work
-  MUST carry a `status`, or it reads as a claim** — "landed, PR merged" with no
-  status leaves the item at `in-progress` under your name, forever.
-- **A comment does not touch the claim.** A message that leaves the status where
-  it is writes only the thread; `updatedBy`/`updatedAt` on the item still name
-  whoever last moved it. So you can add context to somebody else's item without
-  appearing to take it — and you cannot take it by commenting, either.
-- **Messages never conflict.** Append one rather than editing an item whenever
-  you are recording something that happened.
-- **Item edits can.** Send `ifVersion` from the copy you read. On `409`, merge
-  onto the item in the response and retry — do not re-read and blind-write.
-- Omit `ifVersion` only for an item you just created.
-- **Always send `actor`** — on edits, on messages, on checklist results. One
-  field, every write. (`author` on messages and `by` on checks are still read as
-  aliases for older writers; `actor` wins when both are sent.) Omit it and the
-  board records the literal string `agent` — so every row reads the same and the
-  "who answered last" column is useless exactly when it matters, with two agents
-  working. `who` (`you`\|`agent`) is what separates a person from a machine;
-  `actor` says which one.
-- **Your name comes from `settings.agentNames`.** It maps the tool you run as to
-  the name you sign with — `{"claude-code":"spike","codex":"codex"}` — and the
-  human sets it. Read it at session start with the rest of settings and use your
-  entry; if the map has no entry for you, sign with the tool name. That is the
-  whole rule; there is no second option. The reference board reached one agent
-  under two names because the rule offered two. If a board already carries the
-  split, `PATCH /api/projects/<slug>/authors` merges them.
-- Checklist steps: one `PATCH` per step. Sending the array loses concurrent
-  answers.
+Every write carries `actor`. (`author` on messages and `by` on checks are read
+as aliases for older writers; `actor` wins.) Omit it and the board records the
+literal `agent`, and the "who spoke last" column stops answering with two
+agents on one board. `who` (`you`|`agent`) separates a person from a machine;
+`actor` says which machine.
 
-## The check-in word
+**Your name is `settings.agentNames[<tool>]`** — `{"claude-code":"spike",
+"codex":"codex"}`, set by the human — else the tool name. One rule; the earlier
+one offered two ("the tool you run as, or the name they call you") and the
+reference board reached one agent under two names. Repair an existing split
+with `PATCH /api/projects/<slug>/authors {"from":"…","to":"…","actor":"…"}` —
+it renames signatures and last-actor without freshening `updatedAt`, so a
+rename cannot revive a stale claim.
 
-**The board is read on the check-in word, and at session start. Not otherwise.**
+Never fake a human reply. `who:"you"` only when relaying something they
+actually said, and say in the text that it is relayed.
 
-Between check-ins, do not poll it, do not re-read it to see whether they have
-replied, and do not answer an item the moment you notice an answer. They are
-still typing. An agent that reacts to each reply as it lands turns one round of
-decisions into a dozen half-plans, and each one costs a full pass over the work.
-Their answers keep. Read them all at once.
+### Projects, and which one is yours
 
-**A reply is not a task.** Seeing that they answered something is never a reason
-to start on it, and neither is being asked to do something else on the board —
-tidy statuses, fix a field, back it up. Those are that job, not an excuse to
-sweep the rest. Only the check-in word opens the round.
+One project per thing a person thinks of as one thing — usually one repository.
+`project.repos` lists the remotes (`owner/name` or a git URL, any spelling) and
+directory paths (a trailing `*` covers every worktree under a prefix) it is
+about; `GET /api/projects?repo=<remote-or-path>` — `wb resolve` — returns the
+one that claims yours. Resolve from the repo first, then
+`settings.defaultProject`, then ask. Never read every board to find your own,
+and never file on a board you did not resolve to. Set `repos` at creation or
+with `PATCH /api/projects/<slug> {"repos":[…]}`.
 
-Human says **`workbench`** or **`wb`** →
+### Sections, labels, grouping
 
-1. `GET /api/projects`, then each project. **Read everything before doing
-   anything.**
+`labels` (any number per item) say how items **relate** — one release, one
+blocker, one subsystem. `section` (at most one) is the **area of work**, never
+the kind or the state of the item. `GET /api/projects/<slug>` returns both
+vocabularies with counts: **reuse a name**; a near-synonym splits one list into
+two that both look complete. Repairs: `PATCH …/labels` and `PATCH …/sections`
+`{"from","to","actor"}` (empty `to` removes a label). `project.groupBy`
+(`status`, the default, or `section`) and `project.sectionMode` (`adhoc`
+warns on near-duplicates, `declared` refuses unlisted sections) are the
+human's calls; never switch them yourself. No good fit → leave `section`
+empty. Reasoning and failure modes: `docs/what-goes-here.md`.
+
+### Payload
+
+`GET /api/projects/<slug>` takes `?status=a,b` (only those rows),
+`?messages=all|last|none` (how much thread rides along; `messageCount` is always
+set) and returns compact JSON to anything that is not a browser (`?pretty=1`
+forces indentation). `body` is never in a list — `bodyLength` says one is
+there; `GET /api/items/<id>` or `/body` for the text. Ask for what you need.
+
+### The check-in word, in full
+
+The board is read at session start and on the check-in word — **not
+otherwise**. Do not poll; do not answer an item the moment you notice an
+answer. They are still typing, and an agent that reacts to each reply as it
+lands turns one round of decisions into a dozen half-plans, each a full pass
+over the work. A reply is not a task; being asked to tidy a status is not a
+reason to sweep the board. Only the check-in word opens the round.
+
+1. Read the scoped project (or every project when unscoped). **Read everything
+   before doing anything.**
 2. **The actionable set is every item at `received`, plus any stale claim at
-   `in-progress`.** That is the whole rule. Do not go looking for other signals —
-   the status already carries it, because a human replying to an issue moves it
-   to `received` automatically. A stale claim is one whose `updatedAt` predates
-   your session; see *Recovering an abandoned claim*. An item at any other status
-   is somebody else's move or nobody's.
-3. **Plan across the whole set, not item by item.** Then execute the plan.
-4. Report the plan, then the outcome. Nothing waiting → say so in one line.
-5. **Before you finish, re-read the set you just worked.** Every item you
-   touched should have moved off `received`. Any still sitting there is one you
-   answered in the transcript and not on the board, and the board is the only
-   half that survives this session.
+   `in-progress`.** Nothing else — a human replying moves an issue to
+   `received` automatically, so the status is the signal. A document never
+   reaches `received`; a comment on one is never itself actionable.
+3. **Plan across the set.** Find the shared work (three items touching one
+   file are one edit and one test run). Order by what unblocks what. Separate
+   the answerable from the buildable and do the answers first — they are cheap
+   and may change what you build. Name what you are not doing and why. **Say
+   the plan in a few lines before executing it**; redirecting a plan costs far
+   less than redirecting finished work.
+4. Report the plan, then the outcome, one line per item.
+5. **Re-read the set you worked.** Anything still at `received` was answered in
+   the transcript and not on the board, and the board is the only half that
+   survives the session.
 
-A document never reaches `received` — it has no such state — so a comment on one
-is never itself actionable. If they want something done about a document, that
-ask is an issue of its own, which is the rule anyway: *a document that asks for
-something is two items*.
+**`wb --auto`** means: at each natural boundary — a piece of work finished,
+about to report — re-read the board and fold anything now at `received` into
+the next round. Never a timer. Turn it off yourself when three rounds in a row
+find one small item each; say so. **`wb --scope <slug>`** confines the session
+to one project: other projects are not read for work and not touched, not even
+at `received`. Two sessions on one board are normally split exactly so, and a
+session that "helpfully" answers on the other takes work out from under the
+agent that owns it. "You are scoped to X" in words is the same order. Both flags
+are working orders for *this session*, held in your own state; they used to be
+persisted as a setting, and one session's auto put every session into auto.
 
-Never create items on a check-in. It means catch up, not ask.
+**Delegating a round.** Parallel agents finish sooner, cost substantially more,
+and everything they produce must be read and verified by you anyway. Delegate
+only when the parts touch different files, each is bigger than fifteen minutes
+inline, and you can state each part's done condition precisely. Otherwise work
+inline. Say which you chose and why in one line before you start; if the scope
+grows past what you announced, say so and re-decide. When it is genuinely
+unclear, put the choice to them with a rough cost — they are paying for it.
 
-### `wb --auto` — keep going without being asked again
+### Onboarding
 
-The default above exists because reacting to each reply as it lands is wasteful
-and gets ahead of the human. Sometimes that is exactly what they want: they are
-working through a batch of answers and would rather not type `wb` after each one.
+`settings.onboardedAt` missing → put the seven setup questions on the board
+(label `Setup`), say one line in chat, record the answers to settings when they
+come back, close the items, and honour them — including `"none"` for
+`backupPlan`, which is a real answer never to be raised again. The questions,
+the settings they map to and the three board layouts: `docs/onboarding.md`.
+`onboardedAt` present → say nothing about setup.
 
-| Said | Means |
-|---|---|
-| `wb` / `workbench` | one round, then stop. Does not change the mode. |
-| `wb --auto` | stay in it: keep folding in new work until turned off |
-| `wb --auto off` | back to one round at a time |
-| `wb --scope <slug>` | this session works ONLY that project, on this and every later check-in, until re-scoped |
-| `wb --scope <slug> --auto` | both: the flags combine |
+### Backup
 
-**Auto and scope are working orders for THIS session — never settings.** Do not
-write them to `/api/settings` and do not read them from there. They used to be
-persisted as `settings.autoMode`, which meant one session saying `wb --auto` put
-every other session on the same board into auto without anybody asking for it.
-A mode that changes what a session costs is decided by the person in that
-session, each session. Hold it in your own working state; when the session
-ends, it ends.
+The server exports every project to `WORKBENCH_CONTENT` (default
+`~/workbench-content`) a few seconds after any change, one readable JSON file
+per project, and commits if that directory is a git repository. Pushing is a
+deliberate act — yours or theirs — not the server's. `bun run export` does the
+same on demand; `bun run import` restores. `WORKBENCH_AUTO_EXPORT=0` turns the
+automatic export off.
 
-**Say once, in one line, that you are in auto**, and once what you are scoped
-to — a mode that changes how much it costs must never be silently on.
+### Versioning
 
-**Scope.** With `--scope`, the round reads only that project: its items are the
-actionable set, and items on any other project are neither read for work nor
-touched — no claims, no replies, no status changes there, even when they sit at
-`received`. Two sessions on one board are normally split exactly this way, one
-project each, and a session that "helpfully" answers on the other one takes work
-out from under the agent that owns it. Without `--scope`, every project is in the
-round. The human may also state the scope in words ("you are scoped to X");
-that is the same order.
-
-**Auto does not mean polling.** Do not re-read the board on a timer; that is the
-expensive habit this whole section exists to stop, and a 5-second loop spends a
-full pass over the work to discover nothing changed. Auto means: **at each
-natural boundary — you have finished a piece of work and are about to report
-back — re-read the board and fold anything now at `received` into the next
-round.** Same rule as always for what counts; the only difference is that you do
-not wait to be asked.
-
-Everything else still holds. Plan across the set rather than item by item. Never
-create items. Do not answer an item the moment you notice it — finish the piece
-you are on, then pick up the round.
-
-Turn it off yourself if the rounds stop being worth it — three consecutive
-check-ins that find one small item each are three full passes over the board for
-very little, and saying so is better than quietly burning it.
-
-### Planning the set
-
-The point of batching is that the set tells you things no single item does.
-
-- **Find the shared work.** Three items touching one file are one edit and one
-  test run, not three. Two that need the same measurement need it once.
-- **Order by what unblocks what.** An item that changes an interface comes before
-  the items that use it. Say so rather than discovering it halfway.
-- **Separate the answerable from the buildable.** A question you can answer in a
-  paragraph is not the same job as a change that needs a branch and CI. Do the
-  answers first — they are cheap and they may change what you build.
-- **Name what you are NOT doing and why.** An item you are deferring to the next
-  round is a decision, and it belongs in the plan rather than in silence.
-- **Say the plan before executing it**, in a few lines. They may redirect it, and
-  redirecting a plan costs far less than redirecting finished work.
-
-### Whether to delegate
-
-Some rounds are worth spreading across subagents; most are not. This is a real
-tradeoff — parallel agents finish sooner and cost substantially more, and every
-agent's output has to be read and verified by you anyway.
-
-Delegate when **all** of these hold:
-
-- the work splits into parts that do not touch the same files
-- each part is big enough to be worth an agent's startup cost — roughly, more
-  than you would finish inline in fifteen minutes
-- you can state each part's done condition precisely enough to verify without
-  redoing it
-
-Do it inline when any of these hold:
-
-- the parts share files, or one part's result changes another's shape
-- the whole round is small, or is mostly answering questions
-- verifying the result means reading everything the agent read
-
-**Say which you chose and why, in one line, before you start** — "inline: four
-items, same two files, one test run" or "three agents: independent subsystems,
-~40 min each". If the scope grows past what you announced, say so and re-decide
-rather than quietly continuing.
-
-When the balance is genuinely unclear, put the choice to them with a rough cost
-rather than guessing. They are paying for it.
-
-## Onboarding — first use in a session only
-
-`settings.onboardedAt` missing → **put the setup questions on the board rather
-than asking in chat.** It is the shortest possible introduction to the tool: the
-human answers their first items in the interface they will use from then on, and
-the answers are already recorded where every later session can read them.
-
-Label them `Setup` in the project you are working in (or a `Workbench setup`
-project if there is none yet), then say one line in chat: *"I have put seven
-setup questions on the board — answer them there and I will pick them up."*
-
-A label rather than a section, because the default grouping is by status and a
-section would file them where nothing displays.
-
-```bash
-POST /api/projects/<slug>/items
-[
- {"labels":["Setup"],"title":"Should I put decisions on the board automatically?",
-  "context":"Automatic means anything needing your call becomes an item without you asking. Recommended.",
-  "options":["Automatic","Only when I ask"]},
- {"labels":["Setup"],"title":"Should I read the board at the start of every session?",
-  "context":"So a decision you make today is acted on tomorrow without you re-raising it. Recommended.",
-  "options":["Yes","Only when I say so"]},
- {"labels":["Setup"],"title":"Should defects and risks I find go on the board?",
-  "context":"Otherwise they live in the transcript and disappear with it. Recommended.",
-  "options":["Put them on the board","Tell me in chat"]},
- {"labels":["Setup"],"title":"Should I post a summary before I finish a session?",
-  "context":"Useful if somebody else picks the work up; noise if it is only you.",
-  "options":["Yes","No"]},
- {"labels":["Setup"],"title":"Where should the database be backed up?",
-  "context":"It is one file on one machine. Nothing here replicates it. `bun run export <dir>` writes one JSON file per project — point it at a private git repository. Declining is a legitimate answer and I will not ask again.",
-  "options":["A private git repo","Somewhere else I already back up","Accept the risk, no backup"]},
- {"labels":["Setup"],"title":"Where should new items land by default?",
-  "context":"If you work across several projects, name the one that should catch anything I do not place explicitly.",
-  "options":["This project","I will say each time"]},
- {"labels":["Setup"],"title":"How should the board be organised?",
-  "context":"THE STANDARD FRAMEWORK, recommended, and already the default: rows group by Open / Deferred / Documents / Archived, and labels carry how items relate to each other — a release, a person they are blocked on, a subsystem. It answers the question a board is for, 'what is waiting on me', without you deciding a taxonomy on day one. BY AREA OF WORK: rows group by section instead — Ship it, Design, Infrastructure — one per item, and we agree either to let the list emerge or to fix it now. SOMETHING ELSE: tell me how you want to work and I will propose a configuration; the statuses themselves are fixed, but grouping, labels and sections are all yours to arrange.",
-  "options":["The standard framework","By area of work","Something else — let's talk"]}
-]
-```
-
-When they answer, write the results to settings and **close the items** — a
-setup question left open forever is noise on a board meant to show what is
-outstanding:
-
-```bash
-PATCH /api/settings {"onboardedAt":"<iso>","autoCapture":true,"checkInOnStart":true,
-                     "postFindings":true,"summariseOnExit":false,
-                     "backupPlan":"<path|repo|none>","defaultProject":"<slug>"}
-PATCH /api/items/<id> {"status":"complete","actor":"<you>"}
-```
-
-| Key | From | Default if they never answer |
-|---|---|---|
-| `autoCapture` | question 1 | `true` |
-| `checkInOnStart` | question 2 | `true` |
-| `postFindings` | question 3 | `true` |
-| `summariseOnExit` | question 4 | `false` |
-| `backupPlan` | question 5 | ask again next session; never assume `"none"` |
-| `defaultProject` | question 6 | infer from the repository |
-| project `groupBy` | question 7 | `status` — the standard framework |
-
-**The standard framework** is the default, so choosing it means doing nothing.
-Say what they have, once, rather than staying silent — most people have never
-seen this tool before:
-
-> Rows group by Open, Deferred, Documents and Archived. Labels relate items
-> across those groups. Newest activity sits at the top of each group, and a
-> group with nothing in it does not appear.
-
-**By area of work** switches the grouping and then needs the loose-or-fixed
-conversation, which is the one thing worth getting right up front:
-
-```bash
-PATCH /api/projects/<slug> {"groupBy":"section"}
-```
-
-Loose (`adhoc`, the default) accepts any section and warns on a near-duplicate.
-Fixed (`declared`) refuses anything unlisted. Loose is the better answer on day
-one — you rarely know the areas yet, and a taxonomy guessed early is expensive to
-admit was wrong. For fixed, agree six to eight first:
-
-```bash
-PATCH /api/projects/<slug> {"groupBy":"section","sectionMode":"declared","sections":["Ship it","Design"]}
-```
-
-**Something else** is a real conversation, not a menu. Ask how they actually
-work, what they need to see first thing in the morning, and whether anything
-else reads this board. Then propose a configuration and set it.
-
-What is arrangeable: the grouping (`status` or `section`), the section
-vocabulary and whether it is enforced, and labels — which need no configuration
-at all and cost nothing to start using.
-
-What is **not**: the status vocabulary itself. Those seven are fixed, and that is
-deliberate — they are the contract every agent writing to this board speaks, and
-a set that varies per install means no instruction about status can ever be
-written down. If the framework does not fit their work, that is a pull request
-against this repository, not a local setting. See `CONTRIBUTING.md`.
-
-`"none"` for `backupPlan` is a real answer. Record it and **never raise backups
-again** — nagging about a knowingly accepted risk is how people stop reading
-what you write.
-
-Then honour all of it. Asking and then behaving identically is worse than not
-asking.
-
-## Sections
-
-`section` is the **area of work** — one axis, always. Not the kind of item
-(`bodyLength` and `checks` say that), not its state (`status` says that).
-
-`GET /api/projects/<slug>` returns `sections` — the vocabulary in use, with
-counts. **Read it and reuse a name.** Do not derive it by scanning items and do
-not invent a synonym; "Deploys" beside "Ship it" splits one area into two lists
-and both then look complete.
-
-Two modes, set per project by the human at onboarding:
-
-| `project.sectionMode` | Behaviour |
-|---|---|
-| `adhoc` (default) | Any section accepted. A near-duplicate comes back as a `warning` on the response — read it and act on it. |
-| `declared` | Only `project.sections` accepted. Anything else is a `400` listing what is allowed. |
-
-Never switch the mode yourself; it is the human's call.
-
-No good fit → **leave `section` empty.** An unsectioned item sorts to the top and
-gets placed; a mis-sectioned one is filed and invisible.
-
-Repair, when two names turn out to be one area:
-
-```bash
-PATCH /api/projects/<slug>/sections  {"from":"Deploys","to":"Ship it","actor":"<you>"}
-```
-
-Full reasoning and failure modes: `docs/what-goes-here.md`.
-
-## Labels
-
-`labels` is an array, any number per item, and it is the field for how items
-**relate** — the three that are one release, the two blocked on the same person.
-Crosswise to `section` (one area of work) and to `status` (whose move it is).
-
-`GET /api/projects/<slug>` returns `labels` with counts, the same way it returns
-`sections`. **Read it and reuse a name.** Nothing governs a label on the way in,
-so they rot faster than sections do — trimmed and de-duplicated case-insensitively
-on write, and nothing more.
-
-Repair: `PATCH /api/projects/<slug>/labels {"from":"...","to":"...","actor":"..."}`.
-An empty `to` removes the label; renaming onto an existing one merges.
-
-## Grouping
-
-`project.groupBy` decides what the board's headings are:
-
-| `groupBy` | Groups |
-|---|---|
-| `section` (default) | one per area of work |
-| `status` | Open · Deferred · Documents · Archived |
-
-A group with nothing visible in it does not render at all. Rows sort newest
-activity first within their group, so what just moved is at the top.
-
-Never switch it yourself; it is the human's call.
-
-## Rules
-
-1. One item per question. Two questions in one item loses one.
-2. Write context answerable without you present: name the tradeoff, recommend
-   one, say what being wrong costs.
-3. Post a message when you act. The thread is the record.
-4. Never fake a human reply. `who: "you"` only when relaying something they
-   actually said, and say that it is relayed.
-5. Close what you finish.
-6. Never edit this application to add a feature — branch and open a pull
-   request. See `CONTRIBUTING.md`.
+`GET /api` → `{contractVersion, agentsMd, routes}`. The version bumps in the
+same pull request as any route, field or rule change (`CONTRIBUTING.md`). Old
+spellings stay accepted; the number tells you to re-read, not the server to
+refuse.
 
 ## Further reading
 
 - `docs/what-goes-here.md` — what to create and when, how to segment projects,
-  the item kinds, and the checklist template.
+  the four kinds of item, writing QA steps, and the failures behind each rule.
+- `docs/onboarding.md` — the setup questions and the board layouts.
+- `docs/integrations/README.md` — the one portable wiring block, plus vendor notes.
 - `CONTRIBUTING.md` — what needs a pull request and what you can do without one.
