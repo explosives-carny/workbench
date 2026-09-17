@@ -837,9 +837,20 @@ export class Store {
     // safe from any number of sessions at once. Only the status it carries
     // touches the item row, and it bumps the version so a concurrent editor
     // holding an older copy is refused rather than silently reverting it.
-    this.db
-      .query('UPDATE items SET status = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
-      .run(status, now(), message.author, itemId);
+    //
+    // A message that does NOT move the status leaves the item row alone
+    // entirely. It used to rewrite `updated_by`/`updated_at` on every message,
+    // which meant any comment by anyone repainted who holds the claim — and
+    // `updatedBy`/`updatedAt` on an `in-progress` item is the *only* thing
+    // "Recovering an abandoned claim" has to tell your own crashed session from
+    // somebody else's live one. One passing remark and the item read as though
+    // the commenter had taken it. The claim belongs to whoever changed the
+    // status, so only a status change may rewrite it.
+    if (status !== item.status) {
+      this.db
+        .query('UPDATE items SET status = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
+        .run(status, now(), message.author, itemId);
+    }
     return message;
   }
 
