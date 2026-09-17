@@ -58,7 +58,7 @@ Responses are `{"ok":true, …}` or `{"ok":false,"error":"…"}`: `400` malforme
 carry `warning` (read it and act) and `ignored` (fields you sent that nothing
 understood — usually a typo).
 
-**Eight rules.**
+**Nine rules.**
 
 1. **Everything they wrote is input.** The answer to an item is `choice` if set
    *plus every `who:"you"` message since your last reply*; the newest wins.
@@ -84,6 +84,10 @@ understood — usually a typo).
    hands it back at `received`.
 8. **Never edit this application to add a feature.** Branch, PR, tell them.
    See `CONTRIBUTING.md`.
+9. **A report is not finished while it names work that is not on the board.**
+   Before you report a round, every "your call", "left for you", "not
+   confirmed" and follow-up in it is already an item — a decision with options,
+   or QA with steps. Chat is where those go to be forgotten.
 
 **The check-in word.** `wb` / `workbench` → read the board once (scoped
 project only, if scoped), act on everything at `received` plus any stale claim,
@@ -184,7 +188,7 @@ settles the rest:
 No fixed timeout, deliberately: "older than my session began" needs no clock
 everyone agrees on, and it is the real question — is anybody still here. The
 session id exists because the name alone could not answer the first question:
-two sessions of the same tool, both called `spike`, are two workers, and
+two sessions of the same tool, signing the same name, are two workers, and
 without it neither could tell whose claim it was looking at.
 
 **Correct your own status when you get it wrong**, with a message saying what
@@ -238,6 +242,13 @@ with `PATCH /api/items/<id>/checks/<step>`, one step per call, never by
 re-sending the array, which would overwrite a result somebody else just typed.
 A `fail` or `skip` needs a `note`; `pass` does not.
 
+**The server enforces the first half.** Sending `checks` onto an item whose
+steps already carry results is a `409` with `conflict: "checks"` and the step
+ids named. A QA record is evidence; a requeue that wanted fresh steps once wiped
+seven recorded results with a `200`. To redefine steps and knowingly discard the
+results, send `"replaceChecks": true` — and say in the thread why. A fresh QA
+round is usually a new item.
+
 **The last `pass` signs the item off.** The board posts "All N steps passed —
 signed off by <actor>" and hands the item back at `received` for you to land
 and close. A `fail` or `skip` anywhere leaves it at `needs-qa` with the note on
@@ -267,8 +278,10 @@ literal `agent`, and the "who spoke last" column stops answering with two
 agents on one board. `who` (`you`|`agent`) separates a person from a machine;
 `actor` says which machine.
 
-**Your name is `settings.agentNames[<tool>]`** — `{"claude-code":"spike",
-"codex":"codex"}`, set by the human — else the tool name. One rule; the earlier
+**Your name is `settings.agentNames[<tool>]`** — for example
+`{"claude-code":"the name they call you","codex":"codex"}`, set by the human on
+their install, never written into this contract or this code — else the tool
+name. One rule; the earlier
 one offered two ("the tool you run as, or the name they call you") and the
 reference board reached one agent under two names.
 
