@@ -955,6 +955,32 @@ export class Store {
     return result.changes;
   }
 
+  /**
+   * Rename an author across one project: every message they signed and every
+   * item they last touched. Exact match, case-insensitive.
+   *
+   * Exists because the contract's naming rule once offered two answers and the
+   * reference board duly ended up with one agent under two names. Without a
+   * repair the "who spoke last" column stays wrong forever.
+   *
+   * `updated_at` is deliberately NOT touched: it is what the stale-claim rule
+   * reads, and a rename must not make an abandoned claim look fresh. The version
+   * bumps so an editor holding an older copy is refused rather than writing the
+   * old name back over the new one.
+   */
+  renameAuthor(projectId: string, from: string, to: string): { messages: number; items: number } {
+    const key = String(from).trim().toLowerCase();
+    const target = String(to).trim();
+    if (!key || !target) return { messages: 0, items: 0 };
+    const messages = this.db
+      .query('UPDATE messages SET author = ? WHERE lower(author) = ? AND item_id IN (SELECT id FROM items WHERE project_id = ?)')
+      .run(target, key, projectId);
+    const items = this.db
+      .query('UPDATE items SET updated_by = ?, version = version + 1 WHERE lower(updated_by) = ? AND project_id = ?')
+      .run(target, key, projectId);
+    return { messages: messages.changes, items: items.changes };
+  }
+
   counts(projectId: string): Record<Status, number> {
     const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'deferred': 0, active: 0, archived: 0, complete: 0 };
     const rows: any[] = this.db.query('SELECT status, COUNT(*) AS n FROM items WHERE project_id = ? GROUP BY status').all(projectId);
