@@ -449,13 +449,3 @@ button.labeledit:focus-visible { outline: 2px solid var(--accent); outline-offse
 .checklist .checkrow {
   background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px;
 }
-
-/* Auto mode. Deliberately the loudest thing in the filter row: it is the one
-   piece of state that costs money while it is on, and it must not be something
-   you have to ask about. */
-button.automode {
-  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--you); background: var(--you-soft); border: 1px solid currentColor;
-  border-radius: 999px; padding: 4px 11px; cursor: pointer;
-}
-button.automode:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
