@@ -210,6 +210,27 @@ function sectionPolicy(store: Store, project: Project, section: string | undefin
     : {};
 }
 
+// Label policy: the same near-duplicate test sections get, as a warning. Nothing
+// governs a label on the way in, which is why they rot faster than sections —
+// "Deploy" beside "Deploys", "Ship it" beside "Ship-it" — and a filter on one
+// spelling silently misses the items carrying the other. An exact match,
+// case-insensitive, is the same label (the store folds case); anything the
+// section test would call a duplicate is named so the writer reuses or merges.
+function labelPolicy(store: Store, project: Project, labels: string[] | undefined): string[] {
+  if (!labels || !labels.length) return [];
+  const inUse = store.labelsInUse(project.id).map((l) => l.name);
+  const warnings: string[] = [];
+  for (const label of labels) {
+    if (typeof label !== 'string' || !label.trim()) continue;
+    if (inUse.some((l) => l.toLowerCase() === label.trim().toLowerCase())) continue;
+    const similar = findSimilarSection(label.trim(), inUse);
+    if (similar) {
+      warnings.push(`label "${label.trim()}" looks like a duplicate of "${similar}" already in use. Reuse that one, or merge later with PATCH /api/projects/${project.slug}/labels {"from":"...","to":"..."}.`);
+    }
+  }
+  return warnings;
+}
+
 async function readJson(req: Request): Promise<any> {
   const text = await req.text();
   if (!text.trim()) return {};
@@ -247,6 +268,7 @@ const ROUTES = [
   'GET    /api/projects/<slug>[?status=a,b][?messages=all|last|none]',
   'PATCH  /api/projects/<slug>                 {archived?|sectionMode?|sections?|groupBy?|repos?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
+  'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
   'PATCH  /api/projects/<slug>/labels          {from,to,actor}',
   'PATCH  /api/projects/<slug>/authors         {from,to,actor}',
   'POST   /api/projects/<slug>/items           item | [item, ...]   (item.clientId for idempotent retries)',
@@ -401,6 +423,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
       const moved = store.renameLabel(project.id, body.from, body.to, actorOf(body, 'author') ?? '');
       return json(ctx, { ok: true, moved, labels: store.labelsInUse(project.id) });
     }
+    // The vocabulary alone, for a label field that wants to offer it without
+    // downloading the board — the item page, a CLI completing a flag.
+    if (parts[2] === 'labels' && parts.length === 3 && method === 'GET') {
+      return json(ctx, { ok: true, labels: store.labelsInUse(project.id) });
+    }
 
     // Rename an author across the whole project — every message they signed and
     // every item they last touched. The repair for the failure the contract
@@ -436,6 +463,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         for (const input of parsed) {
           const { warning } = sectionPolicy(store, project, input.section);
           if (warning) warnings.push(warning);
+          warnings.push(...labelPolicy(store, project, input.labels));
         }
         ctx.wrote = true;
         const created = parsed.map((input) => store.createItem(project.id, input));
@@ -457,11 +485,17 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         const ignored = ignoredKeys(body, ITEM_FIELDS);
         if (typeof body.position === 'number') (patch as any).position = body.position;
         const warnings: string[] = [];
-        if (patch.section !== undefined) {
+        if (patch.section !== undefined || patch.labels !== undefined) {
           const owner = store.listProjects(true).find((p) => p.id === item.projectId);
           if (owner) {
-            const { warning } = sectionPolicy(store, owner, patch.section);
-            if (warning) warnings.push(warning);
+            if (patch.section !== undefined) {
+              const { warning } = sectionPolicy(store, owner, patch.section);
+              if (warning) warnings.push(warning);
+            }
+            // Labels already on this item are "in use" by it, so exclude them:
+            // re-saving the same set must not warn about itself.
+            const added = (patch.labels || []).filter((l) => !item.labels.some((x) => x.toLowerCase() === String(l).toLowerCase()));
+            warnings.push(...labelPolicy(store, owner, added));
           }
         }
         const ifVersion = typeof body.ifVersion === 'number' ? body.ifVersion : undefined;
