@@ -146,6 +146,13 @@ describe('the finishing reply', () => {
     expect(res.json.warning).toContain('carried no status');
   });
 
+  test('a finished-sounding reply on an item still at needs-qa is warned about too', async () => {
+    const it = await item('acme', { status: 'needs-qa', checks: [{ id: 's1', label: '1.' }] });
+    const res = await api('POST', `/api/items/${it.id}/messages`, { who: 'agent', actor: 'a', text: 'Merged and deployed.' });
+    expect(res.json.item.status).toBe('needs-qa');
+    expect(res.json.warning).toContain('carried no status');
+  });
+
   test('the same reply with a status is not warned about', async () => {
     const it = await item();
     await api('POST', `/api/items/${it.id}/messages`, { who: 'you', text: 'Do it' });
