@@ -12,6 +12,8 @@ window.WB = (function () {
     active: 'Active',
     archived: 'Archived',
     complete: 'Complete',
+    // An issue decided against. Finished as far as the board is concerned.
+    cancelled: 'Cancelled',
   };
 
   // Not tasks. A document is either the current reference or it has been
