@@ -440,8 +440,8 @@ describe('the status split', () => {
   let store: Store;
   beforeEach(() => { store = freshStore(); });
 
-  it('has eight distinct states', () => {
-    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'active', 'archived', 'complete']);
+  it('has nine distinct states', () => {
+    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'active', 'archived', 'complete', 'cancelled']);
     expect(new Set(STATUSES).size).toBe(STATUSES.length);
   });
 
@@ -460,7 +460,7 @@ describe('the status split', () => {
     const order = STATUS_GROUPS.map((g) => g.id);
     expect(order.indexOf('documents')).toBeLessThan(order.indexOf('archived'));
     expect(STATUS_GROUPS.find((g) => g.id === 'documents')!.statuses).toEqual(['active']);
-    expect(STATUS_GROUPS.find((g) => g.id === 'archived')!.statuses).toEqual(['archived', 'complete']);
+    expect(STATUS_GROUPS.find((g) => g.id === 'archived')!.statuses).toEqual(['archived', 'complete', 'cancelled']);
   });
 
   it('accepts the old spelling and stores the new one', () => {
@@ -506,7 +506,7 @@ describe('kind and status', () => {
 
   it('splits the statuses with no overlap and no gaps', () => {
     expect(statusesFor('document')).toEqual(['active', 'archived']);
-    expect(statusesFor('issue')).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'complete']);
+    expect(statusesFor('issue')).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'complete', 'cancelled']);
     expect([...statusesFor('issue'), ...statusesFor('document')].sort()).toEqual([...STATUSES].sort());
     for (const s of statusesFor('document')) expect(statusesFor('issue')).not.toContain(s);
   });
@@ -527,6 +527,19 @@ describe('kind and status', () => {
   it('keeps a status the kind can hold', () => {
     expect(store.createItem(projectId, { title: 'a', kind: 'document', status: 'archived' }).status).toBe('archived');
     expect(store.createItem(projectId, { title: 'b', status: 'needs-qa' }).status).toBe('needs-qa');
+  });
+
+  // cancelled (contract v4): an issue that will not be done. A task status, so a
+  // document cannot hold it, and it files with the finished work.
+  it('cancelled is an issue status that files under Archived and counts', () => {
+    const cancelled = store.createItem(projectId, { title: 'drop it', status: 'cancelled' });
+    expect(cancelled.status).toBe('cancelled');
+    expect(store.createItem(projectId, { title: 'spec', kind: 'document', status: 'cancelled' }).status).toBe('active');
+    const archivedGroup = STATUS_GROUPS.find((g) => g.id === 'archived')!;
+    expect(archivedGroup.statuses).toEqual(['archived', 'complete', 'cancelled']);
+    expect(store.counts(projectId).cancelled).toBe(1);
+    const moved = store.updateItem(cancelled.id, { status: 'received' }, { actor: 'x' })!;
+    expect(store.updateItem(moved.id, { status: 'cancelled' }, { actor: 'x', ifVersion: moved.version })!.status).toBe('cancelled');
   });
 
   // Changing kind is legitimate — a decision that turns out to be a spec — but

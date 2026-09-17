@@ -69,7 +69,7 @@
   // the same thing in the two vocabularies — kept, not current — and a board
   // that opens showing everything ever decided stops answering the only question
   // it is for.
-  const DEFAULT_HIDDEN = ['complete', 'archived'];
+  const DEFAULT_HIDDEN = ['complete', 'archived', 'cancelled'];
 
   function loadHidden() {
     try {
@@ -249,7 +249,7 @@
     // while working, not something waiting on you. An archived one joins
     // finished work, because both are kept rather than current.
     { label: 'Documents', statuses: ['active'] },
-    { label: 'Archived', statuses: ['archived', 'complete'] },
+    { label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
   ];
 
   function renderRow(item) {
