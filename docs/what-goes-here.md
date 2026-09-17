@@ -1,8 +1,10 @@
 # What belongs on the board, and when to put it there
 
-`AGENTS.md` says how to call the API. This says what to create, when, and how to
-divide it up — the part an agent has to get right for the board to stay useful
-rather than becoming a second inbox nobody reads.
+`AGENTS.md` is the contract — every rule, once, with its reason. This file is
+the reasoning behind the rules and the failures each one came from: what to
+create, when, how to divide it up, and how to write a QA step somebody else can
+run. Where the two say the same thing, the contract is the one that binds; this
+is the one that explains.
 
 ## The test for whether something belongs here
 
