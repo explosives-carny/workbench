@@ -543,6 +543,22 @@ export function openDb(path: string): Database {
   return db;
 }
 
+/**
+ * Thrown when a writer sends a whole `checks` array onto an item whose steps
+ * already carry results. The contract said "define steps only while no results
+ * are recorded" and nothing enforced it: a requeue on the reference board
+ * answered 200 and seven recorded results (5 pass, 1 fail, 1 skip) were gone
+ * from the item and, seconds later, from the export. Replacing a QA record must
+ * be an explicit act — `replaceChecks: true` — never a side effect of an edit.
+ */
+export class ChecksLocked extends Error {
+  constructor(public current: Item, public stepsWithResults: string[]) {
+    super(`item ${current.id} has recorded results on ${stepsWithResults.length} step(s): ${stepsWithResults.join(', ')}. ` +
+      `Record results with PATCH /api/items/${current.id}/checks/<step>; to redefine the steps and discard those results send "replaceChecks": true.`);
+    this.name = 'ChecksLocked';
+  }
+}
+
 // Thrown when a writer's `ifVersion` no longer matches. The current item is
 // attached so the caller can merge rather than re-read and race again.
 export class VersionConflict extends Error {
@@ -812,10 +828,14 @@ export class Store {
   updateItem(
     id: string,
     patch: Partial<ItemInput> & { position?: number },
-    opts: { ifVersion?: number; actor?: string; session?: string } = {}
+    opts: { ifVersion?: number; actor?: string; session?: string; replaceChecks?: boolean } = {}
   ): Item | null {
     const current = this.getItem(id);
     if (!current) return null;
+    if (patch.checks !== undefined && !opts.replaceChecks) {
+      const recorded = current.checks.filter((c) => c.result).map((c) => c.id);
+      if (recorded.length) throw new ChecksLocked(current, recorded);
+    }
     // Kind and status move together. Changing the kind of an existing item is
     // legitimate — a decision that turns out to be a specification, or the other
     // way round — but it cannot leave the item holding a status its new kind
