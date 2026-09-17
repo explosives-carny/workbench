@@ -8,7 +8,7 @@
 // arguments and hands back the `fetch` function, so a test can call it with a
 // `Request` and read the `Response` in-process.
 import {
-  Store, STATUSES, VersionConflict, findSimilarSection, asStatusValue,
+  Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
   isStatusAllowed, statusesFor, KINDS,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
@@ -105,7 +105,7 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // caller believed the label had landed until the board looked wrong. Refusing
 // would break older writers sending fields since retired; naming the drop is
 // enough for a writer to notice and fix itself.
-const ITEM_FIELDS = new Set(['title', 'context', 'options', 'choice', 'status', 'section', 'kind', 'body', 'bodyFormat', 'checks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
+const ITEM_FIELDS = new Set(['title', 'context', 'options', 'choice', 'status', 'section', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
 const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
 const CHECK_FIELDS = new Set(['result', 'note', 'actor', 'by', 'session']);
 
@@ -474,13 +474,21 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         }
         try {
           ctx.wrote = true;
-          const updated = store.updateItem(item.id, patch, { ifVersion, actor: actorOr(ctx, body, 'author'), session: sessionOf(body) });
+          const updated = store.updateItem(item.id, patch, {
+            ifVersion, actor: actorOr(ctx, body, 'author'), session: sessionOf(body),
+            replaceChecks: body.replaceChecks === true,
+          });
           return json(ctx, withIgnored({ ok: true, item: updated, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignored));
         } catch (error) {
           if (error instanceof VersionConflict) {
             // 409 with the live item attached, so the caller merges onto what is
             // actually there instead of re-reading and racing the same way again.
             return json(ctx, { ok: false, error: error.message, conflict: true, item: error.current }, 409);
+          }
+          if (error instanceof ChecksLocked) {
+            // Same status, different conflict: the steps hold a QA record and
+            // the caller tried to write over it without saying so.
+            return json(ctx, { ok: false, error: error.message, conflict: 'checks', stepsWithResults: error.stepsWithResults, item: error.current }, 409);
           }
           throw error;
         }
