@@ -212,7 +212,11 @@ const FINISHED_WORDS = /\b(landed|merged|deployed|shipped|released|done|complete
 
 function finishedWithoutStatus(who: string, text: string, status: Status | undefined, after: Status): string | undefined {
   if (who !== 'agent' || status !== undefined) return undefined;
-  if (after !== 'in-progress' && after !== 'received') return undefined;
+  // Any live task status qualifies, not only the two the auto-claim touches: a
+  // "landed" reply on an item still at needs-qa or needs-decision leaves it
+  // reading as waiting on the human, which is just as false. QA found the
+  // narrower version silent on exactly that case.
+  if (after === 'complete' || after === 'archived' || after === 'active') return undefined;
   if (!FINISHED_WORDS.test(text)) return undefined;
   return `this reply reads as if the work is finished but carried no status, so the item stays "${after}" under your name. ` +
     `If it landed, send status "complete"; if it needs their eyes, "needs-qa"; if it is their call now, "needs-decision".`;
