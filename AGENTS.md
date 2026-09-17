@@ -102,9 +102,15 @@ working orders for *this session*, never settings:
 
 Say once, in one line, when you are in auto and what you are scoped to.
 
-**Board not running** (`ECONNREFUSED`): `cd <workbench repo> && bun run start`
-in the background, wait for `GET /api`, continue. Never fall back to asking in
-chat. `bun run install-service` keeps it running across reboots.
+**Board not answering** (`ECONNREFUSED`): first **wait and retry — three
+tries over about ten seconds.** A deploy restarts the service and the port is
+silent for a couple of seconds; that is not "down", and starting a second server
+into it is worse than waiting. `wb` retries on its own. Still refused after
+that → it is really down: `launchctl kickstart -k gui/$(id -u)/dev.workbench.server`
+if the service is installed, else `cd <workbench repo> && bun run start` in
+the background; wait for `GET /api`; continue. Never fall back to asking in
+chat, and never drop results you were about to record — hold them and retry.
+`bun run install-service` keeps the board running across reboots.
 
 ---
 
