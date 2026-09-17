@@ -426,6 +426,16 @@ button.labeledit {
 button.labeledit:hover { color: var(--accent); border-color: var(--accent); }
 button.labeledit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* Labels in use, offered beneath a label field. Clicking one adds it to the
+   field (or removes it); the `on` state mirrors the field so the two never
+   disagree. Same chip as the row filter, so it reads as the same vocabulary. */
+.labelpicks { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 0; }
+.labelpicks:empty { display: none; }
+.labelpicks .pick { cursor: pointer; }
+.labelform { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; width: 100%; }
+.labelform input { flex: 1 1 220px; }
+.labelform .labelpicks { flex: 1 1 100%; }
+
 /* The filter row is two clusters, not one scale. Work runs Decision → QA →
    Received → Deferred → Complete; a document is only ever Active or Archived.
    The rule and the label say so, so nobody reads seven buttons as a pipeline. */

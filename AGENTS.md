@@ -316,9 +316,13 @@ with `PATCH /api/projects/<slug> {"repos":[…]}`.
 `labels` (any number per item) say how items **relate** — one release, one
 blocker, one subsystem. `section` (at most one) is the **area of work**, never
 the kind or the state of the item. `GET /api/projects/<slug>` returns both
-vocabularies with counts: **reuse a name**; a near-synonym splits one list into
-two that both look complete. Repairs: `PATCH …/labels` and `PATCH …/sections`
-`{"from","to","actor"}` (empty `to` removes a label). `project.groupBy`
+vocabularies with counts (`GET /api/projects/<slug>/labels` returns the labels
+alone): **reuse a name**; a near-synonym splits one list into two that both
+look complete, and a filter on either misses half the work. A label that looks
+like a duplicate of one in use — case, punctuation, a trailing plural — comes
+back as a `warning` on the write, naming the existing label: reuse it, or merge
+the two. Repairs: `PATCH …/labels` and `PATCH …/sections` `{"from","to","actor"}`
+(empty `to` removes a label). `project.groupBy`
 (`status`, the default, or `section`) and `project.sectionMode` (`adhoc`
 warns on near-duplicates, `declared` refuses unlisted sections) are the
 human's calls; never switch them yourself. No good fit → leave `section`

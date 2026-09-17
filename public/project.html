@@ -24,9 +24,14 @@
     <form id="newitem">
       <input type="text" id="ititle" placeholder="What needs deciding or doing" aria-label="Item title" required>
       <input type="text" id="isection" placeholder="Section (optional)" aria-label="Section">
-      <input type="text" id="ilabels" placeholder="Labels, comma separated (optional)" aria-label="Labels">
+      <input type="text" id="ilabels" placeholder="Labels, comma separated (optional)" aria-label="Labels" list="labellist" autocomplete="off">
+      <datalist id="labellist"></datalist>
       <button type="submit">Add</button>
     </form>
+    <!-- The labels already in use, one click to add. A near-synonym typed by
+         hand ("Deploys" beside "Deploy") splits one thread of work into two
+         lists that both look complete, and a filter on either misses half. -->
+    <div class="labelpicks" id="labelpicks" aria-label="Labels in use"></div>
   </section>
 
   <footer>
@@ -584,6 +589,7 @@
     items = data.items;
     document.getElementById('eyebrow').textContent =
       WB.WAITING_ON_YOU.reduce((n, k) => n + (data.counts[k] || 0), 0) + ' waiting on you · ' + items.length + ' items';
+    WB.labelChoices(data.labels || [], document.getElementById('labellist'), document.getElementById('labelpicks'), document.getElementById('ilabels'));
     if (redraw !== false) safeRender();
   }
 
