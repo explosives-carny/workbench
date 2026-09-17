@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v2.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `2`,
+**Contract v3.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `3`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -13,7 +13,8 @@ working contract; everything after it is the same rules with their reasons.
 **Session start, in order.**
 
 ```bash
-date -u                                       # 0. note the clock: the stale-claim rule compares against it
+date -u                                       # 0. note the clock, and pick this session's id — 8 chars, once, sent as
+                                              #    "session" on every write (wb: WB_SESSION, or your harness's session id)
 wb resolve "$(git remote get-url origin)"     # 1. which project is mine (falls back: settings.defaultProject, then ask)
 curl -s localhost:4317/api/settings           # 2. onboardedAt? agentNames? — sign as agentNames[<your tool>], else the tool name
 wb board <slug>                               # 3. the actionable set: received + in-progress, last message each
@@ -43,8 +44,8 @@ wb board <slug>                                    GET  /api/projects/<slug>?sta
 wb show <id>                                       GET  /api/items/<id>
 wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"labels":["…"],"clientId":"…"}]'
                                                    POST /api/projects/<slug>/items     — an array files a set; clientId makes a retry safe
-wb claim <id> "what I am about to do"              PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","ifVersion":N} + a message
-wb reply <id> "…"                                  POST /api/items/<id>/messages {"who":"agent","actor":"<you>","text":"…"}
+wb claim <id> "what I am about to do"              PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","session":"<id>","ifVersion":N} + a message
+wb reply <id> "…"                                  POST /api/items/<id>/messages {"who":"agent","actor":"<you>","session":"<id>","text":"…"}
 wb reply <id> "Landed: …" --status complete        …same, with "status" — a reply that FINISHES work must carry one
 wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
@@ -63,12 +64,15 @@ understood — usually a typo).
    *plus every `who:"you"` message since your last reply*; the newest wins.
    Never act on the button alone; never skip a message.
 2. **Claim before you start; move it off when you stop.** `in-progress` with
-   your `actor` and a note saying what you are doing. A comment never claims —
-   only a status change touches `updatedBy`.
+   your `actor` and `session` and a note saying what you are doing. A comment
+   never claims — only a status change touches `updatedBy`/`updatedSession`.
 3. **A finishing reply carries a status.** Without one, "landed" reads as a
    claim under your name, forever. The server warns; do not make it.
-4. **Sign every write with `actor`** — the name from `settings.agentNames` for
-   your tool, else the tool name. One name, every session.
+4. **Sign every write with `actor` and `session`.** `actor` is the name a
+   person recognises — from `settings.agentNames` for your tool, else the tool
+   name — and two sessions of one tool share it. `session` is the id you
+   generated once at start; it is what tells you apart, and what lets you
+   recognise your own claim after a crash.
 5. **Send `ifVersion` on every status change.** Warned today, refused later. On
    `409`: re-apply only the fields you meant to change onto the returned item,
    resend with its `version`, and after a second `409` stop and post a message.
@@ -159,24 +163,29 @@ Move it off when you stop, whichever way it went. A claim nobody is honouring
 is worse than no claim.
 
 **A comment does not touch a claim.** A message that leaves the status where it
-is writes only the thread; `updatedBy`/`updatedAt` still name whoever last
-*moved* the item. So you can add context to somebody else's item without
+is writes only the thread; `updatedBy`/`updatedSession`/`updatedAt` still name
+whoever last *moved* the item. So you can add context to somebody else's item without
 appearing to take it — and cannot take it by commenting. (Every message used to
 repaint `updatedBy`; three stand-down notes on another agent's items once made
 them read as the commenter's.)
 
-On a check-in, an item at `in-progress` is one of these — `updatedBy` and
-`updatedAt` say which, and the clock you noted at session start is the reference:
+On a check-in, an item at `in-progress` is one of these. `updatedSession` makes
+the first two exact; `updatedAt` against the clock you noted at session start
+settles the rest:
 
 | What you see | What it is | Do |
 |---|---|---|
-| `updatedBy` is you, `updatedAt` after your session began | your own work | carry on |
-| `updatedBy` is you, from before your session | **you crashed** | read the thread, resume or hand back |
-| another agent, `updatedAt` older than your session began | **stale claim** | say so in the thread, reclaim, name whose claim you took |
-| another agent, recent | somebody is on it | leave it alone |
+| `updatedSession` is this session | your own work | carry on |
+| `updatedBy` is your name, `updatedSession` is not this session | **your earlier session crashed — or a sibling session is on it** | read the thread; a live sibling says so in recent messages; otherwise resume or hand back |
+| another name, `updatedAt` older than your session began | **stale claim** | say so in the thread, reclaim, name whose claim you took |
+| another name, recent | somebody is on it | leave it alone |
+| `updatedSession` empty | an older writer | fall back to the clock rule |
 
 No fixed timeout, deliberately: "older than my session began" needs no clock
-everyone agrees on, and it is the real question — is anybody still here.
+everyone agrees on, and it is the real question — is anybody still here. The
+session id exists because the name alone could not answer the first question:
+two sessions of the same tool, both called `spike`, are two workers, and
+without it neither could tell whose claim it was looking at.
 
 **Correct your own status when you get it wrong**, with a message saying what
 and why. A wrong status is worse than a stale one, because somebody trusts it.
@@ -261,7 +270,16 @@ agents on one board. `who` (`you`|`agent`) separates a person from a machine;
 **Your name is `settings.agentNames[<tool>]`** — `{"claude-code":"spike",
 "codex":"codex"}`, set by the human — else the tool name. One rule; the earlier
 one offered two ("the tool you run as, or the name they call you") and the
-reference board reached one agent under two names. Repair an existing split
+reference board reached one agent under two names.
+
+**Your identity is the name plus your `session`.** The name is not the identity
+— it cannot be, once two sessions of one tool work the same board. Generate a
+short id once when the session starts (eight characters; `wb` uses `WB_SESSION`
+or the first eight of your harness's own session id), send it on every write,
+and the board keeps it on each message and on the item as `updatedSession`. A
+person sees the name; the tag beside it says which session; claim recovery
+compares sessions instead of guessing from the clock. Never reuse another
+session's id and never change yours mid-session. Repair an existing split
 with `PATCH /api/projects/<slug>/authors {"from":"…","to":"…","actor":"…"}` —
 it renames signatures and last-actor without freshening `updatedAt`, so a
 rename cannot revive a stale claim.

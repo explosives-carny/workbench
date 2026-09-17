@@ -286,6 +286,14 @@ export type Message = {
   itemId: string;
   who: 'you' | 'agent';
   author: string;
+  /**
+   * Which SESSION of that author wrote this. `author` is the name a person
+   * recognises (spike, codex); two sessions of the same tool carry the same
+   * name and are two workers. The session id is what tells them apart — and
+   * what lets a session tell its own abandoned claim from a sibling's live one.
+   * Generated once per session by the writer, '' when a writer sends none.
+   */
+  session: string;
   text: string;
   createdAt: string;
 };
@@ -324,6 +332,8 @@ export type Item = {
   position: number;
   version: number;
   updatedBy: string;
+  /** The session of `updatedBy` — the exact holder of a claim. '' when unknown. */
+  updatedSession: string;
   body: string;
   bodyFormat: 'text' | 'markdown' | 'html';
   checks: Check[];
@@ -436,6 +446,9 @@ export function openDb(path: string): Database {
       -- N and be refused rather than overwrite a change it never saw.
       version    INTEGER NOT NULL DEFAULT 1,
       updated_by TEXT NOT NULL DEFAULT '',
+      -- The session of updated_by: exact identity of whoever last moved the
+      -- item, so a claim can be told apart from a sibling session's.
+      updated_session TEXT NOT NULL DEFAULT '',
       -- Long-form content: a QA walkthrough, a design specification, anything
       -- that is a document rather than a question. Kept on the item rather than
       -- in a second table because it belongs to exactly one item and is read
@@ -467,6 +480,8 @@ export function openDb(path: string): Database {
       item_id    TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
       who        TEXT NOT NULL,
       author     TEXT NOT NULL DEFAULT '',
+      -- Which session of the author wrote it; '' when the writer sent none.
+      session    TEXT NOT NULL DEFAULT '',
       text       TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
@@ -492,7 +507,10 @@ export function openDb(path: string): Database {
   if (!pcols.has('repos')) db.exec("ALTER TABLE projects ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
   const columns = new Set<string>(db.query('PRAGMA table_info(items)').all().map((r: any) => r.name));
   if (!columns.has('client_id')) db.exec("ALTER TABLE items ADD COLUMN client_id TEXT NOT NULL DEFAULT ''");
+  if (!columns.has('updated_session')) db.exec("ALTER TABLE items ADD COLUMN updated_session TEXT NOT NULL DEFAULT ''");
   db.exec('CREATE INDEX IF NOT EXISTS idx_items_client ON items(project_id, client_id)');
+  const mcols = new Set<string>(db.query('PRAGMA table_info(messages)').all().map((r: any) => r.name));
+  if (!mcols.has('session')) db.exec("ALTER TABLE messages ADD COLUMN session TEXT NOT NULL DEFAULT ''");
   if (!columns.has('version')) db.exec('ALTER TABLE items ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
   if (!columns.has('updated_by')) db.exec("ALTER TABLE items ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''");
   if (!columns.has('body')) db.exec("ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''");
@@ -581,6 +599,7 @@ function rowToItem(r: any): Item {
     position: r.position,
     version: r.version ?? 1,
     updatedBy: r.updated_by ?? '',
+    updatedSession: r.updated_session ?? '',
     checks: (() => {
       try {
         const parsed = JSON.parse(r.checks ?? '[]');
@@ -603,6 +622,7 @@ function rowToMessage(r: any): Message {
     itemId: r.item_id,
     who: r.who === 'you' ? 'you' : 'agent',
     author: r.author,
+    session: r.session ?? '',
     text: r.text,
     createdAt: r.created_at,
   };
@@ -792,7 +812,7 @@ export class Store {
   updateItem(
     id: string,
     patch: Partial<ItemInput> & { position?: number },
-    opts: { ifVersion?: number; actor?: string } = {}
+    opts: { ifVersion?: number; actor?: string; session?: string } = {}
   ): Item | null {
     const current = this.getItem(id);
     if (!current) return null;
@@ -820,13 +840,13 @@ export class Store {
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
       next.title, next.context, next.options, next.choice, next.status, next.kind, next.section, next.position,
-      next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', id,
+      next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', opts.session || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
         `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, kind = ?, section = ?, position = ?,
-           body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, version = version + 1
+           body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1
          WHERE id = ?${guard}`
       )
       .run(...params);
@@ -840,7 +860,7 @@ export class Store {
   setCheck(
     itemId: string,
     checkId: string,
-    patch: { result?: Check['result']; note?: string; by?: string }
+    patch: { result?: Check['result']; note?: string; by?: string; session?: string }
   ): Item | null {
     const current = this.getItem(itemId);
     if (!current) return null;
@@ -868,8 +888,8 @@ export class Store {
       throw error;
     }
     this.db
-      .query('UPDATE items SET checks = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
-      .run(JSON.stringify(checks), now(), patch.by || '', itemId);
+      .query('UPDATE items SET checks = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1 WHERE id = ?')
+      .run(JSON.stringify(checks), now(), patch.by || '', patch.session || '', itemId);
     // The last pass signs the item off. QA used to end in a status nobody had
     // set: every step recorded pass and the item sat at `needs-qa`, reading as
     // waiting on the human, until somebody noticed and moved it by hand. Sign-off
@@ -883,6 +903,7 @@ export class Store {
       this.addMessage(itemId, {
         who: by === 'you' ? 'you' : 'agent',
         author: by,
+        session: patch.session,
         status: 'received',
         text: `All ${checks.length} steps passed — signed off by ${by}. Back to the builder to land and close.`,
       });
@@ -908,7 +929,7 @@ export class Store {
   // (a needs-* status would be a lie, `received` is the agent's word to give), so
   // the human's own post moves it OFF the needs-* states and the agent's reply marks
   // it received. Callers can still override explicitly.
-  addMessage(itemId: string, input: { who: 'you' | 'agent'; text: string; author?: string; status?: Status; createdAt?: string }): Message | null {
+  addMessage(itemId: string, input: { who: 'you' | 'agent'; text: string; author?: string; session?: string; status?: Status; createdAt?: string }): Message | null {
     const item = this.getItem(itemId);
     if (!item) return null;
     const message: Message = {
@@ -916,6 +937,7 @@ export class Store {
       itemId,
       who: input.who,
       author: input.author || (input.who === 'you' ? 'you' : 'agent'),
+      session: (input.session || '').trim().slice(0, 40),
       text: input.text,
       // Same rule as an item's: supplied only by an import replaying history,
       // and only when it is a real past instant. Without it a restored board
@@ -924,8 +946,8 @@ export class Store {
       createdAt: asHistoricInstant(input.createdAt) || now(),
     };
     this.db
-      .query('INSERT INTO messages (id, item_id, who, author, text, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(message.id, message.itemId, message.who, message.author, message.text, message.createdAt);
+      .query('INSERT INTO messages (id, item_id, who, author, session, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(message.id, message.itemId, message.who, message.author, message.session, message.text, message.createdAt);
 
     // A document has no "the agent is working on it" state, so a human replying
     // on one must not drag it to `received` — that is a task transition and it
@@ -967,8 +989,8 @@ export class Store {
     // status, so only a status change may rewrite it.
     if (status !== item.status) {
       this.db
-        .query('UPDATE items SET status = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
-        .run(status, now(), message.author, itemId);
+        .query('UPDATE items SET status = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1 WHERE id = ?')
+        .run(status, now(), message.author, message.session, itemId);
     }
     return message;
   }

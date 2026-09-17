@@ -21,7 +21,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '2';
+export const CONTRACT_VERSION = '3';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -45,7 +45,24 @@ function wantsPretty(req: Request, url: URL): boolean {
   return req.headers.has('sec-fetch-mode');
 }
 
-type Ctx = { pretty: boolean; wrote: boolean };
+type Ctx = { pretty: boolean; wrote: boolean; browser: boolean };
+
+// Which session of the actor is writing. `actor` is the name a person
+// recognises; two sessions of one tool share it and are two workers. The
+// session id — generated once by the writer, sent on every write — is what
+// tells them apart, and what makes claim recovery exact: same session, mine;
+// same actor, other session, a sibling or my own crashed run. Optional, so an
+// older writer is not refused; '' is stored when none is sent.
+function sessionOf(body: any): string | undefined {
+  return typeof body?.session === 'string' && body.session.trim() ? body.session.trim().slice(0, 40) : undefined;
+}
+
+// The browser never sends an actor; it IS the human. Defaulting its edits to
+// `you` keeps a button click from leaving updatedBy empty — which it did, and
+// the row then said nobody had moved the item the human had just answered.
+function actorOr(ctx: Ctx, body: any, alias: 'author' | 'by'): string | undefined {
+  return actorOf(body, alias) ?? (ctx.browser ? 'you' : undefined);
+}
 
 function json(ctx: Ctx, data: unknown, status = 200): Response {
   return new Response(ctx.pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data), {
@@ -88,9 +105,9 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // caller believed the label had landed until the board looked wrong. Refusing
 // would break older writers sending fields since retired; naming the drop is
 // enough for a writer to notice and fix itself.
-const ITEM_FIELDS = new Set(['title', 'context', 'options', 'choice', 'status', 'section', 'kind', 'body', 'bodyFormat', 'checks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'position']);
-const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'status', 'createdAt']);
-const CHECK_FIELDS = new Set(['result', 'note', 'actor', 'by']);
+const ITEM_FIELDS = new Set(['title', 'context', 'options', 'choice', 'status', 'section', 'kind', 'body', 'bodyFormat', 'checks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
+const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
+const CHECK_FIELDS = new Set(['result', 'note', 'actor', 'by', 'session']);
 
 function ignoredKeys(body: any, known: Set<string>): string[] {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return [];
@@ -233,10 +250,11 @@ const ROUTES = [
   'PATCH  /api/projects/<slug>/labels          {from,to,actor}',
   'PATCH  /api/projects/<slug>/authors         {from,to,actor}',
   'POST   /api/projects/<slug>/items           item | [item, ...]   (item.clientId for idempotent retries)',
-  'GET    /api/items/<id> · PATCH /api/items/<id> {..., actor, ifVersion}',
+  'GET    /api/items/<id> · PATCH /api/items/<id> {..., actor, session, ifVersion}',
   'GET    /api/items/<id>/body',
-  'GET    /api/items/<id>/messages · POST /api/items/<id>/messages {who, text, actor, status?}',
-  'PATCH  /api/items/<id>/checks/<checkId>     {result, note?, actor}',
+  'GET    /api/items/<id>/messages · POST /api/items/<id>/messages {who, text, actor, session, status?}',
+  'PATCH  /api/items/<id>/checks/<checkId>     {result, note?, actor, session}',
+  'every write: actor = the name a person recognises; session = the id this session generated once at start',
 ];
 
 async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: URL, ctx: Ctx): Promise<Response> {
@@ -456,7 +474,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         }
         try {
           ctx.wrote = true;
-          const updated = store.updateItem(item.id, patch, { ifVersion, actor: actorOf(body, 'author') });
+          const updated = store.updateItem(item.id, patch, { ifVersion, actor: actorOr(ctx, body, 'author'), session: sessionOf(body) });
           return json(ctx, withIgnored({ ok: true, item: updated, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignored));
         } catch (error) {
           if (error instanceof VersionConflict) {
@@ -517,6 +535,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           // check results without a name, and a step somebody walked by hand
           // must not read as machine-recorded.
           by: actorOf(body, 'by') ?? 'you',
+          session: sessionOf(body),
         });
         return json(ctx, withIgnored({ ok: true, item: updated }, ignoredKeys(body, CHECK_FIELDS)));
       } catch (error: any) {
@@ -537,6 +556,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           who,
           text: body.text.trim(),
           author: actorOf(body, 'author'),
+          session: sessionOf(body),
           status,
         });
         const after = store.getItem(item.id)!;
@@ -558,7 +578,7 @@ export function createHandler(store: Store, opts: HandlerOptions): (req: Request
     // `/api/` with the slash: every API route has one, and a bare prefix test
     // swallowed `/api-doc` into the API router, which then 404'd it.
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      const ctx: Ctx = { pretty: wantsPretty(req, url), wrote: false };
+      const ctx: Ctx = { pretty: wantsPretty(req, url), wrote: false, browser: req.headers.has('sec-fetch-mode') };
       try {
         return await handleApi(store, opts, req, url, ctx);
       } catch (error: any) {

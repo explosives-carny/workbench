@@ -280,7 +280,7 @@
         d.className = 'msg ' + (msg.who === 'you' ? 'you' : 'agent');
         const who = document.createElement('div');
         who.className = 'who';
-        who.textContent = msg.who === 'you' ? 'You' : (msg.author || 'Agent');
+        who.textContent = msg.who === 'you' ? 'You' : (msg.author || 'Agent') + (msg.session ? '·' + msg.session : '');
         const p = document.createElement('p');
         p.textContent = msg.text;
         const when = document.createElement('div');
