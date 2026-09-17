@@ -55,7 +55,13 @@ import { dirname } from 'path';
 // and nothing on the board says so. Splitting the two makes an abandoned claim
 // visible, because an item sitting at `in-progress` with an `updatedAt` older
 // than your session began is a claim whose owner is gone.
-export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'active', 'archived', 'complete'] as const;
+//
+// `cancelled` (added in contract v4) is the honest end for an issue that will
+// not be done. Before it, such an issue had three wrong homes: `complete`
+// claims the work landed, `deferred` claims it comes back, `archived` belongs to
+// documents. It sits with the finished work in the Archived group — kept, not
+// current — and the thread carries the reason.
+export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'active', 'archived', 'complete', 'cancelled'] as const;
 export type Status = (typeof STATUSES)[number];
 
 // Display labels. Short on purpose: these sit in a chip, a filter button and a
@@ -71,6 +77,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   active: 'Active',
   archived: 'Archived',
   complete: 'Complete',
+  cancelled: 'Cancelled',
 };
 
 /**
@@ -82,7 +89,7 @@ export const STATUS_LABELS: Record<Status, string> = {
  */
 export const DOCUMENT_STATUSES: Status[] = ['active', 'archived'];
 
-/** The five a task moves through. The complement of DOCUMENT_STATUSES. */
+/** The six a task moves through. The complement of DOCUMENT_STATUSES. */
 export const ISSUE_STATUSES: Status[] = STATUSES.filter((s) => !DOCUMENT_STATUSES.includes(s));
 
 /**
@@ -156,7 +163,9 @@ export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] 
   // both are "kept, not current", and separating them would give the board two
   // graveyards.
   { id: 'documents', label: 'Documents', statuses: ['active'] },
-  { id: 'archived', label: 'Archived', statuses: ['archived', 'complete'] },
+  // Cancelled joins them: decided against is as finished as done, for the
+  // purpose of what the board shows by default.
+  { id: 'archived', label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
 ];
 
 export type Project = {
@@ -1144,7 +1153,7 @@ export class Store {
   }
 
   counts(projectId: string): Record<Status, number> {
-    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'deferred': 0, active: 0, archived: 0, complete: 0 };
+    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'deferred': 0, active: 0, archived: 0, complete: 0, cancelled: 0 };
     const rows: any[] = this.db.query('SELECT status, COUNT(*) AS n FROM items WHERE project_id = ? GROUP BY status').all(projectId);
     for (const row of rows) if (row.status in out) out[row.status as Status] = row.n;
     return out;
