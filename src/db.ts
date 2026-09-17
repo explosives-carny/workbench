@@ -180,9 +180,39 @@ export type Project = {
    * instead, and any project created before this default keeps what it holds.
    */
   groupBy: GroupBy;
+  /**
+   * The repositories this project is about, so a session can find its board
+   * from where it is standing. Each entry is a remote (`owner/name`, or a full
+   * git URL) or a directory path; a trailing `*` on a path matches every
+   * worktree under that prefix. Without this, a session with two projects on
+   * the board had no rule for which one was "mine" and read both, or guessed.
+   */
+  repos: string[];
   createdAt: string;
   archivedAt: string | null;
 };
+
+/**
+ * One spelling for a repository reference, so `git@github.com:acme/site.git`,
+ * `https://github.com/acme/site` and `acme/site` are the same project. Paths
+ * keep their shape (lower-cased, `~` expanded, trailing slash dropped).
+ */
+export function normaliseRepoRef(value: string, home = ''): string {
+  let ref = String(value).trim();
+  if (!ref) return '';
+  const m = ref.match(/^(?:git@[^:]+:|https?:\/\/[^/]+\/|ssh:\/\/[^/]+\/)(.+?)(?:\.git)?\/?$/i);
+  if (m) return m[1].toLowerCase();
+  if (home && ref.startsWith('~')) ref = home + ref.slice(1);
+  return ref.replace(/\/+$/, '').toLowerCase();
+}
+
+/** Does `ref` (already normalised) match the project's `repos` entry? */
+export function repoMatches(entry: string, ref: string, home = ''): boolean {
+  const e = normaliseRepoRef(entry, home);
+  if (!e || !ref) return false;
+  if (e.endsWith('*')) return ref.startsWith(e.slice(0, -1));
+  return e === ref;
+}
 
 // Near-duplicate detection. The way a section vocabulary actually rots is not
 // somebody inventing a wild new name — it is "Deploys" appearing beside "Ship
@@ -297,9 +327,13 @@ export type Item = {
   body: string;
   bodyFormat: 'text' | 'markdown' | 'html';
   checks: Check[];
+  /** Caller-chosen id for idempotent creates; '' when none was given. */
+  clientId: string;
   createdAt: string;
   updatedAt: string;
   messages?: Message[];
+  /** Set by list views: how many messages the thread holds, however many were sent. */
+  messageCount?: number;
 };
 
 export type ItemInput = {
@@ -314,6 +348,13 @@ export type ItemInput = {
   bodyFormat?: 'text' | 'markdown' | 'html';
   checks?: Check[];
   labels?: string[];
+  /**
+   * Idempotency key, unique per project. A create that names a clientId already
+   * present on the project returns the existing item rather than a second copy.
+   * Exists for the retry after a timeout: the write may have landed and the
+   * caller cannot know, and a batch of ten re-sent blindly is twenty items.
+   */
+  clientId?: string;
   /**
    * When this thing actually came into being, for an import carrying history.
    *
@@ -374,7 +415,10 @@ export function openDb(path: string): Database {
       -- this value is what an existing row gets when the column is added, and
       -- regrouping a board somebody already uses is a surprise, not a default.
       -- createProject sets 'status' for anything made from now on.
-      group_by     TEXT NOT NULL DEFAULT 'section'
+      group_by     TEXT NOT NULL DEFAULT 'section',
+      -- Repositories this project is about (JSON array), so a session resolves
+      -- its board from the directory or remote it is standing in.
+      repos        TEXT NOT NULL DEFAULT '[]'
     );
     CREATE TABLE IF NOT EXISTS items (
       id         TEXT PRIMARY KEY,
@@ -411,6 +455,10 @@ export function openDb(path: string): Database {
       labels      TEXT NOT NULL DEFAULT '[]',
       -- issue or document. Decides which statuses this item may hold.
       kind        TEXT NOT NULL DEFAULT 'issue',
+      -- A caller-chosen id, unique per project, so a batch that timed out after
+      -- the write can be re-sent and find its items instead of duplicating
+      -- them. Empty for everything created without one.
+      client_id   TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -441,7 +489,10 @@ export function openDb(path: string): Database {
   if (!pcols.has('section_mode')) db.exec("ALTER TABLE projects ADD COLUMN section_mode TEXT NOT NULL DEFAULT 'adhoc'");
   if (!pcols.has('sections')) db.exec("ALTER TABLE projects ADD COLUMN sections TEXT NOT NULL DEFAULT '[]'");
   if (!pcols.has('group_by')) db.exec("ALTER TABLE projects ADD COLUMN group_by TEXT NOT NULL DEFAULT 'section'");
+  if (!pcols.has('repos')) db.exec("ALTER TABLE projects ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
   const columns = new Set<string>(db.query('PRAGMA table_info(items)').all().map((r: any) => r.name));
+  if (!columns.has('client_id')) db.exec("ALTER TABLE items ADD COLUMN client_id TEXT NOT NULL DEFAULT ''");
+  db.exec('CREATE INDEX IF NOT EXISTS idx_items_client ON items(project_id, client_id)');
   if (!columns.has('version')) db.exec('ALTER TABLE items ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
   if (!columns.has('updated_by')) db.exec("ALTER TABLE items ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''");
   if (!columns.has('body')) db.exec("ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''");
@@ -497,6 +548,12 @@ function rowToProject(r: any): Project {
       } catch { return []; }
     })(),
     groupBy: (r.group_by === 'status' ? 'status' : 'section') as GroupBy,
+    repos: (() => {
+      try {
+        const parsed = JSON.parse(r.repos ?? '[]');
+        return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string' && x.trim()) : [];
+      } catch { return []; }
+    })(),
     createdAt: r.created_at,
     archivedAt: r.archived_at,
   };
@@ -532,6 +589,7 @@ function rowToItem(r: any): Item {
     })(),
     labels: parseLabels(r.labels),
     kind: (r.kind === 'document' ? 'document' : 'issue') as Kind,
+    clientId: r.client_id ?? '',
     body: r.body ?? '',
     bodyFormat: (r.body_format ?? 'text') as 'text' | 'markdown' | 'html',
     createdAt: r.created_at,
@@ -574,7 +632,21 @@ export class Store {
     return row ? rowToProject(row) : null;
   }
 
-  createProject(input: { name: string; slug?: string; description?: string }): Project {
+  /**
+   * The project a repository reference belongs to, or null. `ref` is a remote
+   * URL, `owner/name`, or a directory path; see normaliseRepoRef. First match
+   * wins in creation order, newest first — the same order the gallery shows.
+   */
+  resolveProject(ref: string, home = ''): Project | null {
+    const target = normaliseRepoRef(ref, home);
+    if (!target) return null;
+    for (const project of this.listProjects(false)) {
+      if (project.repos.some((entry) => repoMatches(entry, target, home))) return project;
+    }
+    return null;
+  }
+
+  createProject(input: { name: string; slug?: string; description?: string; repos?: string[] }): Project {
     const slug = slugify(input.slug || input.name);
     const existing = this.getProject(slug);
     // Idempotent by slug. An agent that re-runs its own setup should find its
@@ -597,12 +669,13 @@ export class Store {
       // silently regrouping somebody's board under them is not a default, it is
       // a surprise.
       groupBy: 'status',
+      repos: normaliseLabels(input.repos),
       createdAt: now(),
       archivedAt: null,
     };
     this.db
-      .query('INSERT INTO projects (id, slug, name, description, section_mode, sections, group_by, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-      .run(project.id, project.slug, project.name, project.description, project.sectionMode, JSON.stringify(project.sections), project.groupBy, project.createdAt);
+      .query('INSERT INTO projects (id, slug, name, description, section_mode, sections, group_by, repos, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+      .run(project.id, project.slug, project.name, project.description, project.sectionMode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.createdAt);
     return project;
   }
 
@@ -613,7 +686,18 @@ export class Store {
     return this.getProject(slug);
   }
 
-  listItems(projectId: string, withMessages = true): Item[] {
+  /**
+   * The items of a project, body stripped.
+   *
+   * `messages` decides how much of each thread rides along: `'all'` (the
+   * browser's need — it renders the threads), `'last'` (an agent's check-in
+   * need — who spoke last and what they said), or `'none'`. `messageCount` is
+   * set in every mode so a caller that received one message, or none, still
+   * knows how long the thread is. The reference board was 62 items and 153
+   * messages, all of them shipped on every check-in that wanted three rows.
+   */
+  listItems(projectId: string, messages: boolean | 'all' | 'last' | 'none' = 'all'): Item[] {
+    const mode = messages === true ? 'all' : messages === false ? 'none' : messages;
     const items = this.db
       .query('SELECT * FROM items WHERE project_id = ? ORDER BY position ASC, created_at ASC')
       .all(projectId)
@@ -627,8 +711,18 @@ export class Store {
       item.body = '';
       // checks stay: they are small, and a row shows "12 of 41" from them.
     }
-    if (!withMessages) return items;
-    for (const item of items) item.messages = this.listMessages(item.id);
+    const counts = new Map<string, number>();
+    for (const row of this.db
+      .query('SELECT item_id, COUNT(*) AS n FROM messages WHERE item_id IN (SELECT id FROM items WHERE project_id = ?) GROUP BY item_id')
+      .all(projectId) as any[]) counts.set(row.item_id, row.n);
+    for (const item of items) {
+      item.messageCount = counts.get(item.id) ?? 0;
+      if (mode === 'all') item.messages = this.listMessages(item.id);
+      else if (mode === 'last') {
+        const last = this.db.query('SELECT * FROM messages WHERE item_id = ? ORDER BY created_at DESC LIMIT 1').get(item.id);
+        item.messages = last ? [rowToMessage(last)] : [];
+      }
+    }
     return items;
   }
 
@@ -653,13 +747,20 @@ export class Store {
     // a status an older writer could not have known about loses the item.
     const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
     const status = input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind);
+    // Idempotent by clientId when one is given. The retry after a timeout must
+    // find the item the first attempt created, not make a second one.
+    const clientId = typeof input.clientId === 'string' ? input.clientId.trim().slice(0, 120) : '';
+    if (clientId) {
+      const existing: any = this.db.query('SELECT id FROM items WHERE project_id = ? AND client_id = ?').get(projectId, clientId);
+      if (existing) return this.getItem(existing.id)!;
+    }
     const maxRow: any = this.db.query('SELECT MAX(position) AS m FROM items WHERE project_id = ?').get(projectId);
     const position = (maxRow?.m ?? -1) + 1;
     const id = randomUUID();
     this.db
       .query(
-        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, labels, kind, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, labels, kind, client_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -676,6 +777,7 @@ export class Store {
         JSON.stringify(input.checks || []),
         JSON.stringify(normaliseLabels(input.labels)),
         kind,
+        clientId,
         createdAt,
         at
       );
@@ -768,6 +870,23 @@ export class Store {
     this.db
       .query('UPDATE items SET checks = ?, updated_at = ?, updated_by = ?, version = version + 1 WHERE id = ?')
       .run(JSON.stringify(checks), now(), patch.by || '', itemId);
+    // The last pass signs the item off. QA used to end in a status nobody had
+    // set: every step recorded pass and the item sat at `needs-qa`, reading as
+    // waiting on the human, until somebody noticed and moved it by hand. Sign-off
+    // is whoever recorded the last pass — a person or a model doing the QA — so
+    // the board says so and hands the item back to the agent that built it, at
+    // `received`, to land and close. A fail or a skip anywhere leaves it at QA
+    // with the note on the step; nothing is signed off with an open question.
+    const allPass = checks.length > 0 && checks.every((c) => c.result === 'pass');
+    if (allPass && current.kind === 'issue' && current.status === 'needs-qa') {
+      const by = patch.by || 'you';
+      this.addMessage(itemId, {
+        who: by === 'you' ? 'you' : 'agent',
+        author: by,
+        status: 'received',
+        text: `All ${checks.length} steps passed — signed off by ${by}. Back to the builder to land and close.`,
+      });
+    }
     return this.getItem(itemId);
   }
 
@@ -884,15 +1003,16 @@ export class Store {
     return out;
   }
 
-  setProjectSections(slug: string, patch: { sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy }): Project | null {
+  setProjectSections(slug: string, patch: { sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy; repos?: string[] }): Project | null {
     const project = this.getProject(slug);
     if (!project) return null;
     const mode = patch.sectionMode ?? project.sectionMode;
     const sections = patch.sections ?? project.sections;
     const groupBy = patch.groupBy ?? project.groupBy;
+    const repos = patch.repos === undefined ? project.repos : normaliseLabels(patch.repos);
     this.db
-      .query('UPDATE projects SET section_mode = ?, sections = ?, group_by = ? WHERE id = ?')
-      .run(mode, JSON.stringify(sections), groupBy, project.id);
+      .query('UPDATE projects SET section_mode = ?, sections = ?, group_by = ?, repos = ? WHERE id = ?')
+      .run(mode, JSON.stringify(sections), groupBy, JSON.stringify(repos), project.id);
     return this.getProject(slug);
   }
 
