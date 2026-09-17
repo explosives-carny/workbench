@@ -71,19 +71,39 @@
   // it is for.
   const DEFAULT_HIDDEN = ['complete', 'archived', 'cancelled'];
 
+  // A saved filter set only knows the statuses that existed when it was saved.
+  // When a new default-hidden status arrives (cancelled, contract v4), a viewer
+  // with a saved set would see it shown while Complete stays hidden — the
+  // opposite of the default they never chose to change. So the save also
+  // records which statuses the viewer has seen; on load, a default-hidden status
+  // the viewer has never seen is hidden, and a status they deliberately showed
+  // stays shown. Saves from before this record are treated as having seen every
+  // status except `cancelled`, the one added after the record was introduced.
+  const SEEN_KEY = FILTER_KEY + '.seen';
+  const ADDED_AFTER_SEEN_RECORD = ['cancelled'];
+
   function loadHidden() {
     try {
       const raw = localStorage.getItem(FILTER_KEY);
       if (!raw) return new Set(DEFAULT_HIDDEN);
       const parsed = JSON.parse(raw);
-      return new Set(Array.isArray(parsed) ? parsed.filter((s) => WB.STATUSES.includes(s)) : DEFAULT_HIDDEN);
+      if (!Array.isArray(parsed)) return new Set(DEFAULT_HIDDEN);
+      const set = new Set(parsed.filter((s) => WB.STATUSES.includes(s)));
+      let seen;
+      try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || 'null'); } catch (e) { seen = null; }
+      if (!Array.isArray(seen)) seen = WB.STATUSES.filter((s) => !ADDED_AFTER_SEEN_RECORD.includes(s));
+      for (const s of DEFAULT_HIDDEN) if (!seen.includes(s)) set.add(s);
+      return set;
     } catch (e) {
       return new Set(DEFAULT_HIDDEN);
     }
   }
 
   function saveHidden() {
-    try { localStorage.setItem(FILTER_KEY, JSON.stringify([...hidden])); } catch (e) { /* not worth failing over */ }
+    try {
+      localStorage.setItem(FILTER_KEY, JSON.stringify([...hidden]));
+      localStorage.setItem(SEEN_KEY, JSON.stringify(WB.STATUSES));
+    } catch (e) { /* not worth failing over */ }
   }
 
   let hidden = loadHidden();
