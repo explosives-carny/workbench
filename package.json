@@ -10,6 +10,8 @@
     "dev": "bun --watch src/server.ts",
     "export": "bun run src/cli.ts export",
     "import": "bun run src/cli.ts import",
+    "wb": "bun run src/wb.ts",
+    "install-service": "bun run src/service.ts",
     "test": "bun test"
   },
   "engines": {
