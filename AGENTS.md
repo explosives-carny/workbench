@@ -41,6 +41,12 @@ Never send one to make a fresh item look older.
 **`body` is stripped from list responses** — `GET /api/items/<id>` for the full
 text; `bodyLength` in a list tells you one is there.
 
+**Where the answer is.** The answer to an item is `choice` if it is set, **plus
+every message with `who:"you"` since your last agent message.** When they
+disagree, the newest message wins — a person who clicks a button and then types
+a correction underneath meant the correction. Everything a person wrote on the
+board is input to the work: never act on the button alone, never skip a message.
+
 ## Status — whose move is it
 
 Five are work. Two are documents. They are not one scale.
@@ -205,17 +211,23 @@ POST  /api/projects/<slug>/items         [{"title":"...","context":"...","option
 # rename or merge a label everywhere; "to":"" removes it
 PATCH /api/projects/<slug>/labels        {"from":"Deploys","to":"Ship it","actor":"<you>"}
 
+# one agent signed under two names? merge them everywhere in the project
+PATCH /api/projects/<slug>/authors       {"from":"claude-code","to":"spike","actor":"<you>"}
+
 # how the board groups its rows: "section" (default) or "status"
 PATCH /api/projects/<slug>                {"groupBy":"status"}
 
-# reply, and acknowledge
-POST  /api/items/<id>/messages           {"who":"agent","author":"<you>","text":"..."}
+# reply — a bare reply on a `received` item CLAIMS it (see Concurrency)
+POST  /api/items/<id>/messages           {"who":"agent","actor":"<you>","text":"Picking this up: ..."}
+
+# a reply that FINISHES the work carries the status, or it reads as a claim
+POST  /api/items/<id>/messages           {"who":"agent","actor":"<you>","status":"complete","text":"Landed: ..."}
 
 # record a decision you acted on
 PATCH /api/items/<id>                    {"status":"complete","actor":"<you>","ifVersion":4}
 
-# one checklist step — never the whole array
-PATCH /api/items/<id>/checks/<checkId>   {"result":"fail","note":"required unless pass","by":"<name>"}
+# record ONE checklist result — the array is for defining steps, never for results
+PATCH /api/items/<id>/checks/<checkId>   {"result":"fail","note":"required unless pass","actor":"<you>"}
 
 # a document in full
 GET   /api/items/<id>                    → item.body
@@ -234,18 +246,32 @@ Errors are `{"ok":false,"error":"..."}` — `400` malformed · `404` bad id or s
   `received` moves it to `in-progress` and records you as the actor. You do not
   have to remember a second call. Pass an explicit `status` when the reply hands
   the item back instead — `needs-decision` if it is their call now, `needs-qa` if
-  you built something, `complete` if it landed.
+  you built something, `complete` if it landed. **A reply that finishes the work
+  MUST carry a `status`, or it reads as a claim** — "landed, PR merged" with no
+  status leaves the item at `in-progress` under your name, forever.
+- **A comment does not touch the claim.** A message that leaves the status where
+  it is writes only the thread; `updatedBy`/`updatedAt` on the item still name
+  whoever last moved it. So you can add context to somebody else's item without
+  appearing to take it — and you cannot take it by commenting, either.
 - **Messages never conflict.** Append one rather than editing an item whenever
   you are recording something that happened.
 - **Item edits can.** Send `ifVersion` from the copy you read. On `409`, merge
   onto the item in the response and retry — do not re-read and blind-write.
 - Omit `ifVersion` only for an item you just created.
-- **Always send `author` on messages and `actor` on edits.** Omit them and the
+- **Always send `actor`** — on edits, on messages, on checklist results. One
+  field, every write. (`author` on messages and `by` on checks are still read as
+  aliases for older writers; `actor` wins when both are sent.) Omit it and the
   board records the literal string `agent` — so every row reads the same and the
   "who answered last" column is useless exactly when it matters, with two agents
-  working. Use a short, stable name a human will recognise: the tool you run as
-  (`claude-code`, `codex`, `cursor`), or the name they call you. Keep it the same
-  between sessions; a name that changes is no better than none.
+  working. `who` (`you`\|`agent`) is what separates a person from a machine;
+  `actor` says which one.
+- **Your name comes from `settings.agentNames`.** It maps the tool you run as to
+  the name you sign with — `{"claude-code":"spike","codex":"codex"}` — and the
+  human sets it. Read it at session start with the rest of settings and use your
+  entry; if the map has no entry for you, sign with the tool name. That is the
+  whole rule; there is no second option. The reference board reached one agent
+  under two names because the rule offered two. If a board already carries the
+  split, `PATCH /api/projects/<slug>/authors` merges them.
 - Checklist steps: one `PATCH` per step. Sending the array loses concurrent
   answers.
 
@@ -299,16 +325,28 @@ working through a batch of answers and would rather not type `wb` after each one
 | `wb` / `workbench` | one round, then stop. Does not change the mode. |
 | `wb --auto` | stay in it: keep folding in new work until turned off |
 | `wb --auto off` | back to one round at a time |
+| `wb --scope <slug>` | this session works ONLY that project, on this and every later check-in, until re-scoped |
+| `wb --scope <slug> --auto` | both: the flags combine |
 
-Record it so it is never ambiguous, and **say once, in one line, that you are in
-auto** — a mode that changes how much it costs must never be silently on:
+**Auto and scope are working orders for THIS session — never settings.** Do not
+write them to `/api/settings` and do not read them from there. They used to be
+persisted as `settings.autoMode`, which meant one session saying `wb --auto` put
+every other session on the same board into auto without anybody asking for it.
+A mode that changes what a session costs is decided by the person in that
+session, each session. Hold it in your own working state; when the session
+ends, it ends.
 
-```bash
-PATCH /api/settings {"autoMode": true}
-```
+**Say once, in one line, that you are in auto**, and once what you are scoped
+to — a mode that changes how much it costs must never be silently on.
 
-Read `settings.autoMode` at session start with everything else. If it is on, you
-are in auto from the first check-in without being told again.
+**Scope.** With `--scope`, the round reads only that project: its items are the
+actionable set, and items on any other project are neither read for work nor
+touched — no claims, no replies, no status changes there, even when they sit at
+`received`. Two sessions on one board are normally split exactly this way, one
+project each, and a session that "helpfully" answers on the other one takes work
+out from under the agent that owns it. Without `--scope`, every project is in the
+round. The human may also state the scope in words ("you are scoped to X");
+that is the same order.
 
 **Auto does not mean polling.** Do not re-read the board on a timer; that is the
 expensive habit this whole section exists to stop, and a 5-second loop spends a
