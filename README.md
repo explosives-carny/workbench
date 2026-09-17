@@ -89,7 +89,8 @@ Every item is one of two kinds, and the kind decides the statuses it can hold.
 An **issue** is something to decide or do, and its status answers *whose move is
 it*: **Decision** (yours, and nothing is built yet), **QA** (yours, the work is
 built and needs checking), **Received** (the agent has it), **Deferred** (parked
-on purpose, waiting on neither), **Complete**.
+on purpose, waiting on neither), **Complete**, **Cancelled** (decided against,
+will not be done — it files with the finished work).
 
 A **document** — a specification, a review, a history — is not a task and never
 becomes one. It is **Active** while people still work from it and **Archived**

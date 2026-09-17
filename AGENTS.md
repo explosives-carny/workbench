@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v3.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `3`,
+**Contract v4.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `4`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -23,7 +23,7 @@ wb board <slug>                               # 3. the actionable set: received 
 Nothing at `received` → say so in one line. Never create items on a check-in.
 Do not read the board again until the check-in word.
 
-**Status is whose move it is.** An issue holds one of five; a document (`kind:
+**Status is whose move it is.** An issue holds one of six; a document (`kind:
 "document"`) holds `active` or `archived`, nothing else.
 
 | Status | Whose move | You set it when |
@@ -34,6 +34,7 @@ Do not read the board again until the check-in word.
 | `in-progress` | yours — **claimed, working now** | **before** you start |
 | `deferred` | nobody's, on purpose | agreed, with the trigger that brings it back |
 | `complete` | done — **landed**, not typed | it is merged and running |
+| `cancelled` | nobody's — **decided against**, will not be done | they say so, or you agree it; the reason goes in the thread |
 
 **Calls.** The `wb` command encodes every rule below (version check, retry on
 409, signature); use it when you have a shell. The HTTP under it is the contract
@@ -134,6 +135,13 @@ nothing had happened.
 `deferred` never means "still waiting on them". Say in the thread what brings
 it back, or it is a question you gave up on.
 
+`cancelled` is the end for an issue that **will not be done** — they decided
+against it, or the need went away. Before it existed such an issue had three
+wrong homes: `complete` claims the work landed, `deferred` claims it comes back,
+`archived` belongs to documents. Set it when they say so (or when you agree it
+with them), put the reason in the thread, and never use it to make a question
+disappear that they have not answered.
+
 | Situation | Status |
 |---|---|
 | You need them to choose | `needs-decision` |
@@ -145,6 +153,7 @@ it back, or it is a question you gave up on.
 | Merged and running | `complete` |
 | They are doing it, not you | `needs-decision` |
 | Parked by agreement | `deferred` |
+| Decided against — will not be done | `cancelled` — reason in the thread |
 | A document people still work from | `active` |
 | A document overtaken by events | `archived` |
 
