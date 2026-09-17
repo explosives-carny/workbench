@@ -107,10 +107,13 @@ describe('error shapes the contract promises', () => {
     expect(id.json.error).toBe('no item with id "nope"');
   });
 
-  test('a bare /api is a 404 from the API router, and /api-doc is not swallowed by it', async () => {
+  test('a bare /api describes the API, an unknown route is a 404, and /api-doc is not swallowed by the router', async () => {
     const bare = await api('GET', '/api');
-    expect(bare.status).toBe(404);
-    expect(bare.json.error).toContain('no API route');
+    expect(bare.status).toBe(200);
+    expect(bare.json.contractVersion).toBeDefined();
+    const unknown = await api('GET', '/api/nothing-here');
+    expect(unknown.status).toBe(404);
+    expect(unknown.json.error).toContain('no API route');
     const doc = await api('GET', '/api-doc');
     expect(doc.status).toBe(200);
     expect(doc.headers.get('content-type')).toContain('text/plain');

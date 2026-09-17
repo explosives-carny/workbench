@@ -6,44 +6,19 @@
 // writes one readable JSON file per project instead, so your own work can live
 // in its own repository with a real history — who decided what, and when —
 // while the app repository stays free of anybody's content and can be handed to
-// a colleague as-is.
-import { openDb, Store, type Item } from './db.ts';
+// a colleague as-is. The export itself lives in export.ts, shared with the
+// server's automatic backup so the two can never write different shapes.
+import { openDb, Store } from './db.ts';
+import { exportAll } from './export.ts';
 import { homedir } from 'os';
 import { join } from 'path';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 
 const DB_PATH = process.env.WORKBENCH_DB || join(homedir(), '.workbench', 'workbench.db');
 const store = new Store(openDb(DB_PATH));
 
 const [, , command, ...rest] = process.argv;
 const dir = rest[0] || process.env.WORKBENCH_CONTENT || join(homedir(), 'workbench-content');
-
-function exportAll(): void {
-  mkdirSync(dir, { recursive: true });
-  const projects = store.listProjects(true);
-  for (const project of projects) {
-    // getItem per row, not listItems: the list deliberately strips `body` so a
-    // 150KB document does not ride along in every poll — and an export that
-    // inherited that would write a content repository in which every document
-    // is empty, silently. Caught by comparing the exported size against what
-    // the board reported holding.
-    const items = store
-      .listItems(project.id, false)
-      .map((row) => store.getItem(row.id)!)
-      .map((item: Item) => ({
-        ...item,
-      // projectId is an internal identifier and means nothing outside this
-      // database; the file is keyed by the project's slug instead, so an import
-      // into a fresh machine does not depend on ids matching.
-      projectId: undefined,
-      messages: item.messages || [],
-    }));
-    const file = join(dir, `${project.slug}.json`);
-    writeFileSync(file, JSON.stringify({ project: { ...project, id: undefined }, items }, null, 2) + '\n');
-    console.log(`exported ${items.length} items  ${file}`);
-  }
-  console.log(`\n${projects.length} project(s) -> ${dir}`);
-}
 
 function importAll(): void {
   let files: string[] = [];
@@ -65,8 +40,9 @@ function importAll(): void {
       name: raw.project.name,
       slug: raw.project.slug,
       description: raw.project.description,
+      repos: raw.project.repos,
     });
-    const existing = new Set(store.listItems(project.id, false).map((i) => i.title));
+    const existing = new Set(store.listItems(project.id, 'none').map((i) => i.title));
     let added = 0;
     for (const item of raw.items || []) {
       // Matched on title rather than id: ids are regenerated on import, and the
@@ -84,10 +60,13 @@ function importAll(): void {
         options: item.options,
         choice: item.choice,
         status: item.status,
+        kind: item.kind,
         section: item.section,
+        labels: item.labels,
         body: item.body,
         bodyFormat: item.bodyFormat,
         checks: item.checks,
+        clientId: item.clientId,
         createdAt: item.createdAt,
       });
       for (const message of item.messages || []) {
@@ -105,8 +84,11 @@ function importAll(): void {
   }
 }
 
-if (command === 'export') exportAll();
-else if (command === 'import') importAll();
+if (command === 'export') {
+  const result = exportAll(store, dir);
+  for (const file of result.files) console.log(`exported  ${file}`);
+  console.log(`\n${result.items} items in ${result.projects} project(s) -> ${dir}`);
+} else if (command === 'import') importAll();
 else {
   console.log(`workbench content tool
 
@@ -115,5 +97,6 @@ else {
 
 The database itself stays at ${DB_PATH} (override with WORKBENCH_DB).
 Point <dir> at a git repository to keep your own content versioned separately
-from this application's code.`);
+from this application's code. The running server exports there on its own after
+every change (WORKBENCH_AUTO_EXPORT=0 turns that off).`);
 }
