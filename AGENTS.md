@@ -29,7 +29,7 @@ Do not read the board again until the check-in word.
 |---|---|---|
 | `needs-decision` | theirs — choose | you ask |
 | `needs-qa` | theirs — check built work | you finish something they must approve, **steps attached** |
-| `received` | yours — answer landed, nobody started | automatic on their reply; also "written, PR open, not merged" |
+| `received` | yours — answer landed, nobody started | automatic on their reply; or you hand it back unfinished |
 | `in-progress` | yours — **claimed, working now** | **before** you start |
 | `deferred` | nobody's, on purpose | agreed, with the trigger that brings it back |
 | `complete` | done — **landed**, not typed | it is merged and running |
@@ -108,9 +108,14 @@ chat. `bun run install-service` keeps it running across reboots.
 interchangeable: a five-second choice and a forty-step walkthrough cannot be
 triaged in one bucket. Nothing built → decision; built and needs eyes → QA.
 
-`complete` claims the work **landed**. Written but sitting in an unmerged PR or
-an undeployed branch is `received` — you own it, it is not done — and the
-thread says what it waits on, so `received` does not read as `forgotten`.
+`complete` claims the work **landed**. Written but not landed is one of two
+things, and the difference is *whose hand it waits on*. If **they** merge or
+deploy — the normal case for a pull request into their repository — it is
+`needs-qa`: built, and the steps attached are "merge it, then see X". If **you**
+still own landing it (CI is running, you will deploy after lunch), it is
+`received`, and the thread says what it waits on. Twenty-two built items were
+once filed at `received` under the old wording, and the board read as though
+nothing had happened.
 
 `deferred` never means "still waiting on them". Say in the thread what brings
 it back, or it is a question you gave up on.
@@ -121,7 +126,8 @@ it back, or it is a question you gave up on.
 | You built it; they must approve it | `needs-qa` |
 | They answered; you have not started | `received` |
 | You have started | `in-progress` — claim first |
-| Written, PR open, not merged | `received` — and say so |
+| Built; they merge or deploy it | `needs-qa` — steps: merge, then what to see |
+| Built; you still land it (CI, your deploy) | `received` — and say what it waits on |
 | Merged and running | `complete` |
 | They are doing it, not you | `needs-decision` |
 | Parked by agreement | `deferred` |
