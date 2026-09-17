@@ -431,7 +431,9 @@
       cancel.type = 'button';
       cancel.className = 'labeledit mono';
       cancel.textContent = 'Cancel';
-      cancel.addEventListener('click', () => paint());
+      // Forced: paint() otherwise holds the redraw while a text field has focus,
+      // and the field that has focus here is the one being cancelled.
+      cancel.addEventListener('click', () => paint(true));
       form.append(input, list, picks, save, cancel);
       host.appendChild(form);
       input.focus();
@@ -450,7 +452,7 @@
             ifVersion: item.version,
           });
           item = res.item;
-          paint();
+          paint(true);
           note(res.warning ? res.warning : 'saved', Boolean(res.warning));
         } catch (e) { note(e.message, true); }
       });
