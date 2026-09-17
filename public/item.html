@@ -407,20 +407,55 @@
     edit.type = 'button';
     edit.className = 'labeledit mono';
     edit.textContent = current.length ? 'Edit labels' : 'Add labels';
+    // An inline editor rather than prompt(): prompt() cannot offer the labels
+    // already in use, and a label typed from memory is how "Deploys" ends up
+    // beside "Deploy" and a filter misses half the work.
     edit.addEventListener('click', async () => {
-      const next = prompt('Labels, comma separated', current.join(', '));
-      if (next === null) return;
-      note('saving…');
+      if (host.querySelector('form')) return;
+      const form = document.createElement('form');
+      form.className = 'labelform';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = current.join(', ');
+      input.setAttribute('aria-label', 'Labels, comma separated');
+      input.setAttribute('list', 'labellist');
+      input.autocomplete = 'off';
+      const list = document.createElement('datalist');
+      list.id = 'labellist';
+      const picks = document.createElement('div');
+      picks.className = 'labelpicks';
+      const save = document.createElement('button');
+      save.type = 'submit';
+      save.textContent = 'Save';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'labeledit mono';
+      cancel.textContent = 'Cancel';
+      // Forced: paint() otherwise holds the redraw while a text field has focus,
+      // and the field that has focus here is the one being cancelled.
+      cancel.addEventListener('click', () => paint(true));
+      form.append(input, list, picks, save, cancel);
+      host.appendChild(form);
+      input.focus();
       try {
-        const res = await WB.patch('/api/items/' + encodeURIComponent(itemId), {
-          labels: next.split(',').map((l) => l.trim()).filter(Boolean),
-          actor: 'you',
-          ifVersion: item.version,
-        });
-        item = res.item;
-        paint();
-        note('saved');
-      } catch (e) { note(e.message, true); }
+        const slug = location.pathname.split('/')[2];
+        const res = await WB.get('/api/projects/' + encodeURIComponent(slug) + '/labels');
+        WB.labelChoices(res.labels || [], list, picks, input);
+      } catch (e) { /* the editor still works without suggestions */ }
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        note('saving…');
+        try {
+          const res = await WB.patch('/api/items/' + encodeURIComponent(itemId), {
+            labels: input.value.split(',').map((l) => l.trim()).filter(Boolean),
+            actor: 'you',
+            ifVersion: item.version,
+          });
+          item = res.item;
+          paint(true);
+          note(res.warning ? res.warning : 'saved', Boolean(res.warning));
+        } catch (e) { note(e.message, true); }
+      });
     });
     host.appendChild(edit);
   }
