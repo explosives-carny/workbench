@@ -692,4 +692,44 @@ describe('an agent reply claims what it answers', () => {
     store.addMessage(doc.id, { who: 'agent', author: 'claude-code', text: 'updated' });
     expect(store.getItem(doc.id)!.status).toBe('active');
   });
+
+  // The failure this prevents: B says "nice" on A's in-progress item, and the
+  // board now reports B as the holder. Every recovery decision in the contract
+  // is made from `updatedBy` and `updatedAt`, so a comment that repaints them
+  // does not just lose a name — it invents a claim nobody made.
+  it('leaves the claim with whoever made it when somebody else comments', () => {
+    const id = answered();
+    store.addMessage(id, { who: 'agent', author: 'agent-a', text: 'picking this up' });
+    const claimed = store.getItem(id)!;
+    expect(claimed.status).toBe('in-progress');
+    expect(claimed.updatedBy).toBe('agent-a');
+
+    store.addMessage(id, { who: 'agent', author: 'agent-b', text: 'looks right to me' });
+
+    const after = store.getItem(id)!;
+    expect(after.updatedBy).toBe('agent-a');
+    expect(after.updatedAt).toBe(claimed.updatedAt);
+    expect(after.version).toBe(claimed.version);
+    // The comment itself is still on the record — the item row is untouched,
+    // not the thread.
+    expect(store.listMessages(id).map((m) => m.author)).toEqual(['you', 'agent-a', 'agent-b']);
+  });
+
+  it('does not bump the version for a message that changes nothing', () => {
+    const id = answered();
+    const before = store.getItem(id)!;
+    store.addMessage(id, { who: 'you', text: 'one more thing' });
+    expect(store.getItem(id)!.version).toBe(before.version);
+  });
+
+  // The other half of the same rule: a message that DOES move the status still
+  // owns the row, or the version guard stops protecting concurrent editors.
+  it('still stamps the row when the message moves the status', () => {
+    const item = store.createItem(projectId, { title: 'a' });
+    expect(item.status).toBe('needs-decision');
+    store.addMessage(item.id, { who: 'you', text: 'go ahead' });
+    const after = store.getItem(item.id)!;
+    expect(after.status).toBe('received');
+    expect(after.version).toBe(item.version + 1);
+  });
 });
