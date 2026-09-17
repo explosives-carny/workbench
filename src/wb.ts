@@ -69,6 +69,20 @@ async function actor(flags: Flags): Promise<string> {
   return tool;
 }
 
+/**
+ * Which session this is. WB_SESSION if the session set one; else the first
+ * eight characters of the harness's own session id when it exposes one (Claude
+ * Code sets CLAUDE_CODE_SESSION_ID); else nothing — the board stores '' and the
+ * clock rule still applies. Sent on every write so a sibling session running
+ * under the same name can be told apart, and so a crashed session's claims can
+ * be recognised as its own.
+ */
+function session(): string | undefined {
+  if (process.env.WB_SESSION) return process.env.WB_SESSION.slice(0, 40);
+  if (process.env.CLAUDE_CODE_SESSION_ID) return process.env.CLAUDE_CODE_SESSION_ID.slice(0, 8);
+  return undefined;
+}
+
 function fail(message: string, code = 1): never {
   console.error(`wb: ${message}`);
   process.exit(code);
@@ -92,9 +106,9 @@ async function readBodyArg(arg: string | undefined): Promise<any> {
 async function patchItem(id: string, patch: Record<string, unknown>, who: string): Promise<any> {
   const current = await call('GET', `/api/items/${id}`);
   if (!current.json.ok) fail(current.json.error);
-  let attempt = await call('PATCH', `/api/items/${id}`, { ...patch, actor: who, ifVersion: current.json.item.version });
+  let attempt = await call('PATCH', `/api/items/${id}`, { ...patch, actor: who, session: session(), ifVersion: current.json.item.version });
   if (attempt.status === 409) {
-    attempt = await call('PATCH', `/api/items/${id}`, { ...patch, actor: who, ifVersion: attempt.json.item.version });
+    attempt = await call('PATCH', `/api/items/${id}`, { ...patch, actor: who, session: session(), ifVersion: attempt.json.item.version });
     if (attempt.status === 409) fail(`item ${id} changed twice while writing; read it and decide: ${JSON.stringify(attempt.json.item.status)} by ${attempt.json.item.updatedBy}`);
   }
   if (!attempt.json.ok) fail(attempt.json.error);
@@ -105,9 +119,10 @@ async function patchItem(id: string, patch: Record<string, unknown>, who: string
 
 function row(i: any): string {
   const last = i.messages?.length ? i.messages[i.messages.length - 1] : null;
-  const lastLine = last ? `${last.who === 'you' ? 'YOU' : last.author}: ${String(last.text).replace(/\s+/g, ' ').slice(0, 160)}` : '(no messages)';
+  const tag = (who: string, s?: string) => (s ? `${who}·${s}` : who);
+  const lastLine = last ? `${last.who === 'you' ? 'YOU' : tag(last.author, last.session)}: ${String(last.text).replace(/\s+/g, ' ').slice(0, 160)}` : '(no messages)';
   return [
-    `${i.status.padEnd(14)} ${i.id}  v${i.version}  by ${i.updatedBy || '-'}  ${i.updatedAt}`,
+    `${i.status.padEnd(14)} ${i.id}  v${i.version}  by ${tag(i.updatedBy || '-', i.updatedSession)}  ${i.updatedAt}`,
     `  ${i.title}`,
     i.choice ? `  choice: ${i.choice}` : null,
     `  last: ${lastLine}`,
@@ -128,6 +143,7 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb export [dir]                          write one JSON per project to the content directory
 
   --actor <name>   sign as (else WB_ACTOR, else settings.agentNames[WB_TOOL], else the tool name)
+  WB_SESSION       this session's id, sent on every write (else the first 8 chars of CLAUDE_CODE_SESSION_ID)
   --json           machine-readable output
 `;
 
@@ -171,7 +187,7 @@ async function main() {
     const { json } = await call('GET', `/api/items/${id}`);
     if (!json.ok) fail(json.error);
     const i = json.item;
-    const thread = (i.messages || []).map((m: any) => `  [${m.createdAt}] ${m.who === 'you' ? 'YOU' : m.author}: ${m.text}`).join('\n');
+    const thread = (i.messages || []).map((m: any) => `  [${m.createdAt}] ${m.who === 'you' ? 'YOU' : m.author}${m.session ? '·' + m.session : ''}: ${m.text}`).join('\n');
     const checks = (i.checks || []).map((c: any) => `  [${(c.result || ' ').padEnd(4)}] ${c.id}: ${c.label}${c.note ? ` — ${c.note}` : ''}${c.by ? ` (${c.by})` : ''}`).join('\n');
     out(flags, [
       `${i.kind} ${i.status} v${i.version} by ${i.updatedBy || '-'} ${i.updatedAt}`,
@@ -202,7 +218,7 @@ async function main() {
     const id = args[0] || fail('usage: wb reply <id> <text> [--status s]');
     const text = args.slice(1).join(' ') || fail('reply text is required');
     const who = await actor(flags);
-    const payload: any = { who: 'agent', actor: who, text };
+    const payload: any = { who: 'agent', actor: who, session: session(), text };
     if (typeof flags.status === 'string') payload.status = flags.status;
     const { status, json } = await call('POST', `/api/items/${id}/messages`, payload);
     if (!json.ok) fail(`${status}: ${json.error}`);
@@ -216,7 +232,7 @@ async function main() {
     const who = await actor(flags);
     const item = await patchItem(id, { status: 'in-progress' }, who);
     const text = args.slice(1).join(' ') || 'Picking this up.';
-    await call('POST', `/api/items/${id}/messages`, { who: 'agent', actor: who, text: `Picking this up: ${text}` });
+    await call('POST', `/api/items/${id}/messages`, { who: 'agent', actor: who, session: session(), text: `Picking this up: ${text}` });
     out(flags, `in-progress v${item.version + 1}  ${item.title}`, item);
     return;
   }
@@ -232,7 +248,7 @@ async function main() {
   if (cmd === 'check') {
     const [id, step, result] = args;
     if (!id || !step || !result) fail('usage: wb check <id> <step> <pass|fail|skip> [--note "..."]');
-    const payload: any = { result, actor: await actor(flags) };
+    const payload: any = { result, actor: await actor(flags), session: session() };
     if (typeof flags.note === 'string') payload.note = flags.note;
     const { status, json } = await call('PATCH', `/api/items/${id}/checks/${step}`, payload);
     if (!json.ok) fail(`${status}: ${json.error}`);
