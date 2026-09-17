@@ -314,8 +314,11 @@
     // An item with no replies used to show "no replies" and nothing else, so a
     // row could carry no date at all — which is exactly the row you want a date
     // on, because nothing has happened to it since it was raised.
+    // The session tag after an agent's name is what separates two sessions of
+    // the same tool — the same "spike" can be two workers, and the row has to
+    // say which one spoke.
     who.textContent = last
-      ? (last.who === 'you' ? 'you' : (last.author || 'agent')) + ' · ' + WB.fmt(last.createdAt)
+      ? (last.who === 'you' ? 'you' : (last.author || 'agent') + (last.session ? '·' + last.session : '')) + ' · ' + WB.fmt(last.createdAt)
       : 'raised ' + WB.fmt(item.createdAt);
     meta.appendChild(who);
 
@@ -375,7 +378,7 @@
         d.className = 'msg ' + (m.who === 'you' ? 'you' : 'agent');
         const who = document.createElement('div');
         who.className = 'who';
-        who.textContent = m.who === 'you' ? 'You' : (m.author || 'Agent');
+        who.textContent = m.who === 'you' ? 'You' : (m.author || 'Agent') + (m.session ? '·' + m.session : '');
         const p = document.createElement('p');
         p.textContent = m.text;
         const when = document.createElement('div');
