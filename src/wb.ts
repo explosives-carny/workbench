@@ -32,19 +32,37 @@ function parseArgs(argv: string[]): { positional: string[]; flags: Flags } {
   return { positional, flags };
 }
 
+// A refused connection is retried before it is reported. A deploy restarts the
+// service and leaves the port silent for about two seconds; a QA agent that hit
+// one of those gaps reported the board down and dropped a round of results. Three
+// waits totalling ~7 s cover a restart; a board that is really down is still
+// reported, with how to start it.
+const RETRY_MS = [1000, 2000, 4000];
+
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
-  let res: Response;
-  try {
-    res = await fetch(BASE + path, {
-      method,
-      headers: { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch (error: any) {
-    // The one failure every agent hits eventually and no contract line used to
-    // cover: the board is a foreground process and somebody closed the terminal.
-    console.error(`wb: cannot reach the board at ${BASE} (${error?.cause?.code || error?.message || error}).`);
-    console.error(`    Start it: cd <workbench repo> && bun run start   (or bun run install-service, once, to keep it running)`);
+  let res: Response | null = null;
+  let lastError: any = null;
+  for (let attempt = 0; attempt <= RETRY_MS.length; attempt++) {
+    try {
+      res = await fetch(BASE + path, {
+        method,
+        headers: { 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      break;
+    } catch (error: any) {
+      lastError = error;
+      if (attempt < RETRY_MS.length) {
+        console.error(`wb: board not answering at ${BASE}; retrying in ${RETRY_MS[attempt] / 1000}s (a deploy restart takes ~2s)`);
+        await Bun.sleep(RETRY_MS[attempt]);
+      }
+    }
+  }
+  if (!res) {
+    // Still nothing after ~7 s: the board is really down, not restarting.
+    console.error(`wb: cannot reach the board at ${BASE} (${lastError?.cause?.code || lastError?.message || lastError}) after ${RETRY_MS.length + 1} attempts.`);
+    console.error(`    If the service is installed: launchctl kickstart -k gui/$(id -u)/dev.workbench.server`);
+    console.error(`    Otherwise: cd <workbench repo> && bun run start   (or bun run install-service, once, to keep it running)`);
     process.exit(2);
   }
   const text = await res.text();
