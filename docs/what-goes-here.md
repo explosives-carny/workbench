@@ -172,6 +172,18 @@ tradeoff, name what you would do, and say what happens either way. "Which
 database?" is not answerable. "Postgres or SQLite — SQLite unless you expect
 more than one writer, which I do not; going the other way costs a day" is.
 
+**A question is a decision, wherever it occurs to you.** The two places it
+leaks are a *message* and the *round report*. A clarifying question posted as a
+message on an item that already has options — "did you mean X or Y?" — leaves
+the person with nothing to click and the item's options pointing at the old
+question; put the new question ON the item as its `options`, or file a second
+item. A question in the round report is worse: it is answered in chat, which
+nothing reads back. The failure that produced this rule (2026-09-18): an agent
+answered "promote after the delete is complete" with a message asking what
+*complete* meant, then repeated the question in its report; the person had to
+ask why the decision was not on the board. The report names item ids and
+statuses, and asks nothing.
+
 ### 2. A document — a thing to read
 
 **Give it `active` or `archived`, never `complete`.** A document is not a task:
@@ -455,10 +467,12 @@ worse still: the thread is the record, and a correction is part of the record.
   same goes for `wb --scope <slug>`, which limits a session to one project.
 - **While working:** post a message when you act on a decision. The thread is
   the record of why the code looks the way it does.
-- **End of a session:** make sure nothing you finished is still sitting at
-  `received`, and nothing you are waiting on is still at `needs-decision` or
-  `needs-qa` without the
-  context somebody would need to answer it.
+- **End of a session, and before every round report:** make sure nothing you
+  finished is still sitting at `received`, and nothing you are waiting on is
+  still at `needs-decision` or `needs-qa` without the context somebody would
+  need to answer it. Then read the report you are about to send as the person
+  will: every question mark in it is a decision that is not yet an item, and
+  every "your call" is one without options.
 
 ## Signing your work
 

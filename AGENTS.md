@@ -1,6 +1,6 @@
 # Workbench — agent contract
 
-**Contract v4.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+**Contract v5.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
 overrides). `GET /api` returns the version the server speaks; if it is not `4`,
 re-read this file.
 
@@ -88,7 +88,21 @@ understood — usually a typo).
 9. **A report is not finished while it names work that is not on the board.**
    Before you report a round, every "your call", "left for you", "not
    confirmed" and follow-up in it is already an item — a decision with options,
-   or QA with steps. Chat is where those go to be forgotten.
+   or QA with steps. Chat is where those go to be forgotten. **A question is a
+   decision.** A clarifying question on an existing item goes on that item as
+   `options` (`PATCH /api/items/<id> {"options":[…]}`), or becomes its own
+   item; a message alone asks nothing anyone can click. **The report asks
+   nothing**: it names item ids and their statuses. A question mark in a round
+   report is a decision that is not on the board.
+
+**When they correct you against this contract, keep the correction.** A
+correction is a fact about how you work, and it is the one fact most likely to
+be lost: it arrives mid-session, in chat, after the work. Write it wherever your
+harness keeps facts across sessions — a memory file, project instructions, notes
+your tool reloads — in your own words, with what you did, what they said, and
+the check that would have caught it. Then, if the contract let you miss it, open
+a pull request so the next agent does not have to be corrected the same way.
+The board holds their decisions; your memory holds theirs about you.
 
 **The check-in word.** `wb` / `workbench` → read the board once (scoped
 project only, if scoped), act on everything at `received` plus any stale claim,
@@ -372,7 +386,9 @@ reason to sweep the board. Only the check-in word opens the round.
    and may change what you build. Name what you are not doing and why. **Say
    the plan in a few lines before executing it**; redirecting a plan costs far
    less than redirecting finished work.
-4. Report the plan, then the outcome, one line per item.
+4. Report the plan, then the outcome, one line per item. The report points
+   at items; it asks nothing. A question you find yourself typing here is a
+   decision — file it, with options, then report the id (rule 9).
 5. **Re-read the set you worked.** Anything still at `received` was answered in
    the transcript and not on the board, and the board is the only half that
    survives the session.
@@ -413,6 +429,35 @@ per project, and commits if that directory is a git repository. Pushing is a
 deliberate act — yours or theirs — not the server's. `bun run export` does the
 same on demand; `bun run import` restores. `WORKBENCH_AUTO_EXPORT=0` turns the
 automatic export off.
+
+### When you are corrected
+
+Every rule in this file was written after somebody was corrected. The rules
+survive because they were written down where the next session reads them; the
+corrections that were only heard did not, and the same person had to say the
+same thing again — three times, for the rule above this one.
+
+So a correction against this contract has two homes, and needs both:
+
+- **Your memory**, whatever form your harness gives it. This file cannot know
+  whether that is a memory directory, a notes file the tool reloads, project
+  instructions, or a store your orchestrator keeps for you — it only knows
+  that capable tools have one, and that a correction which lives only in the
+  transcript is gone at the next compaction. Record it the way you would want to
+  read it cold: what you did, what they said (their words), and the concrete
+  check that would have caught it before they had to. A rule with its failure
+  attached is remembered; a rule alone is re-derived, slowly, by being corrected
+  again.
+- **The contract**, when the miss was possible because the rule was unclear or
+  absent. Branch, edit, pull request (`CONTRIBUTING.md`). Write the failure into
+  `docs/what-goes-here.md` next to the rule, dated, in the person's words. The
+  rules here are not principles; they are scar tissue, and the scar is what
+  makes the next reader believe the rule.
+
+Neither replaces the other. The contract corrects every agent from now on; your
+memory corrects you today, before the contract is merged, and for the part of
+the correction that was about how *you* miss things rather than what the rule
+says.
 
 ### Versioning
 
