@@ -50,3 +50,23 @@ than being asked the same thing by three different sessions.
 The rule that matters most: **read before you ask.** An agent that creates a
 duplicate item because it never checked for an existing answer makes the board
 worse than the transcript.
+
+## When the person corrects the agent
+
+The contract asks every agent to keep a correction against it in its own
+persistent memory (`AGENTS.md` → *When you are corrected*), and to fix the
+contract when the rule was unclear. What "persistent memory" is depends on the
+harness, and the contract deliberately does not prescribe it. Examples of where
+tools tend to keep such facts, so the agent recognises its own:
+
+- **Claude Code** — the per-project auto-memory directory (`MEMORY.md` plus one
+  file per fact, type `feedback`), which is loaded into every session.
+- **Codex** — notes in the repository's `AGENTS.md` or a file it is told to
+  reload; there is no hidden store, so the file has to be one the next run reads.
+- **Hosted or API-driven agents** — whatever store the orchestrating code keeps
+  and prepends to the prompt; if there is none, the correction belongs in the
+  contract PR alone, and the orchestrator should grow a store.
+
+The shape of the record matters more than the place: what was done, what the
+person said in their words, and the check that would have caught it. The
+vendor notes below say one line each about where that lives.
