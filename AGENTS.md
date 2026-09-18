@@ -1,6 +1,6 @@
 # Workbench — agent contract
 
-**Contract v4.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+**Contract v5.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
 overrides). `GET /api` returns the version the server speaks; if it is not `4`,
 re-read this file.
 
@@ -88,7 +88,12 @@ understood — usually a typo).
 9. **A report is not finished while it names work that is not on the board.**
    Before you report a round, every "your call", "left for you", "not
    confirmed" and follow-up in it is already an item — a decision with options,
-   or QA with steps. Chat is where those go to be forgotten.
+   or QA with steps. Chat is where those go to be forgotten. **A question is a
+   decision.** A clarifying question on an existing item goes on that item as
+   `options` (`PATCH /api/items/<id> {"options":[…]}`), or becomes its own
+   item; a message alone asks nothing anyone can click. **The report asks
+   nothing**: it names item ids and their statuses. A question mark in a round
+   report is a decision that is not on the board.
 
 **The check-in word.** `wb` / `workbench` → read the board once (scoped
 project only, if scoped), act on everything at `received` plus any stale claim,
@@ -372,7 +377,9 @@ reason to sweep the board. Only the check-in word opens the round.
    and may change what you build. Name what you are not doing and why. **Say
    the plan in a few lines before executing it**; redirecting a plan costs far
    less than redirecting finished work.
-4. Report the plan, then the outcome, one line per item.
+4. Report the plan, then the outcome, one line per item. The report points
+   at items; it asks nothing. A question you find yourself typing here is a
+   decision — file it, with options, then report the id (rule 9).
 5. **Re-read the set you worked.** Anything still at `received` was answered in
    the transcript and not on the board, and the board is the only half that
    survives the session.
