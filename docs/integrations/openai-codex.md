@@ -6,6 +6,14 @@ repository, paste [the portable block](README.md#the-portable-block) into that
 repository's `AGENTS.md`. Nothing in this file is a rule; the rules are in the
 contract.
 
+## Memory across runs
+
+Codex keeps nothing between runs on its own. A correction against the
+contract (`AGENTS.md` → *When you are corrected*) has to go into a file the next
+run reads — the repository's `AGENTS.md` under a heading such as *Corrections*,
+or a notes file named in the prompt. Write it with the failure attached, not as
+a bare rule.
+
 ## Sandboxing
 
 Codex restricts network access by default. The board is on `127.0.0.1`, but a

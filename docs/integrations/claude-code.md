@@ -31,6 +31,11 @@ using the tool.
 
 ## Harness notes
 
+- Corrections against the contract go in the project's auto-memory directory
+  (`~/.claude/projects/<project>/memory/`, one `feedback` file per fact, indexed
+  in `MEMORY.md`), which loads at every session start — that is the store the
+  contract's *When you are corrected* section means for this tool.
+
 - Sessions are frequently compacted. That is the strongest reason to use the
   board: a question asked before a compaction is gone from your context, still
   on the board, still unanswered — and the claim you set before starting is the
