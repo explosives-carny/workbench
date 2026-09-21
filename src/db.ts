@@ -662,6 +662,27 @@ export function slugify(input: string): string {
   return slug || 'project';
 }
 
+
+// A document's format, when the writer did not say.
+//
+// An agent that PUTs a whole HTML page and says nothing gets `text`, and the
+// board then renders its source as escaped plain text in a <pre> — a wireframe
+// arrives as a wall of markup. That happened on 2026-09-21 and the writer had
+// no way to tell from the response: the item was created, the body was stored
+// whole, and only the rendered page showed it was wrong.
+//
+// So infer it. An explicit bodyFormat always wins; this only fills the silence.
+// Deliberately narrow: a leading doctype or <html> is html, and a body that
+// opens on a Markdown heading or list is markdown. Anything else stays text,
+// because guessing wrongly is worse than the caller being explicit.
+export function inferBodyFormat(body: string | undefined | null): 'text' | 'markdown' | 'html' {
+  const head = String(body || '').trimStart().slice(0, 200).toLowerCase();
+  if (!head) return 'text';
+  if (head.startsWith('<!doctype html') || head.startsWith('<html')) return 'html';
+  if (/^(#{1,6}\s|\s*[-*]\s|\d+\.\s|>\s)/.test(head)) return 'markdown';
+  return 'text';
+}
+
 export class Store {
   constructor(private db: Database) {}
 
@@ -818,7 +839,7 @@ export class Store {
         input.section || '',
         position,
         input.body || '',
-        input.bodyFormat || 'text',
+        input.bodyFormat || inferBodyFormat(input.body),
         JSON.stringify(input.checks || []),
         JSON.stringify(normaliseLabels(input.labels)),
         kind,
