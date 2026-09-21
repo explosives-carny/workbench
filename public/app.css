@@ -82,7 +82,13 @@ body {
 h1 { font-size: clamp(28px, 5vw, 38px); font-weight: 650; letter-spacing: -.022em; margin: 0 0 8px; text-wrap: balance; }
 h2 { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
 .lede { color: var(--soft); max-width: 62ch; margin: 0; }
-.rule { height: 3px; width: 52px; background: var(--accent); margin-top: 20px; }
+/* The rule owns the space on both sides of itself. It used to own only the top,
+   and every page that looked right did so by accident — the gap underneath came
+   from whatever followed having its own margin-top. The single-item page's panel
+   has none, so the divider sat flush against the discussion card; the agents page
+   got 8px. The bottom margin collapses with the following sibling's, so the two
+   pages that already had 30-32px keep exactly what they had. */
+.rule { height: 3px; width: 52px; background: var(--accent); margin: 20px 0 30px; }
 .mono { font-family: var(--mono); }
 
 a { color: var(--accent); }
