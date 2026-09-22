@@ -266,7 +266,7 @@ const ROUTES = [
   'GET    /api/projects[?archived=1][?repo=<remote-or-path>]',
   'POST   /api/projects                        {name, slug?, description?, repos?}',
   'GET    /api/projects/<slug>[?status=a,b][?messages=all|last|none]',
-  'PATCH  /api/projects/<slug>                 {archived?|sectionMode?|sections?|groupBy?|repos?}',
+  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|repos?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
   'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
   'PATCH  /api/projects/<slug>/labels          {from,to,actor}',
@@ -369,7 +369,13 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           ctx.wrote = true;
           return json(ctx, { ok: true, project: store.archiveProject(project.slug, body.archived) });
         }
-        if (body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.repos !== undefined) {
+        if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.repos !== undefined) {
+          if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
+            return badRequest(ctx, 'name must be a non-empty string');
+          }
+          if (body.description !== undefined && typeof body.description !== 'string') {
+            return badRequest(ctx, 'description must be a string');
+          }
           if (body.sectionMode !== undefined && !['adhoc', 'declared'].includes(body.sectionMode)) {
             return badRequest(ctx, "sectionMode must be 'adhoc' or 'declared'");
           }
@@ -386,7 +392,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           const updated = store.setProjectSections(project.slug, body)!;
           return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id) });
         }
-        return badRequest(ctx, 'nothing to update; supported: archived, sectionMode, sections, groupBy, repos');
+        return badRequest(ctx, 'nothing to update; supported: archived, name, description, sectionMode, sections, groupBy, repos');
       }
       return badRequest(ctx, `${method} not supported here`);
     }
