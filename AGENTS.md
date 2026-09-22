@@ -338,7 +338,10 @@ about; `GET /api/projects?repo=<remote-or-path>` — `wb resolve` — returns th
 one that claims yours. Resolve from the repo first, then
 `settings.defaultProject`, then ask. Never read every board to find your own,
 and never file on a board you did not resolve to. Set `repos` at creation or
-with `PATCH /api/projects/<slug> {"repos":[…]}`.
+with `PATCH /api/projects/<slug> {"repos":[…]}`. A project that is renamed
+keeps its slug: `PATCH /api/projects/<slug> {"name":"…","description":"…"}`
+changes what people read, and add the new remote to `repos` so `wb resolve`
+still finds it.
 
 ### Sections, labels, grouping
 
