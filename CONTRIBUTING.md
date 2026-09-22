@@ -71,6 +71,11 @@ leave the branch locally with a clear commit. Do not work around it.
 - **Comments that say why.** The existing code explains the reasoning behind
   decisions that look arbitrary — match that. A comment restating the code earns
   nothing.
+- **No names from the board it was built for.** Commit messages and pull request
+  text are published with the code and outlive every edit to them. Describe the
+  failure in the tool's own terms: never a project, product, company, person,
+  domain or URL from the installation where it came up. "A renamed product had
+  no way to change its board's name" is enough.
 
 ## What will be refused
 
