@@ -1054,16 +1054,20 @@ export class Store {
     return out;
   }
 
-  setProjectSections(slug: string, patch: { sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy; repos?: string[] }): Project | null {
+  setProjectSections(slug: string, patch: { name?: string; description?: string; sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy; repos?: string[] }): Project | null {
     const project = this.getProject(slug);
     if (!project) return null;
+    // The slug is deliberately not editable: it is the key in URLs, exports
+    // and every agent's notes. A rebrand changes the name people read.
+    const name = patch.name === undefined ? project.name : patch.name.trim();
+    const description = patch.description === undefined ? project.description : patch.description;
     const mode = patch.sectionMode ?? project.sectionMode;
     const sections = patch.sections ?? project.sections;
     const groupBy = patch.groupBy ?? project.groupBy;
     const repos = patch.repos === undefined ? project.repos : normaliseLabels(patch.repos);
     this.db
-      .query('UPDATE projects SET section_mode = ?, sections = ?, group_by = ?, repos = ? WHERE id = ?')
-      .run(mode, JSON.stringify(sections), groupBy, JSON.stringify(repos), project.id);
+      .query('UPDATE projects SET name = ?, description = ?, section_mode = ?, sections = ?, group_by = ?, repos = ? WHERE id = ?')
+      .run(name, description, mode, JSON.stringify(sections), groupBy, JSON.stringify(repos), project.id);
     return this.getProject(slug);
   }
 

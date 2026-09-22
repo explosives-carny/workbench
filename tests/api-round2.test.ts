@@ -227,6 +227,33 @@ describe('repo → project', () => {
   });
 });
 
+describe('project rename', () => {
+  test('name and description change with PATCH; the slug and items stay put', async () => {
+    await project('site');
+    await item('site', { title: 'Keep me' });
+    const res = await api('PATCH', '/api/projects/site', { name: '  New Name ', description: 'Rebranded.' });
+    expect(res.status).toBe(200);
+    expect(res.json.project.name).toBe('New Name');
+    expect(res.json.project.description).toBe('Rebranded.');
+    expect(res.json.project.slug).toBe('site');
+    const board = await api('GET', '/api/projects/site');
+    expect(board.json.project.name).toBe('New Name');
+    expect(board.json.items.map((i: any) => i.title)).toEqual(['Keep me']);
+  });
+
+  test('a blank or non-string name is refused and changes nothing', async () => {
+    await project('site');
+    for (const name of ['', '   ', 42]) {
+      const res = await api('PATCH', '/api/projects/site', { name });
+      expect(res.status).toBe(400);
+    }
+    const bad = await api('PATCH', '/api/projects/site', { description: 7 });
+    expect(bad.status).toBe(400);
+    const board = await api('GET', '/api/projects/site');
+    expect(board.json.project.name).not.toBe('');
+  });
+});
+
 describe('QA sign-off', () => {
   test('recording the last pass posts the sign-off and hands the item back at received', async () => {
     const it = await item('acme', { status: 'needs-qa', checks: [{ id: 's1', label: '1.' }, { id: 's2', label: '2.' }] });
