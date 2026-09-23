@@ -265,6 +265,10 @@
   // time it changed hands, and the per-row chip already says which it is.
   const STATUS_GROUPS = [
     { label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress'] },
+    // Its own group: blocked work is committed, not parked, but it is not
+    // something you can act on right now either — folding it into Open or
+    // Deferred would hide the one fact this status exists to show.
+    { label: 'Blocked', statuses: ['blocked'] },
     { label: 'Deferred', statuses: ['deferred'] },
     // Documents above Archived: a current reference is something you reach for
     // while working, not something waiting on you. An archived one joins
@@ -399,6 +403,13 @@
       ctx.className = 'ctx';
       ctx.textContent = item.context;
       card.appendChild(ctx);
+    }
+
+    if (item.status === 'blocked' && item.blockedBy) {
+      const bl = document.createElement('p');
+      bl.className = 'blocked-line';
+      bl.append('Blocked by: ', WB.renderBlockedBy(item.blockedBy, slug, project && project.key));
+      card.appendChild(bl);
     }
 
     if (item.messages && item.messages.length) {

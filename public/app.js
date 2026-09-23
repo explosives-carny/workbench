@@ -8,6 +8,10 @@ window.WB = (function () {
     'needs-qa': 'QA',
     received: 'Received',
     'in-progress': 'Working',
+    // Committed work waiting on something that is not a decision: a deploy,
+    // another item, a merge. It WILL be done — unlike deferred, which is
+    // parked on purpose and may never come back.
+    'blocked': 'Blocked',
     'deferred': 'Deferred',
     active: 'Active',
     archived: 'Archived',
@@ -154,6 +158,35 @@ window.WB = (function () {
     return chip;
   }
 
+  // A ref inside free text (WB-DEMO-14) linked, but only when its key matches
+  // THIS project's — the whole point of "resolves on this board". Anything
+  // else, including a ref that merely looks like one, stays plain text next to
+  // it: text nodes only, so nothing in `text` is ever parsed as markup.
+  const REF_IN_TEXT = /\bWB-([A-Z][A-Z0-9]{1,4})-([1-9][0-9]*)\b/gi;
+  function renderBlockedBy(text, slug, projectKey) {
+    const frag = document.createDocumentFragment();
+    if (!text) return frag;
+    const re = new RegExp(REF_IN_TEXT.source, 'gi');
+    let last = 0;
+    let match;
+    while ((match = re.exec(text))) {
+      if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+      const key = match[1].toUpperCase();
+      if (projectKey && key === projectKey) {
+        const a = document.createElement('a');
+        a.className = 'blocked-ref mono';
+        a.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(match[0].toUpperCase());
+        a.textContent = match[0];
+        frag.appendChild(a);
+      } else {
+        frag.appendChild(document.createTextNode(match[0]));
+      }
+      last = re.lastIndex;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    return frag;
+  }
+
   return {
     STATUS_LABELS,
     WAITING_ON_YOU,
@@ -162,6 +195,7 @@ window.WB = (function () {
     statusesFor,
     labelChoices,
     refChip,
+    renderBlockedBy,
     STATUSES: Object.keys(STATUS_LABELS),
     get: (p) => req('GET', p),
     post: (p, b) => req('POST', p, b),
