@@ -856,6 +856,7 @@ export class Store {
    * an existing public identifier stop resolving.
    */
   setProjectKey(slug: string, key: string): { project: Project; changed: boolean; previousKey: string | null } | null {
+    // Take the write lock before reading identity fields, avoiding lock upgrades between writers.
     const set = this.db.transaction(() => {
       const project = this.getProject(slug);
       if (!project) return null;
@@ -867,7 +868,7 @@ export class Store {
       this.db.query('UPDATE projects SET key = ?, old_keys = ? WHERE id = ?').run(nextKey, JSON.stringify(oldKeys), project.id);
       return { project: this.getProject(slug)!, changed: true, previousKey: project.key };
     });
-    return set();
+    return set.immediate();
   }
 
   /**
@@ -875,6 +876,7 @@ export class Store {
    * sequence counter back below numbers this database already issued.
    */
   restoreProjectIdentity(slug: string, identity: { key: string | null; oldKeys: string[]; nextSeq: number }): Project | null {
+    // Take the write lock before reading identity fields, avoiding lock upgrades between writers.
     const restore = this.db.transaction(() => {
       const project = this.getProject(slug);
       if (!project) return null;
@@ -889,7 +891,7 @@ export class Store {
         .run(key, JSON.stringify(oldKeys), nextSeq, project.id);
       return this.getProject(slug);
     });
-    return restore();
+    return restore.immediate();
   }
 
   archiveProject(slug: string, archived: boolean): Project | null {
@@ -962,6 +964,7 @@ export class Store {
   }
 
   createItem(projectId: string, input: ItemInput): Item {
+    // Take the write lock before reading counters, avoiding lock upgrades between writers.
     const create = this.db.transaction(() => {
       const at = now();
       // `updatedAt` stays the clock even when a creation date is supplied: the row
@@ -1021,7 +1024,7 @@ export class Store {
       this.db.query('UPDATE projects SET next_seq = ? WHERE id = ?').run(Math.max(storedNext, maxSeq + 1, seq + 1), projectId);
       return this.getItem(id)!;
     });
-    return create();
+    return create.immediate();
   }
 
   // `ifVersion` is optional so a casual writer stays simple, and enforced when
