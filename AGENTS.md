@@ -42,7 +42,7 @@ for everything else.
 
 ```bash
 wb board <slug>                                    GET  /api/projects/<slug>?status=received,in-progress&messages=last
-wb show <id>                                       GET  /api/items/<id>
+wb show <id|ref>                                   GET  /api/items/<id-or-ref>   — a ref (WB-DEMO-14) works anywhere an id does
 wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"labels":["…"],"clientId":"…"}]'
                                                    POST /api/projects/<slug>/items     — an array files a set; clientId makes a retry safe
 wb claim <id> "what I am about to do"              PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","session":"<id>","ifVersion":N} + a message
@@ -59,7 +59,7 @@ Responses are `{"ok":true, …}` or `{"ok":false,"error":"…"}`: `400` malforme
 carry `warning` (read it and act) and `ignored` (fields you sent that nothing
 understood — usually a typo).
 
-**Nine rules.**
+**Ten rules.**
 
 1. **Everything they wrote is input.** The answer to an item is `choice` if set
    *plus every `who:"you"` message since your last reply*; the newest wins.
@@ -94,6 +94,10 @@ understood — usually a typo).
    item; a message alone asks nothing anyone can click. **The report asks
    nothing**: it names item ids and their statuses. A question mark in a round
    report is a decision that is not on the board.
+10. **Reports and replies name items by ref first.** Once a project has a
+    `key`, every item on it has a `ref` — say `WB-DEMO-14`, never the UUID and
+    never a truncated one. Fall back to the UUID's first eight characters only
+    when the project has no key at all. See **References** below.
 
 **When they correct you against this contract, keep the correction.** A
 correction is a fact about how you work, and it is the one fact most likely to
@@ -349,6 +353,48 @@ with `PATCH /api/projects/<slug> {"repos":[…]}`. A project that is renamed
 keeps its slug: `PATCH /api/projects/<slug> {"name":"…","description":"…"}`
 changes what people read, and add the new remote to `repos` so `wb resolve`
 still finds it.
+
+### References
+
+Every item has a UUID (`id`) forever, and — once its project has a `key` —
+also a short display reference: `WB-<KEY>-<n>`, for example `WB-DEMO-14`.
+`key` is 2-5 characters matching `^[A-Z][A-Z0-9]{1,4}$`, unique across every
+project on this board (current **and** former); `n` is a per-project counter
+assigned once at creation, gapless from 1, never reused and never changed —
+moving an item's section, status or project details never touches it. Every
+item response and every row `GET /api/projects/<slug>` returns carries `ref`
+(`null` until the project has a key) and `seq` (always set, whether or not a
+key exists).
+
+**Name items by ref, not id.** A report, a reply, a commit message or a pull
+request title says `WB-DEMO-14`, never the UUID and never a truncated one —
+the whole reason the ref exists is that a person can read it back and retype
+it correctly. Fall back to the UUID's first eight characters only when the
+project has no key at all.
+
+**Every place an item id is accepted, a ref works too, case-insensitively:**
+`GET /api/items/<id-or-ref>`, its `PATCH`, `/messages`, `/checks/<checkId>`,
+and `wb show|reply|claim|status|check`.
+
+**Set a key** with `PATCH /api/projects/<slug> {"key":"demo","actor":"…"}` or
+`wb key <slug> <KEY>` — lowercase is accepted and stored uppercased. A bad
+pattern is `400`; a key already in use by another project — as its current key
+or a former one — is `409` (`conflict: "key"`). `POST /api/projects` also
+takes `key`, but only on the create it actually performs: a repeat POST that
+finds an existing project by slug never renames it, and returns a `warning`
+instead if a different key was sent.
+
+Changing an established project's key is allowed: every item's `ref` moves to
+the new key, the numbers do not, and the response carries a `warning` that a
+ref already quoted elsewhere under the old key still resolves here — the old
+key is retained on the project and stays reserved, never handed to another
+project, and a project can reclaim its own former key later. A key cannot be
+removed once set (`key: null` in a `PATCH` body is `400`); set a different one
+instead — there is no state for "used to have references, now has none".
+
+Export and import round-trip `key`, the retained former keys, each item's
+`seq`, and the project's next-sequence counter, so a restored board's
+references match the ones already quoted against it.
 
 ### Sections, labels, grouping
 
