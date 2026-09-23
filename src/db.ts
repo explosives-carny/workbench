@@ -61,7 +61,14 @@ import { dirname } from 'path';
 // claims the work landed, `deferred` claims it comes back, `archived` belongs to
 // documents. It sits with the finished work in the Archived group — kept, not
 // current — and the thread carries the reason.
-export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'active', 'archived', 'complete', 'cancelled'] as const;
+// `blocked` (contract v8) is committed work waiting on something that is not a
+// decision: a deploy, another item, a merge. It sits apart from `deferred`,
+// which is nobody's on purpose and may never come back — `blocked` WILL be
+// done, the only question is when the thing it is waiting on clears. Before it
+// existed, blocked work went to `deferred` for lack of anywhere better, and
+// read exactly like abandoned work, because `deferred` says "parked", not
+// "waiting". See `blockedBy` on Item for what it is waiting on.
+export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'deferred', 'active', 'archived', 'complete', 'cancelled'] as const;
 export type Status = (typeof STATUSES)[number];
 
 // Display labels. Short on purpose: these sit in a chip, a filter button and a
@@ -73,6 +80,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   'needs-qa': 'QA',
   received: 'Received',
   'in-progress': 'Working',
+  'blocked': 'Blocked',
   'deferred': 'Deferred',
   active: 'Active',
   archived: 'Archived',
@@ -156,6 +164,10 @@ export type GroupBy = 'section' | 'status';
  */
 export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] = [
   { id: 'open', label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress'] },
+  // Its own group: a blocked item is neither live work you can act on right now
+  // nor parked by choice, and folding it into Open or Deferred would hide the
+  // one fact this status exists to show — it is stuck on something specific.
+  { id: 'blocked', label: 'Blocked', statuses: ['blocked'] },
   { id: 'deferred', label: 'Deferred', statuses: ['deferred'] },
   // Documents sit above Archived and below the work, because a current
   // reference is something you reach for while working rather than something
@@ -271,6 +283,11 @@ export function normaliseLabels(value: unknown): string[] {
   return out;
 }
 
+/** Trim and cap at 200 characters — long enough for a ref or a sentence, short enough to stay a line. */
+export function normaliseBlockedBy(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, 200) : '';
+}
+
 function parseLabels(raw: unknown): string[] {
   if (typeof raw !== 'string') return [];
   try {
@@ -348,6 +365,15 @@ export type Item = {
    * one release, the two that both wait on the same person.
    */
   labels: string[];
+  /**
+   * What a `blocked` item is waiting on: an item ref (`WB-DEMO-14`), a PR, or
+   * free text like "deploy of X". Optional, capped at 200 characters.
+   *
+   * Kept as history rather than cleared when the status moves off `blocked` —
+   * re-blocking the same item later, or somebody asking "what was this stuck
+   * on", still has the answer. Only an explicit empty string clears it.
+   */
+  blockedBy: string;
   position: number;
   version: number;
   updatedBy: string;
@@ -373,6 +399,8 @@ export type ItemInput = {
   status?: Status;
   kind?: Kind;
   section?: string;
+  /** See Item.blockedBy. Trimmed and capped at 200 characters on write. */
+  blockedBy?: string;
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
   checks?: Check[];
@@ -540,6 +568,10 @@ export function openDb(path: string): Database {
       -- the write can be re-sent and find its items instead of duplicating
       -- them. Empty for everything created without one.
       client_id   TEXT NOT NULL DEFAULT '',
+      -- What a blocked item is waiting on (contract v8). Free text, kept as
+      -- history when the status moves off blocked rather than cleared, so
+      -- re-blocking or asking "what was this stuck on" still has the answer.
+      blocked_by  TEXT NOT NULL DEFAULT '',
       seq         INTEGER,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -590,6 +622,7 @@ export function openDb(path: string): Database {
   if (!columns.has('body_format')) db.exec("ALTER TABLE items ADD COLUMN body_format TEXT NOT NULL DEFAULT 'text'");
   if (!columns.has('checks')) db.exec("ALTER TABLE items ADD COLUMN checks TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('labels')) db.exec("ALTER TABLE items ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
+  if (!columns.has('blocked_by')) db.exec("ALTER TABLE items ADD COLUMN blocked_by TEXT NOT NULL DEFAULT ''");
   if (!columns.has('kind')) {
     db.exec("ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'issue'");
     // Backfill: anything carrying long-form content is a document. That is the
@@ -720,6 +753,7 @@ function rowToItem(r: any): Item {
     choice: r.choice,
     status: r.status as Status,
     section: r.section,
+    blockedBy: r.blocked_by ?? '',
     position: r.position,
     version: r.version ?? 1,
     updatedBy: r.updated_by ?? '',
@@ -998,8 +1032,8 @@ export class Store {
       const id = randomUUID();
       this.db
         .query(
-          `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO items (id, project_id, title, context, options, choice, status, section, blocked_by, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -1010,6 +1044,7 @@ export class Store {
           input.choice || '',
           status,
           input.section || '',
+          normaliseBlockedBy(input.blockedBy),
           position,
           input.body || '',
           input.bodyFormat || 'text',
@@ -1058,6 +1093,7 @@ export class Store {
       status,
       kind,
       section: patch.section ?? current.section,
+      blockedBy: patch.blockedBy === undefined ? current.blockedBy : normaliseBlockedBy(patch.blockedBy),
       position: patch.position ?? current.position,
       body: patch.body ?? current.body,
       bodyFormat: patch.bodyFormat ?? current.bodyFormat,
@@ -1066,13 +1102,13 @@ export class Store {
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
-      next.title, next.context, next.options, next.choice, next.status, next.kind, next.section, next.position,
+      next.title, next.context, next.options, next.choice, next.status, next.kind, next.section, next.blockedBy, next.position,
       next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', opts.session || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
-        `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, kind = ?, section = ?, position = ?,
+        `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, kind = ?, section = ?, blocked_by = ?, position = ?,
            body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1
          WHERE id = ?${guard}`
       )
@@ -1355,7 +1391,7 @@ export class Store {
   }
 
   counts(projectId: string): Record<Status, number> {
-    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'deferred': 0, active: 0, archived: 0, complete: 0, cancelled: 0 };
+    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'blocked': 0, 'deferred': 0, active: 0, archived: 0, complete: 0, cancelled: 0 };
     const rows: any[] = this.db.query('SELECT status, COUNT(*) AS n FROM items WHERE project_id = ? GROUP BY status').all(projectId);
     for (const row of rows) if (row.status in out) out[row.status as Status] = row.n;
     return out;
