@@ -365,6 +365,11 @@ footer {
 
 /* ---- rendered markdown ---- */
 .mddoc { max-width: 74ch; margin: 8px 0 28px; }
+/* A long unbroken token (a URL, a route path in inline code, a token name) is
+   wider than a phone. Without this the article grows past its column and the
+   whole page scrolls sideways; tables already scroll inside .tablewrap. */
+.mddoc { overflow-wrap: anywhere; }
+.mddoc code { overflow-wrap: anywhere; }
 .mddoc h1 { font-size: 26px; margin: 34px 0 10px; }
 .mddoc h2 { font-size: 20px; margin: 30px 0 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
 .mddoc h3 { font-size: 16px; margin: 22px 0 6px; }
