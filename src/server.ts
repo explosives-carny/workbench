@@ -38,7 +38,9 @@ const server = Bun.serve({
   fetch: createHandler(store, { publicDir: PUBLIC_DIR, agentsMdPath: AGENTS_MD, onWrite, home: homedir() }),
 });
 
-console.log(`workbench  http://localhost:${server.port}   contract v${CONTRACT_VERSION}`);
+// The start time and pid are what tell a restart someone asked for apart from a
+// crash: without them the log is a pile of identical banners with no order.
+console.log(`workbench  http://localhost:${server.port}   contract v${CONTRACT_VERSION}   started ${new Date().toISOString()} pid ${process.pid}`);
 console.log(`database   ${DB_PATH}`);
 console.log(`api        http://localhost:${server.port}/api`);
 console.log(`export     ${AUTO_EXPORT ? `${CONTENT_DIR} after every change` : 'off (WORKBENCH_AUTO_EXPORT=0)'}`);

@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v5.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `4`,
+**Contract v6.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `6`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -120,8 +120,15 @@ Say once, in one line, when you are in auto and what you are scoped to.
 **Board not answering** (`ECONNREFUSED`): first **wait and retry — three
 tries over about ten seconds.** A deploy restarts the service and the port is
 silent for a couple of seconds; that is not "down", and starting a second server
-into it is worse than waiting. `wb` retries on its own. Still refused after
-that → it is really down: `launchctl kickstart -k gui/$(id -u)/dev.workbench.server`
+into it is worse than waiting. `wb` retries on its own. **Then check whether
+anything is listening:** `lsof -nP -iTCP:4317 -sTCP:LISTEN`. If a process is
+listening, the board is up and *your shell* is blocked — typically a sandbox
+with networking off, where every connection fails "after 0 ms". **Never restart
+the service from that state**: it does not fix your connection and it
+disconnects every other session. Re-run the call with network access (in a
+sandboxed agent, ask to run it outside the sandbox). `wb` makes this check
+itself and exits `3` with that message; exit `2` means nothing is listening.
+Refused and nothing listening after the retries → it is really down: `launchctl kickstart -k gui/$(id -u)/dev.workbench.server`
 if the service is installed, else `cd <workbench repo> && bun run start` in
 the background; wait for `GET /api`; continue. Never fall back to asking in
 chat, and never drop results you were about to record — hold them and retry.
