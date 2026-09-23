@@ -106,6 +106,54 @@ window.WB = (function () {
     }
   }
 
+  // Copy `ref` onto the clipboard, with feedback either way. Wrapped so a
+  // denied permission or an insecure context (clipboard APIs need HTTPS or
+  // localhost) never throws out of a click handler — it falls back to
+  // selecting the chip's own text so the person can still copy it by hand.
+  async function copyRef(chip, ref) {
+    try {
+      await navigator.clipboard.writeText(ref);
+    } catch (err) {
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(chip);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (selErr) { /* nothing left to try; the chip still shows the ref */ }
+      chip.title = 'Copy failed — text selected';
+      return;
+    }
+    const original = chip.textContent;
+    chip.classList.add('copied');
+    chip.textContent = 'Copied';
+    setTimeout(() => {
+      chip.classList.remove('copied');
+      chip.textContent = original;
+    }, 1200);
+  }
+
+  // The chip a person quotes elsewhere — clicking it copies the reference.
+  // Returns null (never an empty element) when the project has no key, so a
+  // caller can skip appending it instead of rendering nothing.
+  function refChip(ref) {
+    if (!ref) return null;
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'ref-chip mono';
+    chip.textContent = ref;
+    chip.title = 'Copy reference';
+    chip.setAttribute('aria-label', 'Copy reference ' + ref);
+    chip.addEventListener('click', (e) => {
+      // A chip beside a card's own link must never trigger that link's
+      // navigation — copying the reference is the whole point of clicking it.
+      e.preventDefault();
+      e.stopPropagation();
+      copyRef(chip, ref);
+    });
+    return chip;
+  }
+
   return {
     STATUS_LABELS,
     WAITING_ON_YOU,
@@ -113,6 +161,7 @@ window.WB = (function () {
     ISSUE_STATUSES,
     statusesFor,
     labelChoices,
+    refChip,
     STATUSES: Object.keys(STATUS_LABELS),
     get: (p) => req('GET', p),
     post: (p, b) => req('POST', p, b),

@@ -12,7 +12,10 @@
   <header class="mast">
     <p class="eyebrow" id="eyebrow">Item</p>
     <div class="labelrow" id="labels"></div>
-    <h1 id="title">…</h1>
+    <div class="titlerow">
+      <span id="refslot"></span>
+      <h1 id="title">…</h1>
+    </div>
     <p class="lede" id="ctx"></p>
     <div class="rule"></div>
   </header>
@@ -39,7 +42,7 @@
 
   function sig() {
     return JSON.stringify([
-      item.version, item.status, item.choice, (item.messages || []).length, item.body.length,
+      item.ref, item.version, item.status, item.choice, (item.messages || []).length, item.body.length,
       (item.checks || []).map((c) => c.id + c.result + c.note).join('|'),
     ]);
   }
@@ -372,6 +375,10 @@
       return;
     }
     lastSig = s;
+    const refslot = document.getElementById('refslot');
+    refslot.innerHTML = '';
+    const ref = WB.refChip(item.ref);
+    if (ref) refslot.appendChild(ref);
     document.getElementById('title').textContent = item.title;
     document.getElementById('ctx').textContent = item.context || '';
     // Section only. Status is the dropdown; the chosen option is the pressed
