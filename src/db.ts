@@ -1156,17 +1156,27 @@ export class Store {
     // waiting on the human, until somebody noticed and moved it by hand. Sign-off
     // is whoever recorded the last pass — a person or a model doing the QA — so
     // the board says so and hands the item back to the agent that built it, at
-    // `received`, to land and close. A fail or a skip anywhere leaves it at QA
-    // with the note on the step; nothing is signed off with an open question.
-    const allPass = checks.length > 0 && checks.every((c) => c.result === 'pass');
-    if (allPass && current.kind === 'issue' && current.status === 'needs-qa') {
+    // `received`, to land and close.
+    //
+    // A round that ends with a fail or a skip is finished too, and goes back the
+    // same way. It used to stay at QA, which read as "nobody has checked this"
+    // on an item whose round was done: a skip is how a worker records a step it
+    // cannot run (a merge, browser UI it cannot see), so those items never came
+    // back. The builder reviews the results at `received`; nothing is signed off
+    // unless every step passed, and the notes stay on the steps.
+    const finished = checks.length > 0 && checks.every((c) => c.result);
+    if (finished && current.kind === 'issue' && current.status === 'needs-qa') {
       const by = patch.by || 'you';
+      const count = (r: string) => checks.filter((c) => c.result === r).length;
+      const allPass = count('pass') === checks.length;
       this.addMessage(itemId, {
         who: by === 'you' ? 'you' : 'agent',
         author: by,
         session: patch.session,
         status: 'received',
-        text: `All ${checks.length} steps passed — signed off by ${by}. Back to the builder to land and close.`,
+        text: allPass
+          ? `All ${checks.length} steps passed — signed off by ${by}. Back to the builder to land and close.`
+          : `QA round finished by ${by}: ${count('pass')} pass, ${count('fail')} fail, ${count('skip')} skip. Not signed off. Back to the builder to review the results.`,
       });
     }
     return this.getItem(itemId);

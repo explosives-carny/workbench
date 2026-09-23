@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v8.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `8`,
+**Contract v9.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `9`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -83,8 +83,9 @@ understood — usually a typo).
    tradeoff, recommendation, cost of being wrong. Documents are `kind:
    "document"`; a document that asks for something is two items.
 7. **`needs-qa` means steps attached.** Define steps with `checks:[…]` on the
-   item; record results one step at a time. The last `pass` signs it off and
-   hands it back at `received`.
+   item; record results one step at a time. When every step has a result the
+   round is finished and the item goes back at `received`: signed off if all
+   passed, otherwise for the builder to review the notes.
 8. **Never edit this application to add a feature.** Branch, PR, tell them.
    See `CONTRIBUTING.md`.
 9. **A report is not finished while it names work that is not on the board.**
@@ -153,7 +154,10 @@ triaged in one bucket. Nothing built → decision; built and needs eyes → QA.
 `complete` claims the work **landed**. Written but not landed is one of two
 things, and the difference is *whose hand it waits on*. If **they** merge or
 deploy — the normal case for a pull request into their repository — it is
-`needs-qa`: built, and the steps attached are "merge it, then see X". If **you**
+`needs-qa`: built, and the steps attached are "merge it, then see X". A
+worker who cannot merge records that step as `skip` with a note; the round
+still finishes and comes back at `received`, and the builder asks for the
+merge from there. If **you**
 still own landing it (CI is running, you will deploy after lunch), it is
 `received`, and the thread says what it waits on. Twenty-two built items were
 once filed at `received` under the old wording, and the board read as though
@@ -300,11 +304,14 @@ seven recorded results with a `200`. To redefine steps and knowingly discard the
 results, send `"replaceChecks": true` — and say in the thread why. A fresh QA
 round is usually a new item.
 
-**The last `pass` signs the item off.** The board posts "All N steps passed —
-signed off by <actor>" and hands the item back at `received` for you to land
-and close. A `fail` or `skip` anywhere leaves it at `needs-qa` with the note on
-the step. Whoever records the passes — a person, or a model doing the QA — is
-the sign-off.
+**A finished round goes back at `received`.** When the last empty step gets a
+result, the round is over. If every step passed, the board posts "All N steps
+passed — signed off by <actor>"; whoever recorded the passes — a person, or a
+model doing the QA — is the sign-off, and you land and close. If any step is
+`fail` or `skip`, the board posts "QA round finished by <actor>: P pass, F fail,
+S skip. Not signed off." and you review the notes on the steps. Either way the
+item comes back to you. A round with an empty step stays at `needs-qa`. It
+once stayed at QA on any skip, and finished rounds read as unchecked work.
 
 The worker has your item and nothing else. Three precise steps beat twenty
 vague ones: each step names its precondition or reaches it, names what will be
