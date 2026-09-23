@@ -173,6 +173,12 @@ export type Project = {
   slug: string;
   name: string;
   description: string;
+  /** Human-readable project namespace. Null until somebody deliberately sets it. */
+  key: string | null;
+  /** Keys this project previously displayed, kept so quoted references continue working. */
+  oldKeys: string[];
+  /** The next per-project item sequence number reserved for creation. */
+  nextSeq: number;
   sectionMode: SectionMode;
   /** Declared vocabulary. Advisory in adhoc mode, enforced in declared mode. */
   sections: string[];
@@ -320,6 +326,10 @@ export type Check = {
 export type Item = {
   id: string;
   projectId: string;
+  /** Per-project sequence, assigned once and never reused. */
+  seq: number;
+  /** Human-readable display reference, or null while the project has no key. */
+  ref: string | null;
   title: string;
   context: string;
   options: string[];
@@ -385,7 +395,51 @@ export type ItemInput = {
    * what came first.
    */
   createdAt?: string;
+  /** An imported sequence is retained when unused in the destination project. */
+  seq?: number;
 };
+
+export const REF_PREFIX = 'WB';
+
+/** Format the stable display shape in one place so callers cannot drift. */
+export function formatRef(key: string, seq: number): string {
+  return `${REF_PREFIX}-${key}-${seq}`;
+}
+
+/** Parse only complete, positive references; malformed input is not a lookup. */
+export function parseRef(text: string): { key: string; seq: number } | null {
+  const match = String(text).trim().match(new RegExp(`^${REF_PREFIX}-([A-Z][A-Z0-9]{1,4})-([1-9][0-9]*)$`, 'i'));
+  if (!match) return null;
+  const seq = Number(match[2]);
+  return Number.isSafeInteger(seq) ? { key: match[1].toUpperCase(), seq } : null;
+}
+
+/** A bad key is input validation, not a database constraint failure. */
+export class InvalidProjectKey extends Error {
+  readonly statusCode = 400;
+
+  constructor(value: unknown) {
+    super(`project key must be 2-5 characters matching ^[A-Z][A-Z0-9]{1,4}$; received ${JSON.stringify(value)}`);
+    this.name = 'InvalidProjectKey';
+  }
+}
+
+/** A current or former key belongs to exactly one project forever. */
+export class ProjectKeyTaken extends Error {
+  readonly statusCode = 409;
+
+  constructor(public conflictingSlug: string, public key: string) {
+    super(`project key ${key} is already reserved by project ${conflictingSlug}`);
+    this.name = 'ProjectKeyTaken';
+  }
+}
+
+/** Trim and uppercase at the boundary so stored keys have one canonical spelling. */
+export function normaliseProjectKey(value: string): string {
+  const key = String(value).trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9]{1,4}$/.test(key)) throw new InvalidProjectKey(value);
+  return key;
+}
 
 /**
  * An ISO instant that is safe to trust as a creation date, or null.
@@ -419,6 +473,11 @@ export function openDb(path: string): Database {
       slug        TEXT NOT NULL UNIQUE,
       name        TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
+      key         TEXT,
+      -- Former keys are an item-owned, small history rather than a second table:
+      -- they are only read while resolving one reference and must travel in export.
+      old_keys    TEXT NOT NULL DEFAULT '[]',
+      next_seq    INTEGER NOT NULL DEFAULT 1,
       created_at  TEXT NOT NULL,
       archived_at TEXT,
       -- How this project governs its section vocabulary.
@@ -481,6 +540,7 @@ export function openDb(path: string): Database {
       -- the write can be re-sent and find its items instead of duplicating
       -- them. Empty for everything created without one.
       client_id   TEXT NOT NULL DEFAULT '',
+      seq         INTEGER,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -514,7 +574,11 @@ export function openDb(path: string): Database {
   if (!pcols.has('sections')) db.exec("ALTER TABLE projects ADD COLUMN sections TEXT NOT NULL DEFAULT '[]'");
   if (!pcols.has('group_by')) db.exec("ALTER TABLE projects ADD COLUMN group_by TEXT NOT NULL DEFAULT 'section'");
   if (!pcols.has('repos')) db.exec("ALTER TABLE projects ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
+  if (!pcols.has('key')) db.exec('ALTER TABLE projects ADD COLUMN key TEXT');
+  if (!pcols.has('old_keys')) db.exec("ALTER TABLE projects ADD COLUMN old_keys TEXT NOT NULL DEFAULT '[]'");
+  if (!pcols.has('next_seq')) db.exec('ALTER TABLE projects ADD COLUMN next_seq INTEGER NOT NULL DEFAULT 1');
   const columns = new Set<string>(db.query('PRAGMA table_info(items)').all().map((r: any) => r.name));
+  if (!columns.has('seq')) db.exec('ALTER TABLE items ADD COLUMN seq INTEGER');
   if (!columns.has('client_id')) db.exec("ALTER TABLE items ADD COLUMN client_id TEXT NOT NULL DEFAULT ''");
   if (!columns.has('updated_session')) db.exec("ALTER TABLE items ADD COLUMN updated_session TEXT NOT NULL DEFAULT ''");
   db.exec('CREATE INDEX IF NOT EXISTS idx_items_client ON items(project_id, client_id)');
@@ -549,6 +613,28 @@ export function openDb(path: string): Database {
   // the vocabulary never disagree. A row already migrated matches nothing and
   // the statement is a no-op, which is what makes reopening an old file safe.
   db.exec("UPDATE items SET status = 'needs-decision' WHERE status = 'needs-you'");
+  // Sequence backfill is transactional and ordered by the same two fields the
+  // board uses for deterministic history. Reopening after it ran sees no NULL
+  // sequences, so it changes neither existing numbers nor the counter.
+  const backfillSequences = db.transaction(() => {
+    const projects = db.query('SELECT id, next_seq FROM projects').all() as any[];
+    for (const project of projects) {
+      const maximum: any = db.query('SELECT MAX(seq) AS max_seq FROM items WHERE project_id = ?').get(project.id);
+      let next = Math.max(1, Number.isSafeInteger(maximum?.max_seq) ? maximum.max_seq + 1 : 1);
+      const missing = db.query('SELECT id FROM items WHERE project_id = ? AND seq IS NULL ORDER BY created_at ASC, id ASC').all(project.id) as any[];
+      for (const item of missing) {
+        db.query('UPDATE items SET seq = ? WHERE id = ?').run(next, item.id);
+        next += 1;
+      }
+      const after: any = db.query('SELECT MAX(seq) AS max_seq FROM items WHERE project_id = ?').get(project.id);
+      const maxSeq = Number.isSafeInteger(after?.max_seq) ? after.max_seq : 0;
+      const storedNext = Number.isSafeInteger(project.next_seq) ? project.next_seq : 1;
+      db.query('UPDATE projects SET next_seq = ? WHERE id = ?').run(Math.max(1, storedNext, maxSeq + 1), project.id);
+    }
+  });
+  backfillSequences();
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_key ON projects(key) WHERE key IS NOT NULL');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_items_project_seq ON items(project_id, seq)');
   return db;
 }
 
@@ -578,11 +664,22 @@ export class VersionConflict extends Error {
 }
 
 function rowToProject(r: any): Project {
+  const oldKeys = (() => {
+    try {
+      const parsed = JSON.parse(r.old_keys ?? '[]');
+      return Array.isArray(parsed)
+        ? [...new Set(parsed.filter((key) => typeof key === 'string' && /^[A-Z][A-Z0-9]{1,4}$/.test(key)))]
+        : [];
+    } catch { return []; }
+  })();
   return {
     id: r.id,
     slug: r.slug,
     name: r.name,
     description: r.description,
+    key: typeof r.key === 'string' && /^[A-Z][A-Z0-9]{1,4}$/.test(r.key) ? r.key : null,
+    oldKeys,
+    nextSeq: Number.isSafeInteger(r.next_seq) && r.next_seq > 0 ? r.next_seq : 1,
     sectionMode: (r.section_mode === 'declared' ? 'declared' : 'adhoc') as SectionMode,
     sections: (() => {
       try {
@@ -615,6 +712,8 @@ function rowToItem(r: any): Item {
   return {
     id: r.id,
     projectId: r.project_id,
+    seq: Number.isSafeInteger(r.seq) ? r.seq : 0,
+    ref: typeof r.project_key === 'string' && Number.isSafeInteger(r.seq) ? formatRef(r.project_key, r.seq) : null,
     title: r.title,
     context: r.context,
     options,
@@ -665,6 +764,26 @@ export function slugify(input: string): string {
 export class Store {
   constructor(private db: Database) {}
 
+  /** A former key is a reservation too, so lookup checks both project fields. */
+  private keyOwner(key: string, exceptProjectId?: string): { slug: string; id: string } | null {
+    for (const row of this.db.query('SELECT id, slug, key, old_keys FROM projects').all() as any[]) {
+      if (row.id === exceptProjectId) continue;
+      const oldKeys = (() => {
+        try {
+          const parsed = JSON.parse(row.old_keys ?? '[]');
+          return Array.isArray(parsed) ? parsed : [];
+        } catch { return []; }
+      })();
+      if (row.key === key || oldKeys.includes(key)) return { id: row.id, slug: row.slug };
+    }
+    return null;
+  }
+
+  private assertKeyAvailable(key: string, exceptProjectId?: string): void {
+    const owner = this.keyOwner(key, exceptProjectId);
+    if (owner) throw new ProjectKeyTaken(owner.slug, key);
+  }
+
   listProjects(includeArchived = false): Project[] {
     const sql = includeArchived
       ? 'SELECT * FROM projects ORDER BY created_at DESC'
@@ -691,17 +810,24 @@ export class Store {
     return null;
   }
 
-  createProject(input: { name: string; slug?: string; description?: string; repos?: string[] }): Project {
+  createProject(input: { name: string; slug?: string; description?: string; repos?: string[]; key?: string }): Project {
     const slug = slugify(input.slug || input.name);
     const existing = this.getProject(slug);
     // Idempotent by slug. An agent that re-runs its own setup should find its
-    // project, not collide with it or silently make a second one.
+    // project, not collide with it or silently make a second one. A supplied
+    // key is deliberately ignored here: idempotent setup must never rename an
+    // established project's public references as a side effect.
     if (existing) return existing;
+    const key = input.key === undefined ? null : normaliseProjectKey(input.key);
+    if (key) this.assertKeyAvailable(key);
     const project: Project = {
       id: randomUUID(),
       slug,
       name: input.name,
       description: input.description || '',
+      key,
+      oldKeys: [],
+      nextSeq: 1,
       sectionMode: 'adhoc',
       sections: [],
       // The default for anything created from now on. A board exists to answer
@@ -719,9 +845,51 @@ export class Store {
       archivedAt: null,
     };
     this.db
-      .query('INSERT INTO projects (id, slug, name, description, section_mode, sections, group_by, repos, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-      .run(project.id, project.slug, project.name, project.description, project.sectionMode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.createdAt);
+      .query('INSERT INTO projects (id, slug, name, description, key, old_keys, next_seq, section_mode, sections, group_by, repos, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+      .run(project.id, project.slug, project.name, project.description, project.key, JSON.stringify(project.oldKeys), project.nextSeq, project.sectionMode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.createdAt);
     return project;
+  }
+
+  /**
+   * Change a project's display key without invalidating references already
+   * quoted elsewhere. Null is intentionally not accepted: removal cannot make
+   * an existing public identifier stop resolving.
+   */
+  setProjectKey(slug: string, key: string): { project: Project; changed: boolean; previousKey: string | null } | null {
+    const set = this.db.transaction(() => {
+      const project = this.getProject(slug);
+      if (!project) return null;
+      const nextKey = normaliseProjectKey(key);
+      if (project.key === nextKey) return { project, changed: false, previousKey: project.key };
+      this.assertKeyAvailable(nextKey, project.id);
+      const oldKeys = project.oldKeys.filter((oldKey) => oldKey !== nextKey);
+      if (project.key && !oldKeys.includes(project.key)) oldKeys.push(project.key);
+      this.db.query('UPDATE projects SET key = ?, old_keys = ? WHERE id = ?').run(nextKey, JSON.stringify(oldKeys), project.id);
+      return { project: this.getProject(slug)!, changed: true, previousKey: project.key };
+    });
+    return set();
+  }
+
+  /**
+   * Restore exported identity fields without allowing an import to roll the
+   * sequence counter back below numbers this database already issued.
+   */
+  restoreProjectIdentity(slug: string, identity: { key: string | null; oldKeys: string[]; nextSeq: number }): Project | null {
+    const restore = this.db.transaction(() => {
+      const project = this.getProject(slug);
+      if (!project) return null;
+      const key = identity.key === null ? null : normaliseProjectKey(identity.key);
+      const oldKeys = [...new Set(identity.oldKeys.map((oldKey) => normaliseProjectKey(oldKey)))].filter((oldKey) => oldKey !== key);
+      for (const reserved of [key, ...oldKeys]) if (reserved) this.assertKeyAvailable(reserved, project.id);
+      const maxRow: any = this.db.query('SELECT MAX(seq) AS max_seq FROM items WHERE project_id = ?').get(project.id);
+      const maxSeq = Number.isSafeInteger(maxRow?.max_seq) ? maxRow.max_seq : 0;
+      const importedNext = Number.isSafeInteger(identity.nextSeq) && identity.nextSeq > 0 ? identity.nextSeq : 1;
+      const nextSeq = Math.max(project.nextSeq, importedNext, maxSeq + 1, 1);
+      this.db.query('UPDATE projects SET key = ?, old_keys = ?, next_seq = ? WHERE id = ?')
+        .run(key, JSON.stringify(oldKeys), nextSeq, project.id);
+      return this.getProject(slug);
+    });
+    return restore();
   }
 
   archiveProject(slug: string, archived: boolean): Project | null {
@@ -744,7 +912,7 @@ export class Store {
   listItems(projectId: string, messages: boolean | 'all' | 'last' | 'none' = 'all'): Item[] {
     const mode = messages === true ? 'all' : messages === false ? 'none' : messages;
     const items = this.db
-      .query('SELECT * FROM items WHERE project_id = ? ORDER BY position ASC, created_at ASC')
+      .query('SELECT items.*, projects.key AS project_key FROM items JOIN projects ON projects.id = items.project_id WHERE items.project_id = ? ORDER BY items.position ASC, items.created_at ASC')
       .all(projectId)
       .map(rowToItem);
     // The list never carries body text. A project holding a 150KB specification
@@ -772,61 +940,88 @@ export class Store {
   }
 
   getItem(id: string): Item | null {
-    const row = this.db.query('SELECT * FROM items WHERE id = ?').get(id);
+    const row = this.db.query('SELECT items.*, projects.key AS project_key FROM items JOIN projects ON projects.id = items.project_id WHERE items.id = ?').get(id);
     if (!row) return null;
     const item = rowToItem(row);
     item.messages = this.listMessages(item.id);
     return item;
   }
 
-  createItem(projectId: string, input: ItemInput): Item {
-    const at = now();
-    // `updatedAt` stays the clock even when a creation date is supplied: the row
-    // WAS written now, and an import that backdated both would look like an item
-    // nobody has touched in months the moment it arrived.
-    const createdAt = asHistoricInstant(input.createdAt) || at;
-    // The kind decides which statuses are legal, so it is resolved first and the
-    // status is checked against it. A status that does not belong to the kind is
-    // replaced rather than refused: the caller told us what the thing IS, which
-    // is the more reliable half of the pair, and refusing the whole create over
-    // a status an older writer could not have known about loses the item.
-    const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
-    const status = input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind);
-    // Idempotent by clientId when one is given. The retry after a timeout must
-    // find the item the first attempt created, not make a second one.
-    const clientId = typeof input.clientId === 'string' ? input.clientId.trim().slice(0, 120) : '';
-    if (clientId) {
-      const existing: any = this.db.query('SELECT id FROM items WHERE project_id = ? AND client_id = ?').get(projectId, clientId);
-      if (existing) return this.getItem(existing.id)!;
+  /** Resolve UUIDs first, then current and former display references. */
+  resolveItem(idOrRef: string): Item | null {
+    const byId = this.getItem(idOrRef);
+    if (byId) return byId;
+    const parsed = parseRef(idOrRef);
+    if (!parsed) return null;
+    for (const project of this.listProjects(true)) {
+      if (project.key !== parsed.key && !project.oldKeys.includes(parsed.key)) continue;
+      const row = this.db.query('SELECT id FROM items WHERE project_id = ? AND seq = ?').get(project.id, parsed.seq) as any;
+      if (row) return this.getItem(row.id);
     }
-    const maxRow: any = this.db.query('SELECT MAX(position) AS m FROM items WHERE project_id = ?').get(projectId);
-    const position = (maxRow?.m ?? -1) + 1;
-    const id = randomUUID();
-    this.db
-      .query(
-        `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, labels, kind, client_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        projectId,
-        input.title,
-        input.context || '',
-        JSON.stringify(input.options || []),
-        input.choice || '',
-        status,
-        input.section || '',
-        position,
-        input.body || '',
-        input.bodyFormat || 'text',
-        JSON.stringify(input.checks || []),
-        JSON.stringify(normaliseLabels(input.labels)),
-        kind,
-        clientId,
-        createdAt,
-        at
-      );
-    return this.getItem(id)!;
+    return null;
+  }
+
+  createItem(projectId: string, input: ItemInput): Item {
+    const create = this.db.transaction(() => {
+      const at = now();
+      // `updatedAt` stays the clock even when a creation date is supplied: the row
+      // WAS written now, and an import that backdated both would look like an item
+      // nobody has touched in months the moment it arrived.
+      const createdAt = asHistoricInstant(input.createdAt) || at;
+      // The kind decides which statuses are legal, so it is resolved first and the
+      // status is checked against it. A status that does not belong to the kind is
+      // replaced rather than refused: the caller told us what the thing IS, which
+      // is the more reliable half of the pair, and refusing the whole create over
+      // a status an older writer could not have known about loses the item.
+      const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
+      const status = input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind);
+      // A retry returns before reading or advancing next_seq. Keeping this in
+      // the same transaction as the insert closes the only sequence race.
+      const clientId = typeof input.clientId === 'string' ? input.clientId.trim().slice(0, 120) : '';
+      if (clientId) {
+        const existing: any = this.db.query('SELECT id FROM items WHERE project_id = ? AND client_id = ?').get(projectId, clientId);
+        if (existing) return this.getItem(existing.id)!;
+      }
+      const project: any = this.db.query('SELECT next_seq FROM projects WHERE id = ?').get(projectId);
+      if (!project) throw new Error(`cannot create item: project ${projectId} does not exist`);
+      const maxRow: any = this.db.query('SELECT MAX(position) AS m, MAX(seq) AS max_seq FROM items WHERE project_id = ?').get(projectId);
+      const position = (maxRow?.m ?? -1) + 1;
+      const maxSeq = Number.isSafeInteger(maxRow?.max_seq) ? maxRow.max_seq : 0;
+      const storedNext = Number.isSafeInteger(project.next_seq) && project.next_seq > 0 ? project.next_seq : 1;
+      const freshSeq = Math.max(1, storedNext, maxSeq + 1);
+      const requestedSeq = Number.isSafeInteger(input.seq) && input.seq! > 0 ? input.seq : null;
+      const requestedInUse = requestedSeq === null ? true : Boolean(this.db.query('SELECT 1 FROM items WHERE project_id = ? AND seq = ?').get(projectId, requestedSeq));
+      const seq = requestedSeq !== null && !requestedInUse ? requestedSeq : freshSeq;
+      const id = randomUUID();
+      this.db
+        .query(
+          `INSERT INTO items (id, project_id, title, context, options, choice, status, section, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          id,
+          projectId,
+          input.title,
+          input.context || '',
+          JSON.stringify(input.options || []),
+          input.choice || '',
+          status,
+          input.section || '',
+          position,
+          input.body || '',
+          input.bodyFormat || 'text',
+          JSON.stringify(input.checks || []),
+          JSON.stringify(normaliseLabels(input.labels)),
+          kind,
+          clientId,
+          seq,
+          createdAt,
+          at
+        );
+      this.db.query('UPDATE projects SET next_seq = ? WHERE id = ?').run(Math.max(storedNext, maxSeq + 1, seq + 1), projectId);
+      return this.getItem(id)!;
+    });
+    return create();
   }
 
   // `ifVersion` is optional so a casual writer stays simple, and enforced when
