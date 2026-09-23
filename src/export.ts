@@ -81,6 +81,7 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
           status: item.status,
           kind: item.kind,
           section: item.section,
+          blockedBy: item.blockedBy,
           labels: item.labels,
           body: item.body,
           bodyFormat: item.bodyFormat,
