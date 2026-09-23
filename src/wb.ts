@@ -12,6 +12,7 @@
 // person and `--json` for a program.
 import { homedir } from 'os';
 import { basename } from 'path';
+import { listenerOn, localPort } from './reach.ts';
 
 const BASE = process.env.WORKBENCH_URL || `http://localhost:${process.env.WORKBENCH_PORT || 4317}`;
 
@@ -37,7 +38,20 @@ function parseArgs(argv: string[]): { positional: string[]; flags: Flags } {
 // one of those gaps reported the board down and dropped a round of results. Three
 // waits totalling ~7 s cover a restart; a board that is really down is still
 // reported, with how to start it.
+//
+// Before each retry, look at the port (see reach.ts). If the board is listening
+// and this shell still cannot connect, the shell is what is blocked — waiting
+// will not change that and restarting would only knock everybody else off — so
+// stop and say so, with exit 3 to tell it apart from a board that is down (2).
 const RETRY_MS = [1000, 2000, 4000];
+
+function blockedNotDown(who: string, port: number): never {
+  console.error(`wb: the board is running (${who} is listening on port ${port}), but this shell cannot connect to it.`);
+  console.error(`    The connection is blocked on this side, usually by an agent sandbox with networking off.`);
+  console.error(`    Re-run this command with network access (in a sandboxed agent, ask to run it outside the sandbox).`);
+  console.error(`    Do not restart the service: it is not down, and a restart disconnects every other session.`);
+  process.exit(3);
+}
 
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
   let res: Response | null = null;
@@ -52,6 +66,11 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
       break;
     } catch (error: any) {
       lastError = error;
+      const port = localPort(BASE);
+      if (port !== null) {
+        const listener = listenerOn(port);
+        if (listener.state === 'listening') blockedNotDown(listener.who, port);
+      }
       if (attempt < RETRY_MS.length) {
         console.error(`wb: board not answering at ${BASE}; retrying in ${RETRY_MS[attempt] / 1000}s (a deploy restart takes ~2s)`);
         await Bun.sleep(RETRY_MS[attempt]);
@@ -59,7 +78,7 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
     }
   }
   if (!res) {
-    // Still nothing after ~7 s: the board is really down, not restarting.
+    // Still nothing after ~7 s and nothing listening: the board is really down, not restarting.
     console.error(`wb: cannot reach the board at ${BASE} (${lastError?.cause?.code || lastError?.message || lastError}) after ${RETRY_MS.length + 1} attempts.`);
     console.error(`    If the service is installed: launchctl kickstart -k gui/$(id -u)/dev.workbench.server`);
     console.error(`    Otherwise: cd <workbench repo> && bun run start   (or bun run install-service, once, to keep it running)`);
