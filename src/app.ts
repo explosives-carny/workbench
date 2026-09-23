@@ -22,7 +22,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '7';
+export const CONTRACT_VERSION = '8';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -106,7 +106,7 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // caller believed the label had landed until the board looked wrong. Refusing
 // would break older writers sending fields since retired; naming the drop is
 // enough for a writer to notice and fix itself.
-const ITEM_FIELDS = new Set(['title', 'context', 'options', 'choice', 'status', 'section', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
+const ITEM_FIELDS = new Set(['title', 'context', 'options', 'choice', 'status', 'section', 'blockedBy', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
 const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
 const CHECK_FIELDS = new Set(['result', 'note', 'actor', 'by', 'session']);
 
@@ -152,6 +152,7 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     choice: typeof body.choice === 'string' ? body.choice : undefined,
     status: asStatus(body.status),
     section: typeof body.section === 'string' ? body.section : undefined,
+    blockedBy: typeof body.blockedBy === 'string' ? body.blockedBy : undefined,
     kind: body.kind === undefined ? undefined : body.kind,
     // These were added to the store and forgotten here, so every document
     // imported as an empty one and the API cheerfully reported success. A
@@ -230,6 +231,18 @@ function labelPolicy(store: Store, project: Project, labels: string[] | undefine
     }
   }
   return warnings;
+}
+
+// A blocked item with nothing named reads exactly like the failure blocked
+// exists to fix: work that looks abandoned. Warned, not refused — refusing the
+// status over a missing reason would lose the more important fact, that the
+// item is blocked at all, and the caller may be about to say what in the next
+// message. Checked against the item as it actually landed, not the patch alone,
+// so an item that already carries a blockedBy from an earlier block does not
+// warn on a status-only PATCH that leaves it unset.
+function blockedWithoutReason(item: { status: Status; blockedBy: string }): string | undefined {
+  if (item.status !== 'blocked' || item.blockedBy.trim()) return undefined;
+  return 'status is "blocked" with no blockedBy — say what it is waiting on (an item ref, a PR, or "deploy of X") with {"blockedBy":"..."}.';
 }
 
 async function readJson(req: Request): Promise<any> {
@@ -495,6 +508,10 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         }
         ctx.wrote = true;
         const created = parsed.map((input) => store.createItem(project.id, input));
+        for (const item of created) {
+          const warning = blockedWithoutReason(item);
+          if (warning) warnings.push(warning);
+        }
         return json(ctx, withIgnored({ ok: true, items: created, ...(warnings.length ? { warnings } : {}) }, ignored), 201);
       }
       return badRequest(ctx, `${method} not supported here`);
@@ -540,6 +557,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
             ifVersion, actor: actorOr(ctx, body, 'author'), session: sessionOf(body),
             replaceChecks: body.replaceChecks === true,
           });
+          const blockedWarning = updated ? blockedWithoutReason(updated) : undefined;
+          if (blockedWarning) warnings.push(blockedWarning);
           return json(ctx, withIgnored({ ok: true, item: updated, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignored));
         } catch (error) {
           if (error instanceof VersionConflict) {

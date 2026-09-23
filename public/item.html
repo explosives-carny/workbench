@@ -17,6 +17,7 @@
       <h1 id="title">…</h1>
     </div>
     <p class="lede" id="ctx"></p>
+    <p class="blocked-line" id="blocked" hidden></p>
     <div class="rule"></div>
   </header>
 
@@ -381,6 +382,17 @@
     if (ref) refslot.appendChild(ref);
     document.getElementById('title').textContent = item.title;
     document.getElementById('ctx').textContent = item.context || '';
+    // Blocked by: the item key comes from this item's own ref (WB-<KEY>-<n>),
+    // so only refs on this board are linked.
+    const blockedEl = document.getElementById('blocked');
+    blockedEl.replaceChildren();
+    if (item.status === 'blocked' && item.blockedBy) {
+      const ownKey = item.ref ? item.ref.split('-')[1] : null;
+      blockedEl.append('Blocked by: ', WB.renderBlockedBy(item.blockedBy, slug, ownKey));
+      blockedEl.hidden = false;
+    } else {
+      blockedEl.hidden = true;
+    }
     // Section only. Status is the dropdown; the chosen option is the pressed
     // button. Neither needs restating in the masthead.
     // Section and the date it was raised. The date was nowhere on this page —

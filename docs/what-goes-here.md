@@ -437,6 +437,14 @@ the one doing it. `received` claims you are working; if they are, the move is
 theirs and the status is `needs-decision` or `needs-qa`, whether or not you
 intend to help.
 
+The other easy mistake is parking work that is merely waiting. Work that will
+be done once something else lands — a deploy, a merge, another item — is
+`blocked`, with `blockedBy` naming what it waits on. `deferred` is for work
+parked by agreement that may not come back. The failure that produced this
+rule (2026-09-23): an item waiting on a deploy was filed as `deferred` with a
+trigger, and the person reading the board took it as abandoned. At every
+check-in, look at the blocked items: when the blocker clears, move them on.
+
 And when you notice you set the wrong one — say so and change it. A wrong status
 is worse than a stale one, because people act on it. Quietly flipping it is
 worse still: the thread is the record, and a correction is part of the record.

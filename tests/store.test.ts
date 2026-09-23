@@ -426,7 +426,7 @@ describe('grouping', () => {
   // between groups every time it changed hands.
   it('puts every live task state under Open', () => {
     const open = STATUS_GROUPS.find((g) => g.id === 'open')!;
-    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress']);
+    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked']);
     expect(STATUS_GROUPS.map((g) => g.label)).toEqual(['Open', 'Deferred', 'Documents', 'Archived']);
     // Every status lands in exactly one group, or a row would vanish from the board.
     const placed = STATUS_GROUPS.flatMap((g) => g.statuses);
@@ -440,8 +440,8 @@ describe('the status split', () => {
   let store: Store;
   beforeEach(() => { store = freshStore(); });
 
-  it('has nine distinct states', () => {
-    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'active', 'archived', 'complete', 'cancelled']);
+  it('has ten distinct states', () => {
+    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'deferred', 'active', 'archived', 'complete', 'cancelled']);
     expect(new Set(STATUSES).size).toBe(STATUSES.length);
   });
 
@@ -506,7 +506,7 @@ describe('kind and status', () => {
 
   it('splits the statuses with no overlap and no gaps', () => {
     expect(statusesFor('document')).toEqual(['active', 'archived']);
-    expect(statusesFor('issue')).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'deferred', 'complete', 'cancelled']);
+    expect(statusesFor('issue')).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'deferred', 'complete', 'cancelled']);
     expect([...statusesFor('issue'), ...statusesFor('document')].sort()).toEqual([...STATUSES].sort());
     for (const s of statusesFor('document')) expect(statusesFor('issue')).not.toContain(s);
   });

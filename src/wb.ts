@@ -183,6 +183,7 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb reply <id|ref> <text> [--status s]    post a reply; a finishing reply MUST carry --status
   wb claim <id|ref> [<text>]               set in-progress with your name and say what you are about to do
   wb status <id|ref> <status>              change the status (reads the version, retries once on 409)
+  wb block <id|ref> <what it waits on>     set status blocked and blockedBy (reads the version, retries once on 409)
   wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
   wb export [dir]                          write one JSON per project to the content directory
 
@@ -303,6 +304,14 @@ async function main() {
     const next = args[1] || fail('status is required');
     const item = await patchItem(id, { status: next }, await actor(flags));
     out(flags, `${item.status} v${item.version}  ${item.title}`, item);
+    return;
+  }
+
+  if (cmd === 'block') {
+    const id = args[0] || fail('usage: wb block <id|ref> <what it waits on>');
+    const blockedBy = args.slice(1).join(' ') || fail('say what it is waiting on: an item ref, a PR, or "deploy of X"');
+    const item = await patchItem(id, { status: 'blocked', blockedBy }, await actor(flags));
+    out(flags, `${item.status} v${item.version}  ${item.title}  blocked by: ${item.blockedBy}`, item);
     return;
   }
 

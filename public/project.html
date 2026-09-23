@@ -264,7 +264,9 @@
   // TASK state: splitting them would move a piece of work between groups every
   // time it changed hands, and the per-row chip already says which it is.
   const STATUS_GROUPS = [
-    { label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress'] },
+    // Blocked is open work that will be done; it stays in Open, and its chip
+    // and Blocked by line say what it waits on.
+    { label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked'] },
     { label: 'Deferred', statuses: ['deferred'] },
     // Documents above Archived: a current reference is something you reach for
     // while working, not something waiting on you. An archived one joins
@@ -399,6 +401,13 @@
       ctx.className = 'ctx';
       ctx.textContent = item.context;
       card.appendChild(ctx);
+    }
+
+    if (item.status === 'blocked' && item.blockedBy) {
+      const bl = document.createElement('p');
+      bl.className = 'blocked-line';
+      bl.append('Blocked by: ', WB.renderBlockedBy(item.blockedBy, slug, project && project.key));
+      card.appendChild(bl);
     }
 
     if (item.messages && item.messages.length) {
