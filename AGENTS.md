@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v7.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `7`,
+**Contract v8.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `8`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -23,7 +23,7 @@ wb board <slug>                               # 3. the actionable set: received 
 Nothing at `received` → say so in one line. Never create items on a check-in.
 Do not read the board again until the check-in word.
 
-**Status is whose move it is.** An issue holds one of six; a document (`kind:
+**Status is whose move it is.** An issue holds one of eight; a document (`kind:
 "document"`) holds `active` or `archived`, nothing else.
 
 | Status | Whose move | You set it when |
@@ -32,6 +32,7 @@ Do not read the board again until the check-in word.
 | `needs-qa` | theirs — check built work | you finish something they must approve, **steps attached** |
 | `received` | yours — answer landed, nobody started | automatic on their reply; or you hand it back unfinished |
 | `in-progress` | yours — **claimed, working now** | **before** you start |
+| `blocked` | nobody's until the blocker clears — **will be done** | it is waiting on other work (a deploy, a merge, another item); name it in `blockedBy` |
 | `deferred` | nobody's, on purpose | agreed, with the trigger that brings it back |
 | `complete` | done — **landed**, not typed | it is merged and running |
 | `cancelled` | nobody's — **decided against**, will not be done | they say so, or you agree it; the reason goes in the thread |
@@ -49,6 +50,7 @@ wb claim <id> "what I am about to do"              PATCH /api/items/<id> {"statu
 wb reply <id> "…"                                  POST /api/items/<id>/messages {"who":"agent","actor":"<you>","session":"<id>","text":"…"}
 wb reply <id> "Landed: …" --status complete        …same, with "status" — a reply that FINISHES work must carry one
 wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
+wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
 wb export                                          bun run export — the server also exports on its own after every change
 ```
@@ -160,6 +162,14 @@ nothing had happened.
 `deferred` never means "still waiting on them". Say in the thread what brings
 it back, or it is a question you gave up on.
 
+`blocked` is the status for committed work that cannot start yet because it
+waits on something else — a deploy, a merge, another item. Set it with
+`blockedBy` saying what (`wb block <id|ref> "WB-DEMO-14 merged"`; a ref to an item
+on this board is linked on screen). The difference from `deferred` is the whole
+point: blocked work **will be done**, deferred work is parked and may not come
+back. Filing blocked work as deferred makes it read as abandoned. Setting
+`blocked` with no `blockedBy` is accepted with a `warning`.
+
 `cancelled` is the end for an issue that **will not be done** — they decided
 against it, or the need went away. Before it existed such an issue had three
 wrong homes: `complete` claims the work landed, `deferred` claims it comes back,
@@ -177,7 +187,8 @@ disappear that they have not answered.
 | Built; you still land it (CI, your deploy) | `received` — and say what it waits on |
 | Merged and running | `complete` |
 | They are doing it, not you | `needs-decision` |
-| Parked by agreement | `deferred` |
+| Waiting on other work, will be done | `blocked` — `blockedBy` names it |
+| Parked by agreement, may not come back | `deferred` |
 | Decided against — will not be done | `cancelled` — reason in the thread |
 | A document people still work from | `active` |
 | A document overtaken by events | `archived` |
@@ -435,7 +446,9 @@ reason to sweep the board. Only the check-in word opens the round.
 2. **The actionable set is every item at `received`, plus any stale claim at
    `in-progress`.** Nothing else — a human replying moves an issue to
    `received` automatically, so the status is the signal. A document never
-   reaches `received`; a comment on one is never itself actionable.
+   reaches `received`; a comment on one is never itself actionable. Also
+   look at `blocked` items: one whose blocker has cleared (the item it names
+   is `complete`, the PR merged, the deploy live) is yours to move on.
 3. **Plan across the set.** Find the shared work (three items touching one
    file are one edit and one test run). Order by what unblocks what. Separate
    the answerable from the buildable and do the answers first — they are cheap
