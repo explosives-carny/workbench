@@ -426,8 +426,8 @@ describe('grouping', () => {
   // between groups every time it changed hands.
   it('puts every live task state under Open', () => {
     const open = STATUS_GROUPS.find((g) => g.id === 'open')!;
-    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress']);
-    expect(STATUS_GROUPS.map((g) => g.label)).toEqual(['Open', 'Blocked', 'Deferred', 'Documents', 'Archived']);
+    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked']);
+    expect(STATUS_GROUPS.map((g) => g.label)).toEqual(['Open', 'Deferred', 'Documents', 'Archived']);
     // Every status lands in exactly one group, or a row would vanish from the board.
     const placed = STATUS_GROUPS.flatMap((g) => g.statuses);
     expect(placed.sort()).toEqual([...STATUSES].sort());

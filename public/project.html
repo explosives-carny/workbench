@@ -264,11 +264,9 @@
   // TASK state: splitting them would move a piece of work between groups every
   // time it changed hands, and the per-row chip already says which it is.
   const STATUS_GROUPS = [
-    { label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress'] },
-    // Its own group: blocked work is committed, not parked, but it is not
-    // something you can act on right now either — folding it into Open or
-    // Deferred would hide the one fact this status exists to show.
-    { label: 'Blocked', statuses: ['blocked'] },
+    // Blocked is open work that will be done; it stays in Open, and its chip
+    // and Blocked by line say what it waits on.
+    { label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked'] },
     { label: 'Deferred', statuses: ['deferred'] },
     // Documents above Archived: a current reference is something you reach for
     // while working, not something waiting on you. An archived one joins

@@ -163,11 +163,9 @@ export type GroupBy = 'section' | 'status';
  * still says which it is, in its own colour.
  */
 export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] = [
-  { id: 'open', label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress'] },
-  // Its own group: a blocked item is neither live work you can act on right now
-  // nor parked by choice, and folding it into Open or Deferred would hide the
-  // one fact this status exists to show — it is stuck on something specific.
-  { id: 'blocked', label: 'Blocked', statuses: ['blocked'] },
+  // Blocked is open work: it will be done, so it sits with the rest of Open and
+  // its status chip and Blocked by line say what it waits on.
+  { id: 'open', label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked'] },
   { id: 'deferred', label: 'Deferred', statuses: ['deferred'] },
   // Documents sit above Archived and below the work, because a current
   // reference is something you reach for while working rather than something
