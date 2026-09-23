@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v6.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `6`,
+**Contract v7.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `7`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
