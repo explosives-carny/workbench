@@ -328,6 +328,12 @@ Empty result is not the same as a failure. A step nobody reached must be
 distinguishable from a step that was tried and failed, or the sign-off is a
 guess.
 
+When no step is empty, the round is finished and the item goes back to the
+builder at `received`. It is signed off only if every step passed; a `fail` or
+`skip` comes back unsigned, with the notes to review. A step the worker cannot
+run, a merge or something only the person can see, is a `skip` with a note
+saying who has to do it. It is not a reason to leave the item at QA.
+
 ### 3. A finding — something you discovered that they do not know
 
 A defect, a risk, a surprise in production. It belongs here rather than in

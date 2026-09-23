@@ -267,10 +267,23 @@ describe('QA sign-off', () => {
     expect(last.text).toContain('All 2 steps passed');
   });
 
-  test('a fail or a skip anywhere leaves it at QA', async () => {
+  test('a finished round with a skip or a fail hands back at received, not signed off', async () => {
+    const it = await item('acme', { status: 'needs-qa', checks: [{ id: 's1', label: '1.' }, { id: 's2', label: '2.' }, { id: 's3', label: '3.' }] });
+    await api('PATCH', `/api/items/${it.id}/checks/s1`, { result: 'pass', actor: 'qa-bot' });
+    const mid = await api('PATCH', `/api/items/${it.id}/checks/s2`, { result: 'skip', note: 'merge is the dev’s', actor: 'qa-bot' });
+    expect(mid.json.item.status).toBe('needs-qa');
+    const res = await api('PATCH', `/api/items/${it.id}/checks/s3`, { result: 'fail', note: 'card never showed', actor: 'qa-bot' });
+    expect(res.json.item.status).toBe('received');
+    const last = res.json.item.messages.at(-1);
+    expect(last.author).toBe('qa-bot');
+    expect(last.text).toContain('1 pass, 1 fail, 1 skip');
+    expect(last.text).toContain('Not signed off');
+    expect(last.text).not.toContain('signed off by');
+  });
+
+  test('a step left empty keeps the round open at QA', async () => {
     const it = await item('acme', { status: 'needs-qa', checks: [{ id: 's1', label: '1.' }, { id: 's2', label: '2.' }] });
-    await api('PATCH', `/api/items/${it.id}/checks/s1`, { result: 'pass' });
-    const res = await api('PATCH', `/api/items/${it.id}/checks/s2`, { result: 'skip', note: 'no device' });
+    const res = await api('PATCH', `/api/items/${it.id}/checks/s1`, { result: 'skip', note: 'no device' });
     expect(res.json.item.status).toBe('needs-qa');
   });
 
