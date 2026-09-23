@@ -334,6 +334,12 @@ builder at `received`. It is signed off only if every step passed; a `fail` or
 run, a merge or something only the person can see, is a `skip` with a note
 saying who has to do it. It is not a reason to leave the item at QA.
 
+A fail that makes later steps impossible ends the round the same way: record
+the blocked steps as `skip` with a note naming the failed step, and let the
+item go back. The fail note carries what was seen and tried. Finding the cause
+is the builder's work, done at `received`, not by the worker while the item
+still reads QA.
+
 ### 3. A finding — something you discovered that they do not know
 
 A defect, a risk, a surprise in production. It belongs here rather than in
