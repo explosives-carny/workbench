@@ -22,7 +22,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '9';
+export const CONTRACT_VERSION = '10';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */

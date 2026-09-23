@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v9.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `9`,
+**Contract v10.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `10`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -312,6 +312,17 @@ model doing the QA — is the sign-off, and you land and close. If any step is
 S skip. Not signed off." and you review the notes on the steps. Either way the
 item comes back to you. A round with an empty step stays at `needs-qa`. It
 once stayed at QA on any skip, and finished rounds read as unchecked work.
+
+**A fail that blocks the rest ends the round.** If a failed step makes later
+steps impossible (nothing to click, nothing to judge), record each of those
+steps as `skip` with a note naming the step that failed. The round then ends
+and goes back at `received`. **The worker reports and the builder
+diagnoses.** The fail note says what was seen, what was tried, and any cheap
+fact that bears on it. Chasing the cause belongs to the builder at
+`received`, not to a QA round held open while the worker investigates. A
+round was once held open that way: the person running the steps was asked for
+settings and console output while the item still read QA, and had to ask why
+the builder had not picked it up.
 
 The worker has your item and nothing else. Three precise steps beat twenty
 vague ones: each step names its precondition or reaches it, names what will be
