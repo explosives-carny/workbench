@@ -9,6 +9,7 @@
 // `Request` and read the `Response` in-process.
 import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
+  ProjectKeyTaken,
   isStatusAllowed, statusesFor, KINDS,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
@@ -21,7 +22,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '6';
+export const CONTRACT_VERSION = '7';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -264,18 +265,18 @@ const ROUTES = [
   'GET    /api                                 this',
   'GET    /api/settings · PATCH /api/settings',
   'GET    /api/projects[?archived=1][?repo=<remote-or-path>]',
-  'POST   /api/projects                        {name, slug?, description?, repos?}',
+  'POST   /api/projects                        {name, slug?, description?, repos?, key?}',
   'GET    /api/projects/<slug>[?status=a,b][?messages=all|last|none]',
-  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|repos?}',
+  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|repos?|key?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
   'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
   'PATCH  /api/projects/<slug>/labels          {from,to,actor}',
   'PATCH  /api/projects/<slug>/authors         {from,to,actor}',
   'POST   /api/projects/<slug>/items           item | [item, ...]   (item.clientId for idempotent retries)',
-  'GET    /api/items/<id> · PATCH /api/items/<id> {..., actor, session, ifVersion}',
-  'GET    /api/items/<id>/body',
-  'GET    /api/items/<id>/messages · POST /api/items/<id>/messages {who, text, actor, session, status?}',
-  'PATCH  /api/items/<id>/checks/<checkId>     {result, note?, actor, session}',
+  'GET    /api/items/<id-or-ref> · PATCH /api/items/<id-or-ref> {..., actor, session, ifVersion}  (id accepts WB-<KEY>-<n> refs)',
+  'GET    /api/items/<id-or-ref>/body',
+  'GET    /api/items/<id-or-ref>/messages · POST /api/items/<id-or-ref>/messages {who, text, actor, session, status?}',
+  'PATCH  /api/items/<id-or-ref>/checks/<checkId>     {result, note?, actor, session}',
   'every write: actor = the name a person recognises; session = the id this session generated once at start',
 ];
 
@@ -322,12 +323,20 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
     if (method === 'POST') {
       const body = await readJson(req);
       if (typeof body.name !== 'string' || !body.name.trim()) return badRequest(ctx, 'name is required');
+      if (body.key !== undefined && typeof body.key !== 'string') return badRequest(ctx, 'key must be a string');
       if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
         return badRequest(ctx, 'repos must be an array of strings');
       }
       ctx.wrote = true;
-      const project = store.createProject({ name: body.name.trim(), slug: body.slug, description: body.description, repos: body.repos });
-      return json(ctx, { ok: true, project }, 201);
+      const project = store.createProject({ name: body.name.trim(), slug: body.slug, description: body.description, repos: body.repos, key: body.key });
+      // createProject is idempotent by slug. A repeat request must not rename
+      // public references, so it returns the established project and tells the
+      // caller which explicit route can make that intentional change.
+      const requestedKey = typeof body.key === 'string' ? body.key.trim().toUpperCase() : undefined;
+      const warning = requestedKey !== undefined && project.key !== requestedKey
+        ? 'project already exists; key was not applied. Use PATCH /api/projects/<slug> to change it.'
+        : undefined;
+      return json(ctx, { ok: true, project, ...(warning ? { warning } : {}) }, 201);
     }
     return badRequest(ctx, `${method} not supported here`);
   }
@@ -365,11 +374,10 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
       }
       if (method === 'PATCH') {
         const body = await readJson(req);
-        if (typeof body.archived === 'boolean') {
-          ctx.wrote = true;
-          return json(ctx, { ok: true, project: store.archiveProject(project.slug, body.archived) });
+        if (body.key !== undefined && typeof body.key !== 'string') {
+          return badRequest(ctx, 'key cannot be removed; set a different key instead');
         }
-        if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.repos !== undefined) {
+        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.repos !== undefined) {
           if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
             return badRequest(ctx, 'name must be a non-empty string');
           }
@@ -389,10 +397,24 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
             return badRequest(ctx, 'repos must be an array of strings');
           }
           ctx.wrote = true;
-          const updated = store.setProjectSections(project.slug, body)!;
-          return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id) });
+          // Key first: the rest of this request may rename project metadata,
+          // but a rejected public-reference change must leave it all untouched.
+          let updated = project;
+          let warning: string | undefined;
+          if (typeof body.key === 'string') {
+            const changed = store.setProjectKey(updated.slug, body.key)!;
+            updated = changed.project;
+            if (changed.changed && changed.previousKey) {
+              warning = `refs quoted as WB-${changed.previousKey}-<n> keep resolving here, but this project now displays WB-${updated.key}-<n>`;
+            }
+          }
+          if (typeof body.archived === 'boolean') updated = store.archiveProject(updated.slug, body.archived)!;
+          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.repos !== undefined) {
+            updated = store.setProjectSections(updated.slug, body)!;
+          }
+          return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id), ...(warning ? { warning } : {}) });
         }
-        return badRequest(ctx, 'nothing to update; supported: archived, name, description, sectionMode, sections, groupBy, repos');
+        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, repos');
       }
       return badRequest(ctx, `${method} not supported here`);
     }
@@ -480,7 +502,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
   }
 
   if (parts[0] === 'items' && parts.length >= 2) {
-    const item = store.getItem(parts[1]);
+    const item = store.resolveItem(decodeURIComponent(parts[1]));
     if (!item) return notFound(ctx, `no item with id "${parts[1]}"`);
 
     if (parts.length === 2) {
@@ -632,6 +654,9 @@ export function createHandler(store: Store, opts: HandlerOptions): (req: Request
       } catch (error: any) {
         // Every thrown validation message is written to be read by whoever sent
         // the request, which is usually an agent deciding what to do next.
+        if (error?.statusCode === 409) {
+          return json(ctx, { ok: false, error: error.message || 'request conflict', conflict: 'key', project: error.conflictingSlug }, 409);
+        }
         return badRequest(ctx, error?.message || 'request failed');
       } finally {
         if (ctx.wrote && opts.onWrite) opts.onWrite();
