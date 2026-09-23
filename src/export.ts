@@ -2,8 +2,8 @@
 // own repository with a real history while the app repository stays free of
 // anybody's decisions. Shared by the `bun run export` command and by the
 // server's automatic export, so the two can never write different shapes.
-import { Store, type Item } from './db.ts';
-import { mkdirSync, writeFileSync } from 'fs';
+import { ProjectKeyTaken, Store, type Item } from './db.ts';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 export function exportAll(store: Store, dir: string): { projects: number; items: number; files: string[] } {
@@ -34,6 +34,88 @@ export function exportAll(store: Store, dir: string): { projects: number; items:
     total += items.length;
   }
   return { projects: files.length, items: total, files };
+}
+
+export function importAll(store: Store, dir: string, log: (line: string) => void = console.log): { projects: number; items: number } {
+  let files: string[] = [];
+  try {
+    files = readdirSync(dir).filter((file) => file.endsWith('.json'));
+  } catch {
+    throw new Error(`No such directory: ${dir}`);
+  }
+  let projects = 0;
+  let items = 0;
+  for (const file of files) {
+    try {
+      const raw = JSON.parse(readFileSync(join(dir, file), 'utf8'));
+      if (!raw?.project?.name) {
+        log(`skipped ${file}: no project.name`);
+        continue;
+      }
+      // createProject is idempotent by slug, so re-importing updates nothing it
+      // should not and never produces a second copy of the same project.
+      const project = store.createProject({
+        name: raw.project.name,
+        slug: raw.project.slug,
+        description: raw.project.description,
+        repos: raw.project.repos,
+        key: raw.project.key ?? undefined,
+      });
+      const existing = new Set(store.listItems(project.id, 'none').map((item) => item.title));
+      let added = 0;
+      for (const item of raw.items || []) {
+        // Matched on title rather than id: ids are regenerated on import, and the
+        // alternative — duplicating every item on a second import — is worse than
+        // occasionally skipping a genuine retitled duplicate.
+        if (existing.has(item.title)) continue;
+        // Every field the store accepts, deliberately. This list had drifted
+        // behind the store twice already — body and checks were both missing,
+        // which meant a restore from an export produced a board of empty
+        // documents and no checklists while reporting success. This is the
+        // disaster-recovery path; anything it drops is gone for good.
+        const created = store.createItem(project.id, {
+          title: item.title,
+          context: item.context,
+          options: item.options,
+          choice: item.choice,
+          status: item.status,
+          kind: item.kind,
+          section: item.section,
+          labels: item.labels,
+          body: item.body,
+          bodyFormat: item.bodyFormat,
+          checks: item.checks,
+          clientId: item.clientId,
+          createdAt: item.createdAt,
+          seq: item.seq,
+        });
+        for (const message of item.messages || []) {
+          store.addMessage(created.id, {
+            who: message.who === 'you' ? 'you' : 'agent',
+            text: message.text,
+            author: message.author,
+            status: item.status,
+            createdAt: message.createdAt,
+          });
+        }
+        added += 1;
+      }
+      if (raw.project.key !== undefined || raw.project.oldKeys !== undefined || raw.project.nextSeq !== undefined) {
+        store.restoreProjectIdentity(project.slug, {
+          key: raw.project.key ?? project.key ?? null,
+          oldKeys: [...project.oldKeys, ...(raw.project.oldKeys ?? [])],
+          nextSeq: raw.project.nextSeq ?? 1,
+        });
+      }
+      log(`imported ${added} new item(s) into "${project.name}"`);
+      projects += 1;
+      items += added;
+    } catch (error) {
+      if (error instanceof ProjectKeyTaken) throw new Error(`${file}: ${error.message}`);
+      throw error;
+    }
+  }
+  return { projects, items };
 }
 
 /**

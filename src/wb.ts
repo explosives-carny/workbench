@@ -141,11 +141,12 @@ async function readBodyArg(arg: string | undefined): Promise<any> {
 // forgets it. One retry on 409, onto the live item's version; a second refusal
 // is reported, not overwritten.
 async function patchItem(id: string, patch: Record<string, unknown>, who: string): Promise<any> {
-  const current = await call('GET', `/api/items/${id}`);
+  const path = `/api/items/${encodeURIComponent(id)}`;
+  const current = await call('GET', path);
   if (!current.json.ok) fail(current.json.error);
-  let attempt = await call('PATCH', `/api/items/${id}`, { ...patch, actor: who, session: session(), ifVersion: current.json.item.version });
+  let attempt = await call('PATCH', path, { ...patch, actor: who, session: session(), ifVersion: current.json.item.version });
   if (attempt.status === 409) {
-    attempt = await call('PATCH', `/api/items/${id}`, { ...patch, actor: who, session: session(), ifVersion: attempt.json.item.version });
+    attempt = await call('PATCH', path, { ...patch, actor: who, session: session(), ifVersion: attempt.json.item.version });
     if (attempt.status === 409) fail(`item ${id} changed twice while writing; read it and decide: ${JSON.stringify(attempt.json.item.status)} by ${attempt.json.item.updatedBy}`);
   }
   if (!attempt.json.ok) fail(attempt.json.error);
@@ -154,12 +155,17 @@ async function patchItem(id: string, patch: Record<string, unknown>, who: string
   return attempt.json.item;
 }
 
+// People quote refs; the short UUID only identifies items without a project key.
+function label(i: any): string {
+  return i.ref || String(i.id).slice(0, 8);
+}
+
 function row(i: any): string {
   const last = i.messages?.length ? i.messages[i.messages.length - 1] : null;
   const tag = (who: string, s?: string) => (s ? `${who}·${s}` : who);
   const lastLine = last ? `${last.who === 'you' ? 'YOU' : tag(last.author, last.session)}: ${String(last.text).replace(/\s+/g, ' ').slice(0, 160)}` : '(no messages)';
   return [
-    `${i.status.padEnd(14)} ${i.id}  v${i.version}  by ${tag(i.updatedBy || '-', i.updatedSession)}  ${i.updatedAt}`,
+    `${label(i)}  ${i.status.padEnd(14)} v${i.version}  by ${tag(i.updatedBy || '-', i.updatedSession)}  ${i.updatedAt}  id ${i.id}`,
     `  ${i.title}`,
     i.choice ? `  choice: ${i.choice}` : null,
     `  last: ${lastLine}`,
@@ -169,15 +175,18 @@ function row(i: any): string {
 const HELP = `wb — the workbench board from a shell (${BASE})
 
   wb projects                              every project with counts
+  wb key <slug> <KEY>                      set a project's display key
   wb resolve <repo-or-path>                the project for a repository (or exit 1)
   wb board <slug> [--all] [--status a,b]   the actionable set: received + in-progress (--all: everything)
-  wb show <id>                             one item, full thread and body
+  wb show <id|ref>                         one item, full thread and body
   wb ask <slug> <json|file|->              create items; an array files a whole set; give each a clientId to make retries safe
-  wb reply <id> <text> [--status s]        post a reply; a finishing reply MUST carry --status
-  wb claim <id> [<text>]                   set in-progress with your name and say what you are about to do
-  wb status <id> <status>                  change the status (reads the version, retries once on 409)
-  wb check <id> <step> <pass|fail|skip> [--note "..."]   record one checklist result
+  wb reply <id|ref> <text> [--status s]    post a reply; a finishing reply MUST carry --status
+  wb claim <id|ref> [<text>]               set in-progress with your name and say what you are about to do
+  wb status <id|ref> <status>              change the status (reads the version, retries once on 409)
+  wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
   wb export [dir]                          write one JSON per project to the content directory
+
+  Refs such as WB-DEMO-14 work anywhere an id does.
 
   --actor <name>   sign as (else WB_ACTOR, else settings.agentNames[WB_TOOL], else the tool name)
   WB_SESSION       this session's id, sent on every write (else the first 8 chars of CLAUDE_CODE_SESSION_ID)
@@ -192,8 +201,19 @@ async function main() {
   if (cmd === 'projects') {
     const { json } = await call('GET', '/api/projects');
     if (!json.ok) fail(json.error);
-    const lines = json.projects.map((p: any) => `${p.slug.padEnd(24)} decision ${p.counts['needs-decision']}  qa ${p.counts['needs-qa']}  received ${p.counts.received}  working ${p.counts['in-progress']}  ${p.repos?.length ? `repos: ${p.repos.join(', ')}` : ''}`);
+    const lines = json.projects.map((p: any) => `${p.slug.padEnd(24)} ${(p.key || '-').padEnd(6)} decision ${p.counts['needs-decision']}  qa ${p.counts['needs-qa']}  received ${p.counts.received}  working ${p.counts['in-progress']}  ${p.repos?.length ? `repos: ${p.repos.join(', ')}` : ''}`);
     out(flags, lines.join('\n') || '(no projects)', json.projects);
+    return;
+  }
+
+  if (cmd === 'key') {
+    const slug = args[0] || fail('usage: wb key <slug> <KEY>');
+    const key = args[1] || fail('key is required');
+    const who = await actor(flags);
+    const { status, json } = await call('PATCH', `/api/projects/${slug}`, { key, actor: who });
+    if (!json.ok) fail(`${status}: ${json.error}`);
+    if (json.warning) console.error(`wb: warning: ${json.warning}`);
+    out(flags, `${slug}  key ${json.project.key}`, json.project);
     return;
   }
 
@@ -221,13 +241,14 @@ async function main() {
 
   if (cmd === 'show') {
     const id = args[0] || fail('usage: wb show <id>');
-    const { json } = await call('GET', `/api/items/${id}`);
+    const { json } = await call('GET', `/api/items/${encodeURIComponent(id)}`);
     if (!json.ok) fail(json.error);
     const i = json.item;
     const thread = (i.messages || []).map((m: any) => `  [${m.createdAt}] ${m.who === 'you' ? 'YOU' : m.author}${m.session ? '·' + m.session : ''}: ${m.text}`).join('\n');
     const checks = (i.checks || []).map((c: any) => `  [${(c.result || ' ').padEnd(4)}] ${c.id}: ${c.label}${c.note ? ` — ${c.note}` : ''}${c.by ? ` (${c.by})` : ''}`).join('\n');
     out(flags, [
-      `${i.kind} ${i.status} v${i.version} by ${i.updatedBy || '-'} ${i.updatedAt}`,
+      `${label(i)}  ${i.kind} ${i.status} v${i.version} by ${i.updatedBy || '-'} ${i.updatedAt}`,
+      `id:      ${i.id}`,
       `title:   ${i.title}`,
       i.labels?.length ? `labels:  ${i.labels.join(', ')}` : null,
       i.options?.length ? `options: ${i.options.join(' | ')}` : null,
@@ -247,7 +268,10 @@ async function main() {
     if (!json.ok) fail(`${status}: ${json.error}`);
     if (json.warnings) for (const w of json.warnings) console.error(`wb: warning: ${w}`);
     if (json.ignored) console.error(`wb: ignored fields: ${json.ignored.join(', ')}`);
-    out(flags, json.items.map((i: any) => `${i.id}  ${i.status}  ${i.title}`).join('\n'), json.items);
+    // The caller's next command takes whatever this prints, and the API resolves
+    // a ref or a full UUID but never a UUID prefix, so an unkeyed item prints
+    // its whole id here rather than the short label.
+    out(flags, json.items.map((i: any) => `${i.ref || i.id}  ${i.status}  ${i.title}`).join('\n'), json.items);
     return;
   }
 
@@ -257,7 +281,7 @@ async function main() {
     const who = await actor(flags);
     const payload: any = { who: 'agent', actor: who, session: session(), text };
     if (typeof flags.status === 'string') payload.status = flags.status;
-    const { status, json } = await call('POST', `/api/items/${id}/messages`, payload);
+    const { status, json } = await call('POST', `/api/items/${encodeURIComponent(id)}/messages`, payload);
     if (!json.ok) fail(`${status}: ${json.error}`);
     if (json.warning) console.error(`wb: warning: ${json.warning}`);
     out(flags, `${json.item.status} v${json.item.version}  ${json.item.title}`, json);
@@ -269,7 +293,7 @@ async function main() {
     const who = await actor(flags);
     const item = await patchItem(id, { status: 'in-progress' }, who);
     const text = args.slice(1).join(' ') || 'Picking this up.';
-    await call('POST', `/api/items/${id}/messages`, { who: 'agent', actor: who, session: session(), text: `Picking this up: ${text}` });
+    await call('POST', `/api/items/${encodeURIComponent(id)}/messages`, { who: 'agent', actor: who, session: session(), text: `Picking this up: ${text}` });
     out(flags, `in-progress v${item.version + 1}  ${item.title}`, item);
     return;
   }
@@ -287,7 +311,7 @@ async function main() {
     if (!id || !step || !result) fail('usage: wb check <id> <step> <pass|fail|skip> [--note "..."]');
     const payload: any = { result, actor: await actor(flags), session: session() };
     if (typeof flags.note === 'string') payload.note = flags.note;
-    const { status, json } = await call('PATCH', `/api/items/${id}/checks/${step}`, payload);
+    const { status, json } = await call('PATCH', `/api/items/${encodeURIComponent(id)}/checks/${step}`, payload);
     if (!json.ok) fail(`${status}: ${json.error}`);
     const c = json.item.checks.find((x: any) => x.id === step);
     out(flags, `${c?.result} ${step}  item now ${json.item.status}`, json.item);

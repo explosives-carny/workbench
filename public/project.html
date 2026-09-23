@@ -12,6 +12,7 @@
   <header class="mast">
     <p class="eyebrow" id="eyebrow">Project</p>
     <h1 id="pname">…</h1>
+    <span class="mono projkey" id="pkey" hidden></span>
     <p class="lede" id="pdesc"></p>
     <div class="rule"></div>
   </header>
@@ -296,6 +297,11 @@
 
     const main = document.createElement('div');
     main.className = 'lr-main';
+    // First in the row: the ref is what gets quoted in a reply or a commit
+    // message, so it reads before the title it names. Absent (null) until the
+    // project has a key.
+    const ref = WB.refChip(item.ref);
+    if (ref) main.appendChild(ref);
     const t = document.createElement('a');
     t.className = 'lr-title';
     t.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(item.id);
@@ -556,7 +562,7 @@
       [...hidden].sort(),
       labelFilter,
       project && project.groupBy,
-      items.map((i) => [i.id, i.version, i.status, i.choice, i.title, i.context, i.section, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
+      items.map((i) => [i.id, i.ref, i.version, i.status, i.choice, i.title, i.context, i.section, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
         (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
     ]);
   }
@@ -605,6 +611,20 @@
     project = data.project;
     document.getElementById('isection').hidden = project.groupBy === 'status';
     document.getElementById('pname').textContent = data.project.name;
+    const keyEl = document.getElementById('pkey');
+    if (data.project.key) {
+      keyEl.hidden = false;
+      keyEl.textContent = 'Key ' + data.project.key;
+      // Former keys still resolve (WB-<OLD>-<n> keeps working), so a rename is
+      // worth surfacing here rather than only in the PATCH response that made it.
+      keyEl.title = (data.project.oldKeys && data.project.oldKeys.length)
+        ? 'Formerly: ' + data.project.oldKeys.join(', ')
+        : '';
+    } else {
+      keyEl.hidden = true;
+      keyEl.textContent = '';
+      keyEl.title = '';
+    }
     document.getElementById('pdesc').textContent = data.project.description || '';
     items = data.items;
     document.getElementById('eyebrow').textContent =
