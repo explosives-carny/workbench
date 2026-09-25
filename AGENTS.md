@@ -445,7 +445,10 @@ like a duplicate of one in use — case, punctuation, a trailing plural — come
 back as a `warning` on the write, naming the existing label: reuse it, or merge
 the two. Repairs: `PATCH …/labels` and `PATCH …/sections` `{"from","to","actor"}`
 (empty `to` removes a label). `project.groupBy`
-(`status`, the default, or `section`) and `project.sectionMode` (`adhoc`
+(`status`, the default, `section`, or `move` — Open split into Your move /
+With your agent / Waiting on something), `project.sortBy` (`activity`, the
+default, newest first; or `ref` to order every group by reference number
+ascending) and `project.sectionMode` (`adhoc`
 warns on near-duplicates, `declared` refuses unlisted sections) are the
 human's calls; never switch them yourself. No good fit → leave `section`
 empty. Reasoning and failure modes: `docs/what-goes-here.md`.

@@ -275,6 +275,20 @@
     { label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
   ];
 
+  // `move` grouping: the same rows as `status`, with Open split the way the
+  // contract's status table already reads it — whose move is it. The three
+  // Open statuses that are theirs come first, because a board is opened to
+  // find out what is waiting on YOU, and a single Open group mixing your
+  // decisions with the agent's in-flight work does not answer that.
+  const MOVE_GROUPS = [
+    { label: 'Your move', statuses: ['needs-decision', 'needs-qa'] },
+    { label: 'With your agent', statuses: ['received', 'in-progress'] },
+    { label: 'Waiting on something', statuses: ['blocked'] },
+    { label: 'Deferred', statuses: ['deferred'] },
+    { label: 'Documents', statuses: ['active'] },
+    { label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
+  ];
+
   function renderRow(item) {
     const wrap = document.createElement('div');
     wrap.className = 'rowwrap';
@@ -510,9 +524,21 @@
   // filtered off.
   function groups(shown) {
     const byActivity = (a, b) => lastActivity(b) - lastActivity(a);
-    if (project && project.groupBy === 'status') {
-      return STATUS_GROUPS
-        .map((g) => ({ label: g.label, items: shown.filter((i) => g.statuses.includes(i.status)).sort(byActivity) }))
+    // Reference order: WB-DEMO-6, then 8, then 9. `seq` is the number the ref
+    // is built from, so it sorts numerically where the rendered ref would sort
+    // "10" before "9". Items predating seq fall back to creation order, which
+    // is what seq was backfilled from anyway.
+    const byRef = (a, b) =>
+      (a.seq ?? Infinity) - (b.seq ?? Infinity) ||
+      String(a.createdAt).localeCompare(String(b.createdAt));
+    const rowOrder = project && project.sortBy === 'ref' ? byRef : byActivity;
+    const statusGroups =
+      project && project.groupBy === 'move' ? MOVE_GROUPS
+      : project && project.groupBy === 'status' ? STATUS_GROUPS
+      : null;
+    if (statusGroups) {
+      return statusGroups
+        .map((g) => ({ label: g.label, items: shown.filter((i) => g.statuses.includes(i.status)).sort(rowOrder) }))
         .filter((g) => g.items.length);
     }
     // Section grouping keeps its original order — first appearance in the
@@ -524,7 +550,7 @@
       if (!bySection.has(key)) { bySection.set(key, []); order.push(key); }
       bySection.get(key).push(item);
     }
-    return order.map((key) => ({ label: key, items: bySection.get(key).sort(byActivity) }));
+    return order.map((key) => ({ label: key, items: bySection.get(key).sort(rowOrder) }));
   }
 
   function render() {

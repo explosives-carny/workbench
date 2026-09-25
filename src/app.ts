@@ -280,7 +280,7 @@ const ROUTES = [
   'GET    /api/projects[?archived=1][?repo=<remote-or-path>]',
   'POST   /api/projects                        {name, slug?, description?, repos?, key?}',
   'GET    /api/projects/<slug>[?status=a,b][?messages=all|last|none]',
-  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|repos?|key?}',
+  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|sortBy?|repos?|key?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
   'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
   'PATCH  /api/projects/<slug>/labels          {from,to,actor}',
@@ -390,7 +390,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (body.key !== undefined && typeof body.key !== 'string') {
           return badRequest(ctx, 'key cannot be removed; set a different key instead');
         }
-        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.repos !== undefined) {
+        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined) {
           if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
             return badRequest(ctx, 'name must be a non-empty string');
           }
@@ -403,8 +403,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (body.sections !== undefined && (!Array.isArray(body.sections) || body.sections.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'sections must be an array of strings');
           }
-          if (body.groupBy !== undefined && !['section', 'status'].includes(body.groupBy)) {
-            return badRequest(ctx, "groupBy must be 'section' or 'status'");
+          if (body.groupBy !== undefined && !['section', 'status', 'move'].includes(body.groupBy)) {
+            return badRequest(ctx, "groupBy must be 'section', 'status' or 'move'");
+          }
+          if (body.sortBy !== undefined && !['activity', 'ref'].includes(body.sortBy)) {
+            return badRequest(ctx, "sortBy must be 'activity' or 'ref'");
           }
           if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'repos must be an array of strings');
@@ -422,12 +425,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
             }
           }
           if (typeof body.archived === 'boolean') updated = store.archiveProject(updated.slug, body.archived)!;
-          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.repos !== undefined) {
+          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined) {
             updated = store.setProjectSections(updated.slug, body)!;
           }
           return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id), ...(warning ? { warning } : {}) });
         }
-        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, repos');
+        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, sortBy, repos');
       }
       return badRequest(ctx, `${method} not supported here`);
     }

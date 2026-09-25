@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { openDb, Store, VersionConflict, findSimilarSection, asHistoricInstant, asStatusValue, normaliseLabels, STATUSES, STATUS_GROUPS, DOCUMENT_STATUSES, statusesFor } from '../src/db.ts';
+import { openDb, Store, VersionConflict, findSimilarSection, asHistoricInstant, asStatusValue, normaliseLabels, STATUSES, STATUS_GROUPS, MOVE_GROUPS, DOCUMENT_STATUSES, statusesFor } from '../src/db.ts';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
@@ -431,6 +432,92 @@ describe('grouping', () => {
     // Every status lands in exactly one group, or a row would vanish from the board.
     const placed = STATUS_GROUPS.flatMap((g) => g.statuses);
     expect(placed.sort()).toEqual([...STATUSES].sort());
+  });
+});
+
+// Opt-in grouping that answers "what is waiting on ME" rather than "what is
+// outstanding". Everything here must leave a board on `status` untouched.
+describe('grouping by whose move it is', () => {
+  let store: Store;
+  beforeEach(() => { store = freshStore(); });
+
+  it('is not the default', () => {
+    expect(store.createProject({ name: 'Acme' }).groupBy).toBe('status');
+  });
+
+  it('can be chosen and kept', () => {
+    const project = store.createProject({ name: 'Acme' });
+    expect(store.setProjectSections(project.slug, { groupBy: 'move' })!.groupBy).toBe('move');
+    expect(store.getProject(project.slug)!.groupBy).toBe('move');
+  });
+
+  // The same invariant Open carries: a status missing from every group is a row
+  // that silently vanishes from the board.
+  it('places every status in exactly one group', () => {
+    const placed = MOVE_GROUPS.flatMap((g) => g.statuses);
+    expect(placed.sort()).toEqual([...STATUSES].sort());
+    expect(new Set(placed).size).toBe(placed.length);
+  });
+
+  it('splits exactly the statuses Open holds, and nothing below it', () => {
+    const open = STATUS_GROUPS.find((g) => g.id === 'open')!;
+    const live = MOVE_GROUPS.filter((g) => ['yours', 'agent', 'waiting'].includes(g.id));
+    expect(live.flatMap((g) => g.statuses).sort()).toEqual([...open.statuses].sort());
+    // Below Open the two groupings must stay identical, or a document moves
+    // depending on a setting that is only meant to divide live work.
+    const tail = (gs: typeof MOVE_GROUPS) => gs.filter((g) => ['deferred', 'documents', 'archived'].includes(g.id));
+    expect(tail(MOVE_GROUPS)).toEqual(tail(STATUS_GROUPS));
+  });
+
+  it('puts the human first, then the agent, then what is waiting', () => {
+    expect(MOVE_GROUPS.map((g) => g.id)).toEqual(['yours', 'agent', 'waiting', 'deferred', 'documents', 'archived']);
+  });
+});
+
+// The board is a static page with no build step, so public/project.html mirrors
+// these tables by hand. A mirror nobody checks is the thing that drifts.
+describe('the board page mirrors the grouping tables', () => {
+  const page = readFileSync(new URL('../public/project.html', import.meta.url), 'utf8');
+
+  function mirrored(name: string) {
+    const start = page.indexOf('const ' + name + ' = [');
+    expect(start).toBeGreaterThan(-1);
+    const body = page.slice(start, page.indexOf('];', start));
+    return [...body.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
+  }
+
+  it('carries the same status groups, in order', () => {
+    expect(mirrored('STATUS_GROUPS')).toEqual(STATUS_GROUPS.map((g) => g.label));
+  });
+
+  it('carries the same move groups, in order', () => {
+    expect(mirrored('MOVE_GROUPS')).toEqual(MOVE_GROUPS.map((g) => g.label));
+  });
+});
+
+// Row order inside a group. Activity stays the default; `ref` is for reading a
+// group as a queue whose order does not shift as you reply down it.
+describe('row order', () => {
+  let store: Store;
+  beforeEach(() => { store = freshStore(); });
+
+  it('defaults to activity', () => {
+    expect(store.createProject({ name: 'Acme' }).sortBy).toBe('activity');
+  });
+
+  it('can be set to ref and kept', () => {
+    const project = store.createProject({ name: 'Acme' });
+    expect(store.setProjectSections(project.slug, { sortBy: 'ref' })!.sortBy).toBe('ref');
+    expect(store.getProject(project.slug)!.sortBy).toBe('ref');
+  });
+
+  it('is independent of the grouping choice', () => {
+    const project = store.createProject({ name: 'Acme' });
+    store.setProjectSections(project.slug, { sortBy: 'ref' });
+    store.setProjectSections(project.slug, { groupBy: 'move' });
+    const after = store.getProject(project.slug)!;
+    expect(after.sortBy).toBe('ref');
+    expect(after.groupBy).toBe('move');
   });
 });
 
