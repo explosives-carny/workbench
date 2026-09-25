@@ -60,6 +60,23 @@ sections do, and the repair (`PATCH /api/projects/<slug>/labels`) is not an
 afterthought — merging two labels that turned out to be one is normal
 maintenance, not an admission of failure.
 
+### Whose move, if Open is answering the wrong question
+
+`PATCH /api/projects/<slug> {"groupBy":"move"}` keeps every row where it is and
+splits Open into **Your move** (`needs-decision`, `needs-qa`), **With your
+agent** (`received`, `in-progress`) and **Waiting on something** (`blocked`).
+Below Open nothing changes.
+
+The default deliberately does not do this: a piece of work moves between groups
+every time it changes hands, and on a busy board that churn is noise. It stops
+being noise when the board is long enough that "what is outstanding" and "what
+is outstanding *for me*" have different answers, which is the moment to switch.
+
+Order inside a group is separate: `{"sortBy":"ref"}` orders every group by
+reference number ascending, so the list reads top to bottom and does not
+reshuffle as you reply down it. The default `activity` puts newest first, which
+is what you want while a board is a feed rather than a queue.
+
 ### Sections, if you want the board grouped by area of work instead
 
 Fully supported, and the right answer for some work — an agency board where the

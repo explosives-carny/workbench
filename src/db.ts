@@ -151,7 +151,21 @@ export function asStatusValue(value: unknown): Status | null {
 
 export type SectionMode = 'adhoc' | 'declared';
 
-export type GroupBy = 'section' | 'status';
+export type GroupBy = 'section' | 'status' | 'move';
+
+/**
+ * How rows are ordered inside whichever group they land in.
+ *
+ *   activity — newest activity first (the original behaviour)
+ *   ref      — by reference number ascending: WB-DEMO-6, then 8, then 9
+ *
+ * `activity` stays the default. Recency is the right answer while a board is
+ * being worked through, because the thing you just touched is the thing you
+ * are still thinking about. `ref` is for reading a group as a list you work
+ * top to bottom: the order never changes under you as you reply, which is what
+ * you want when a group is a queue rather than a feed.
+ */
+export type SortBy = 'activity' | 'ref';
 
 /**
  * The status groups, in board order, when a project groups by status.
@@ -178,6 +192,30 @@ export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] 
   { id: 'archived', label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
 ];
 
+/**
+ * The same rows as {@link STATUS_GROUPS}, with Open split by whose move it is.
+ *
+ * The argument against splitting Open stands and is not contradicted here: a
+ * piece of work does change group as it changes hands. That churn is the POINT
+ * of this grouping rather than a cost of it, which is why it is opt-in and not
+ * the default. A board left on `status` behaves exactly as before.
+ *
+ * The split follows the "Whose move" column of the contract's own status table,
+ * so there is one place to change if that vocabulary moves. Everything below
+ * Open is identical to STATUS_GROUPS, deliberately: only the live work has a
+ * "whose move" to answer.
+ */
+export const MOVE_GROUPS: { id: string; label: string; statuses: Status[] }[] = [
+  { id: 'yours', label: 'Your move', statuses: ['needs-decision', 'needs-qa'] },
+  { id: 'agent', label: 'With your agent', statuses: ['received', 'in-progress'] },
+  // Blocked is nobody's until the blocker clears, so it reads last of the live
+  // groups rather than as something to act on.
+  { id: 'waiting', label: 'Waiting on something', statuses: ['blocked'] },
+  { id: 'deferred', label: 'Deferred', statuses: ['deferred'] },
+  { id: 'documents', label: 'Documents', statuses: ['active'] },
+  { id: 'archived', label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
+];
+
 export type Project = {
   id: string;
   slug: string;
@@ -197,6 +235,14 @@ export type Project = {
    *
    *   section — one group per area of work (the original behaviour)
    *   status  — Open, Deferred, Documents, Archived
+   *   move    — Open split by whose move it is, then Deferred/Documents/Archived
+   *
+   * `move` is `status` with its Open group divided the way the contract's own
+   * status table already reads: the statuses that are theirs to answer, then
+   * the ones the agent owns, then the ones waiting on something else. A board
+   * whose Open group mixes all three answers "what is outstanding" but not
+   * "what is outstanding FOR ME", which is the question someone opening the
+   * board is usually asking.
    *
    * `status` is the default for a new project: it answers the question a board
    * exists for — what is waiting, what is parked, what is done — and leaves
@@ -205,6 +251,8 @@ export type Project = {
    * instead, and any project created before this default keeps what it holds.
    */
   groupBy: GroupBy;
+  /** How rows are ordered inside each group. See {@link SortBy}. */
+  sortBy: SortBy;
   /**
    * The repositories this project is about, so a session can find its board
    * from where it is standing. Each entry is a remote (`owner/name`, or a full
@@ -522,7 +570,11 @@ export function openDb(path: string): Database {
       group_by     TEXT NOT NULL DEFAULT 'section',
       -- Repositories this project is about (JSON array), so a session resolves
       -- its board from the directory or remote it is standing in.
-      repos        TEXT NOT NULL DEFAULT '[]'
+      repos        TEXT NOT NULL DEFAULT '[]',
+      -- Row order inside a group: 'activity' (newest first) or 'ref' (by
+      -- reference number ascending). Activity is the default everywhere,
+      -- including for new projects — a queue order is a deliberate choice.
+      sort_by      TEXT NOT NULL DEFAULT 'activity'
     );
     CREATE TABLE IF NOT EXISTS items (
       id         TEXT PRIMARY KEY,
@@ -604,6 +656,8 @@ export function openDb(path: string): Database {
   if (!pcols.has('sections')) db.exec("ALTER TABLE projects ADD COLUMN sections TEXT NOT NULL DEFAULT '[]'");
   if (!pcols.has('group_by')) db.exec("ALTER TABLE projects ADD COLUMN group_by TEXT NOT NULL DEFAULT 'section'");
   if (!pcols.has('repos')) db.exec("ALTER TABLE projects ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
+  // Existing boards keep newest-activity ordering; `ref` is opt-in per project.
+  if (!pcols.has('sort_by')) db.exec("ALTER TABLE projects ADD COLUMN sort_by TEXT NOT NULL DEFAULT 'activity'");
   if (!pcols.has('key')) db.exec('ALTER TABLE projects ADD COLUMN key TEXT');
   if (!pcols.has('old_keys')) db.exec("ALTER TABLE projects ADD COLUMN old_keys TEXT NOT NULL DEFAULT '[]'");
   if (!pcols.has('next_seq')) db.exec('ALTER TABLE projects ADD COLUMN next_seq INTEGER NOT NULL DEFAULT 1');
@@ -718,7 +772,8 @@ function rowToProject(r: any): Project {
         return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
       } catch { return []; }
     })(),
-    groupBy: (r.group_by === 'status' ? 'status' : 'section') as GroupBy,
+    groupBy: (r.group_by === 'status' || r.group_by === 'move' ? r.group_by : 'section') as GroupBy,
+    sortBy: (r.sort_by === 'ref' ? 'ref' : 'activity') as SortBy,
     repos: (() => {
       try {
         const parsed = JSON.parse(r.repos ?? '[]');
@@ -872,13 +927,16 @@ export class Store {
       // silently regrouping somebody's board under them is not a default, it is
       // a surprise.
       groupBy: 'status',
+      // Newest-first everywhere until somebody asks otherwise: a new board is
+      // read as a feed of what just happened before it is worked as a queue.
+      sortBy: 'activity',
       repos: normaliseLabels(input.repos),
       createdAt: now(),
       archivedAt: null,
     };
     this.db
-      .query('INSERT INTO projects (id, slug, name, description, key, old_keys, next_seq, section_mode, sections, group_by, repos, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-      .run(project.id, project.slug, project.name, project.description, project.key, JSON.stringify(project.oldKeys), project.nextSeq, project.sectionMode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.createdAt);
+      .query('INSERT INTO projects (id, slug, name, description, key, old_keys, next_seq, section_mode, sections, group_by, repos, sort_by, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+      .run(project.id, project.slug, project.name, project.description, project.key, JSON.stringify(project.oldKeys), project.nextSeq, project.sectionMode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.sortBy, project.createdAt);
     return project;
   }
 
@@ -1296,7 +1354,7 @@ export class Store {
     return out;
   }
 
-  setProjectSections(slug: string, patch: { name?: string; description?: string; sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy; repos?: string[] }): Project | null {
+  setProjectSections(slug: string, patch: { name?: string; description?: string; sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy; sortBy?: SortBy; repos?: string[] }): Project | null {
     const project = this.getProject(slug);
     if (!project) return null;
     // The slug is deliberately not editable: it is the key in URLs, exports
@@ -1306,10 +1364,11 @@ export class Store {
     const mode = patch.sectionMode ?? project.sectionMode;
     const sections = patch.sections ?? project.sections;
     const groupBy = patch.groupBy ?? project.groupBy;
+    const sortBy = patch.sortBy ?? project.sortBy;
     const repos = patch.repos === undefined ? project.repos : normaliseLabels(patch.repos);
     this.db
-      .query('UPDATE projects SET name = ?, description = ?, section_mode = ?, sections = ?, group_by = ?, repos = ? WHERE id = ?')
-      .run(name, description, mode, JSON.stringify(sections), groupBy, JSON.stringify(repos), project.id);
+      .query('UPDATE projects SET name = ?, description = ?, section_mode = ?, sections = ?, group_by = ?, sort_by = ?, repos = ? WHERE id = ?')
+      .run(name, description, mode, JSON.stringify(sections), groupBy, sortBy, JSON.stringify(repos), project.id);
     return this.getProject(slug);
   }
 
