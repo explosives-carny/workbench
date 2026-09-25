@@ -26,8 +26,14 @@ export function sectionText(body: string, heading: string): string | null {
   return (end === -1 ? rest : rest.slice(0, end)).join('\n');
 }
 
+/** The template's tool-only confirmation, which must be ticked. */
+export const TOOL_ONLY_CONFIRMATION = /^\s*-\s*\[[xX]\]\s*This changes the tool only/m;
+
 export function checkPrDescription(body: string): { ok: boolean; problems: string[] } {
   const problems: string[] = [];
+  if (!TOOL_ONLY_CONFIRMATION.test(String(body || ''))) {
+    problems.push('the "This changes the tool only" box is not ticked — a pull request carries no project data or installation configuration');
+  }
   for (const { heading, minWords } of REQUIRED_SECTIONS) {
     const text = sectionText(body, heading);
     if (text === null) { problems.push(`missing section "## ${heading}"`); continue; }

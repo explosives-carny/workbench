@@ -38,6 +38,15 @@ GitHub collaborator; that list, not this file, is who the contributors are.
 
 Contributors, and the agents working for them:
 
+- **Pull requests change the tool, nothing else.** A pull request is an update
+  to this application for every installation — its code, its contract, its
+  docs. It never carries **project data or configuration**: no board items,
+  projects, labels, sections, messages or documents; no database file
+  (`workbench.db`) or export; no settings, ports, paths, remotes or
+  environment values from a particular installation; no example data lifted
+  from a real board. Those belong to the installation, in its own database and
+  content repository, and change there without a pull request. If a change only
+  makes sense for one project, it is data, not a pull request (see *The rule*).
 - **Change it only by pull request into `main`.** Never push to `main`, and never
   change an installed copy to get a result the repository does not have.
 - **Open pull requests early and often.** Draft pull requests are fine. A change

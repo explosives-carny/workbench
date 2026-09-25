@@ -90,7 +90,10 @@ understood — usually a typo).
    Branch, change it with tests, open a pull request documented in two
    registers (detail for an agent, a plain summary for a project manager),
    tell them it is open. Pull requests are welcome and early ones are better
-   than late ones. What is ruled out is the private edit: a change made to the
+   than late ones. **A pull request changes the tool, never a project**: no
+   board contents, project data, labels, settings, paths, ports or other
+   installation configuration go into the repository — those live in the
+   installation's own data. What is ruled out is the private edit: a change made to the
    installed copy that no one reviewed and the next update overwrites. See
    `CONTRIBUTING.md`.
 9. **A report is not finished while it names work that is not on the board.**
