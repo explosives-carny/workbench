@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- A document or item body sent without saying its format is now shown the right
+  way: a whole web page renders as a page, and Markdown renders formatted,
+  instead of either showing up as raw source. A format the writer names is
+  always kept (contract v14).
+
 ## 0.2.0
 
 - Project settings (how the board groups and orders rows, its name, description,

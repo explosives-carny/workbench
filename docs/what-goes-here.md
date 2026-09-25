@@ -239,6 +239,12 @@ produce. Use `html` only for something that genuinely needs its own design —
 imported HTML is rendered in a sandbox with scripts disabled, so anything that
 builds itself at runtime will show up blank.
 
+Name the format. When you do not, the board guesses from the body, narrowly: a
+body opening on `<!doctype html>` or `<html>` is `html`, one opening on a
+Markdown heading, list or quote is `markdown`, and anything else is `text`. An
+edit that sends a new body without a format gets the same guess, but only while
+the item is still `text`. A format you name is never second-guessed.
+
 Split a document into items only if each part is separately actionable. A
 41-step walkthrough is one document; the two defects it uncovered are two items.
 
