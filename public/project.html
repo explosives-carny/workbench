@@ -17,6 +17,81 @@
     <div class="rule"></div>
   </header>
 
+  <details class="settings" id="projsettings">
+    <summary>Project settings</summary>
+    <div class="settings-body">
+      <fieldset>
+        <legend>Layout</legend>
+        <label for="set-groupBy">Group by</label>
+        <select id="set-groupBy" data-field="groupBy">
+          <option value="section">Section</option>
+          <option value="status">Status</option>
+          <option value="move">Whose move</option>
+        </select>
+        <p class="hint">Which heading each row sits under on this board.</p>
+
+        <label for="set-sortBy">Order rows by</label>
+        <select id="set-sortBy" data-field="sortBy">
+          <option value="activity">Latest activity</option>
+          <option value="ref">Reference number</option>
+        </select>
+        <p class="hint">Newest-first, or a stable queue ordered by reference number.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Details</legend>
+        <label for="set-name">Name</label>
+        <input type="text" id="set-name" data-field="name">
+        <button type="button" data-save="name">Save</button>
+        <div class="saved" id="saved-name"></div>
+
+        <label for="set-description">Description</label>
+        <input type="text" id="set-description" data-field="description">
+        <button type="button" data-save="description">Save</button>
+        <div class="saved" id="saved-description"></div>
+
+        <label for="set-key">Key</label>
+        <input type="text" id="set-key" data-field="key">
+        <button type="button" data-save="key">Save</button>
+        <p class="hint">Renaming the key keeps old references working.</p>
+        <div class="saved" id="saved-key"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Sections</legend>
+        <label for="set-sectionMode">Mode</label>
+        <select id="set-sectionMode" data-field="sectionMode">
+          <option value="adhoc">Ad hoc</option>
+          <option value="declared">Declared</option>
+        </select>
+        <p class="hint">Ad hoc warns on near-duplicates; declared refuses unlisted sections.</p>
+
+        <div id="sections-group">
+          <label for="set-sections">Declared sections, one per line</label>
+          <textarea id="set-sections" data-field="sections" rows="4"></textarea>
+          <button type="button" data-save="sections">Save</button>
+          <div class="saved" id="saved-sections"></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Repositories</legend>
+        <label for="set-repos">Repository patterns, one per line</label>
+        <textarea id="set-repos" data-field="repos" rows="3"></textarea>
+        <p class="hint">Agents use this to find this project from a repository.</p>
+        <button type="button" data-save="repos">Save</button>
+        <div class="saved" id="saved-repos"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Archive</legend>
+        <button type="button" id="archive-btn" data-field="archived">Archive project</button>
+        <button type="button" id="restore-btn" data-field="archived" hidden>Restore project</button>
+        <div class="saved" id="saved-archived"></div>
+      </fieldset>
+    </div>
+  </details>
+
   <div class="filters" id="filters" role="group" aria-label="Show items by status"></div>
   <div id="items" aria-live="polite"></div>
 
@@ -55,6 +130,82 @@
   let items = [];
   // The project itself, for groupBy. Held rather than re-read per render.
   let project = null;
+
+  // Project settings panel. Closed by default, remembered per project — a
+  // setting nobody opens yet must not clutter the page, but somebody who opens
+  // it to change groupBy should not have to reopen it every visit.
+  const SETTINGS_OPEN_KEY = 'wb.settingsOpen.' + slug;
+  const settingsEl = document.getElementById('projsettings');
+  try {
+    if (localStorage.getItem(SETTINGS_OPEN_KEY) === '1') settingsEl.open = true;
+  } catch (e) { /* not worth failing over */ }
+  settingsEl.addEventListener('toggle', () => {
+    try { localStorage.setItem(SETTINGS_OPEN_KEY, settingsEl.open ? '1' : '0'); } catch (e) { /* not worth failing over */ }
+  });
+
+  function settingsNote(id, text, isErr) {
+    const el = document.getElementById('saved-' + id);
+    if (el) { el.textContent = text; el.className = 'saved' + (isErr ? ' err' : ''); }
+  }
+
+  // A select saves the moment it changes and repaints, per the contract: these
+  // are the human's calls, never the agent's, so there is nothing to batch or
+  // confirm — the choice itself is the commit.
+  async function saveProjectField(field, value, noteId) {
+    const id = noteId || field;
+    settingsNote(id, 'saving…');
+    try {
+      await WB.patch('/api/projects/' + encodeURIComponent(slug), { [field]: value });
+      await load(true);
+      settingsNote(id, 'saved');
+    } catch (e) { settingsNote(id, e.message, true); }
+  }
+
+  // Fills the panel from the project just loaded. Skips whatever field has
+  // focus, the same guard the reply box uses, so a poll landing mid-edit does
+  // not overwrite a sentence being typed into Name or the sections textarea.
+  function fillSettings(p) {
+    const active = document.activeElement;
+    function setValue(id, value) {
+      const el = document.getElementById(id);
+      if (el && el !== active) el.value = value;
+    }
+    setValue('set-groupBy', p.groupBy);
+    setValue('set-sortBy', p.sortBy);
+    setValue('set-name', p.name);
+    setValue('set-description', p.description || '');
+    setValue('set-key', p.key || '');
+    setValue('set-sectionMode', p.sectionMode);
+    setValue('set-sections', (p.sections || []).join('\n'));
+    setValue('set-repos', (p.repos || []).join('\n'));
+    document.getElementById('sections-group').hidden = !(p.sectionMode === 'declared' || p.groupBy === 'section');
+    document.getElementById('archive-btn').hidden = !!p.archivedAt;
+    document.getElementById('restore-btn').hidden = !p.archivedAt;
+  }
+
+  document.getElementById('set-groupBy').addEventListener('change', (e) => saveProjectField('groupBy', e.target.value));
+  document.getElementById('set-sortBy').addEventListener('change', (e) => saveProjectField('sortBy', e.target.value));
+  document.getElementById('set-sectionMode').addEventListener('change', (e) => saveProjectField('sectionMode', e.target.value));
+
+  for (const field of ['name', 'description', 'key']) {
+    document.querySelector('[data-save="' + field + '"]').addEventListener('click', () => {
+      saveProjectField(field, document.getElementById('set-' + field).value.trim());
+    });
+  }
+  for (const field of ['sections', 'repos']) {
+    document.querySelector('[data-save="' + field + '"]').addEventListener('click', () => {
+      const value = document.getElementById('set-' + field).value.split('\n').map((s) => s.trim()).filter(Boolean);
+      saveProjectField(field, value);
+    });
+  }
+
+  document.getElementById('archive-btn').addEventListener('click', () => {
+    if (!confirm('Archive this project? It stays on the board, filed as archived.')) return;
+    saveProjectField('archived', true, 'archived');
+  });
+  document.getElementById('restore-btn').addEventListener('click', () => {
+    saveProjectField('archived', false, 'archived');
+  });
 
   // Completed work is hidden by default. A board that shows everything ever
   // decided stops answering the only question it is for — what is outstanding —
@@ -597,6 +748,7 @@
       [...hidden].sort(),
       labelFilter,
       project && project.groupBy,
+      project && project.sortBy,
       items.map((i) => [i.id, i.ref, i.version, i.status, i.choice, i.title, i.context, i.section, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
         (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
     ]);
@@ -640,11 +792,12 @@
 
   async function load(redraw) {
     const data = await WB.get('/api/projects/' + encodeURIComponent(slug));
-    // A project grouping by status has no section headings, so the section box
-    // would file things somewhere nothing displays. Hide it rather than keep a
-    // field whose value is invisible.
+    // A project grouping by status, or by whose move it is, has no section
+    // headings, so the section box would file things somewhere nothing
+    // displays. Hide it rather than keep a field whose value is invisible.
     project = data.project;
-    document.getElementById('isection').hidden = project.groupBy === 'status';
+    document.getElementById('isection').hidden = project.groupBy === 'status' || project.groupBy === 'move';
+    fillSettings(project);
     document.getElementById('pname').textContent = data.project.name;
     const keyEl = document.getElementById('pkey');
     if (data.project.key) {
