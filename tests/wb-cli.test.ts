@@ -192,6 +192,12 @@ describe('wb project', () => {
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain('unknown flag');
   });
+
+  test('refuses a known flag given no value instead of dropping it', async () => {
+    const result = await wb('project', 'demo', '--name', '--key', 'NEWKEY');
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('--name needs a value');
+  });
 });
 
 describe('wb settings', () => {
@@ -227,5 +233,11 @@ describe('wb settings', () => {
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain('unknown flag');
     expect(result.stderr).toContain('no --auto-mode');
+  });
+
+  test('refuses a known flag given no value', async () => {
+    const result = await wb('settings', '--default-project');
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('needs a value');
   });
 });

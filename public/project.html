@@ -873,10 +873,7 @@
   // the two never drift apart). Duplicated rather than fetched: there is no
   // route that returns the palette on its own, and the twelve values are
   // fixed — the server is still what refuses a PATCH outside this list.
-  const PROJECT_COLORS = [
-    '#d25228', '#96781d', '#6a8519', '#388d1b', '#1b8d38', '#1b8d71',
-    '#2085a7', '#5476de', '#7654de', '#b84bdd', '#d936b0', '#db4369',
-  ];
+  const PROJECT_COLORS = ['#d25228', '#2085a7', '#388d1b', '#b84bdd', '#96781d', '#5476de', '#1b8d71', '#db4369', '#6a8519', '#7654de', '#1b8d38', '#d936b0'];
 
   // The picker rebuilds from scratch on every load() — cheap, twelve radios —
   // except while one of its own radios has focus, the same guard fillSettings

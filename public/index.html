@@ -193,7 +193,7 @@
     document.getElementById('onboarded-line').textContent = settings.onboardedAt
       ? 'Set up on ' + WB.fmt(settings.onboardedAt)
       : 'Not set up yet';
-    if (document.getElementById('agentnames-rows') !== active) renderAgentNames(settings.agentNames);
+    if (!document.getElementById('agentnames-rows').contains(active)) renderAgentNames(settings.agentNames);
   }
 
   document.getElementById('set-defaultProject').addEventListener('change', (e) => {

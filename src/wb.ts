@@ -378,6 +378,9 @@ async function main() {
     const slug = args[0] || fail('usage: wb project <slug> [flags] (wb help for the flag list)');
     for (const k of Object.keys(flags)) {
       if (!PROJECT_FLAGS.has(k)) fail(`unknown flag --${k} for "wb project" (wb help for the list)`);
+      // A known flag with no value would otherwise be dropped without a word,
+      // the same silent no-op the unknown-flag refusal exists to prevent.
+      if (flags[k] === true && k !== 'json') fail(`--${k} needs a value, e.g. --${k}=<value>`);
     }
     const patch: Record<string, unknown> = {};
     if (typeof flags.group === 'string') patch.groupBy = flags.group;
@@ -416,6 +419,7 @@ async function main() {
   if (cmd === 'settings') {
     for (const k of Object.keys(flags)) {
       if (!SETTINGS_FLAGS.has(k)) fail(`unknown flag --${k} for "wb settings" (wb help for the list; there is no --auto-mode — auto is a session order, never a setting)`);
+      if (flags[k] === true && ['default-project', 'backup-plan', 'agent-name', 'actor'].includes(k)) fail(`--${k} needs a value, e.g. --${k}=<value>`);
     }
     // A bare boolean flag (--auto-capture) means true; an explicit value other
     // than the literal string "false" also means true, so --auto-capture=1 or

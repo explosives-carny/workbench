@@ -78,6 +78,28 @@ describe('project colours', () => {
     const reopenedAgain = new Store(openDb(path));
     for (const p of reopenedAgain.listProjects()) expect(p.color).toBe(colorsBefore.get(p.slug));
   });
+
+  it('archived projects never take a live hue in the backfill', () => {
+    const path = join(tmpdir(), `wb-color-arch-${randomUUID()}`, 'test.db');
+    const seeded = new Store(openDb(path));
+    // Eight retired projects, created first, then eight live ones: twelve
+    // hues are enough for the live eight only if the retired ones reserve none.
+    for (let i = 0; i < 8; i++) {
+      const old = seeded.createProject({ name: `Old ${i}` });
+      seeded.archiveProject(old.slug, true);
+    }
+    for (let i = 0; i < 8; i++) seeded.createProject({ name: `Live ${i}` });
+    const raw = new Database(path);
+    raw.exec('ALTER TABLE projects DROP COLUMN color');
+    raw.close();
+    const live = new Store(openDb(path)).listProjects(false);
+    expect(live.length).toBe(8);
+    expect(new Set(live.map((p) => p.color)).size).toBe(8);
+  });
+
+  it('the first four projects get hues a quarter-turn apart', () => {
+    expect(PROJECT_COLORS.slice(0, 4)).toEqual(['#d25228', '#2085a7', '#388d1b', '#b84bdd']);
+  });
 });
 
 describe('project activity ordering', () => {

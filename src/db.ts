@@ -179,19 +179,23 @@ export type SortBy = 'activity' | 'ref';
  * either theme without a second, theme-specific palette. Verified by direct
  * contrast-ratio computation against both values, not eyeballed.
  */
+// Ordered so each next project gets the hue farthest from those already
+// taken (180° apart, then 90°, then 30° gaps): colours are assigned first-free
+// in this order, and a hue-wheel order gave the first few projects
+// neighbouring hues that were hard to tell apart.
 export const PROJECT_COLORS = [
   '#d25228', // 15°  vermillion
-  '#96781d', // 45°  olive gold
-  '#6a8519', // 75°  moss
-  '#388d1b', // 105° green
-  '#1b8d38', // 135° emerald
-  '#1b8d71', // 165° teal
   '#2085a7', // 195° sky
-  '#5476de', // 225° blue
-  '#7654de', // 255° indigo
+  '#388d1b', // 105° green
   '#b84bdd', // 285° violet
-  '#d936b0', // 315° magenta
+  '#96781d', // 45°  olive gold
+  '#5476de', // 225° blue
+  '#1b8d71', // 165° teal
   '#db4369', // 345° rose
+  '#6a8519', // 75°  moss
+  '#7654de', // 255° indigo
+  '#1b8d38', // 135° emerald
+  '#d936b0', // 315° magenta
 ] as const;
 
 export type ProjectColor = typeof PROJECT_COLORS[number];
@@ -732,7 +736,10 @@ export function openDb(path: string): Database {
       (db.query("SELECT color FROM projects WHERE color IS NOT NULL AND archived_at IS NULL").all() as any[])
         .map((r) => r.color)
     );
-    const missing = db.query("SELECT id FROM projects WHERE color IS NULL ORDER BY created_at ASC, id ASC").all() as any[];
+    // Unarchived projects first, and an archived row never reserves its colour:
+    // only live projects need distinct hues, so eight retired projects must not
+    // push eight live ones into sharing.
+    const missing = db.query("SELECT id, archived_at FROM projects WHERE color IS NULL ORDER BY (archived_at IS NOT NULL) ASC, created_at ASC, id ASC").all() as any[];
     for (const row of missing) {
       let next = PROJECT_COLORS.find((c) => !used.has(c));
       if (!next) {
@@ -745,7 +752,7 @@ export function openDb(path: string): Database {
         next = [...PROJECT_COLORS].sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0))[0];
       }
       db.query('UPDATE projects SET color = ? WHERE id = ?').run(next, row.id);
-      used.add(next);
+      if (!row.archived_at) used.add(next);
     }
   }
   const columns = new Set<string>(db.query('PRAGMA table_info(items)').all().map((r: any) => r.name));
