@@ -22,7 +22,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '12';
+export const CONTRACT_VERSION = '13';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -243,6 +243,23 @@ function labelPolicy(store: Store, project: Project, labels: string[] | undefine
 function blockedWithoutReason(item: { status: Status; blockedBy: string }): string | undefined {
   if (item.status !== 'blocked' || item.blockedBy.trim()) return undefined;
   return 'status is "blocked" with no blockedBy — say what it is waiting on (an item ref, a PR, or "deploy of X") with {"blockedBy":"..."}.';
+}
+
+// A title is a headline, not the body (AGENTS.md rule 7). Warned, not refused
+// — refusing would lose the item entirely over a formatting mistake, and the
+// caller may fix it or may not care. The failure this answers (2026-09-25): a
+// real board had 25 of ~350 items with titles over 100 characters, five of
+// those with no context and no body at all — the whole message pasted into
+// the one field POST requires.
+function titleWarning(item: { title: string; context: string; body: string }): string | undefined {
+  const len = item.title.length;
+  if (len > 120) {
+    return `title is ${len} characters — keep it to a short headline and move the rest into context`;
+  }
+  if (len > 100 && !item.context.trim() && !item.body.length) {
+    return `title reads like a body and the item has no context — move the explanation into context`;
+  }
+  return undefined;
 }
 
 async function readJson(req: Request): Promise<any> {
@@ -514,6 +531,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         for (const item of created) {
           const warning = blockedWithoutReason(item);
           if (warning) warnings.push(warning);
+          const titleWarn = titleWarning(item);
+          if (titleWarn) warnings.push(titleWarn);
         }
         return json(ctx, withIgnored({ ok: true, items: created, ...(warnings.length ? { warnings } : {}) }, ignored), 201);
       }
@@ -562,6 +581,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           });
           const blockedWarning = updated ? blockedWithoutReason(updated) : undefined;
           if (blockedWarning) warnings.push(blockedWarning);
+          const titleWarn = updated ? titleWarning(updated) : undefined;
+          if (titleWarn) warnings.push(titleWarn);
           return json(ctx, withIgnored({ ok: true, item: updated, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignored));
         } catch (error) {
           if (error instanceof VersionConflict) {

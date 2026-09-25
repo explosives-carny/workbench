@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v12.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `12`,
+**Contract v13.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `13`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -82,11 +82,17 @@ understood — usually a typo).
 6. **One item per question**, context answerable without you in the room:
    tradeoff, recommendation, cost of being wrong. Documents are `kind:
    "document"`; a document that asks for something is two items.
-7. **`needs-qa` means steps attached.** Define steps with `checks:[…]` on the
+7. **A title is a headline, not the body.** A few words that name the thing,
+   at most about 100 characters; the explanation, the quote, the evidence go
+   in `context` (or a document's `body`), never in the title. A title that has
+   to be read in full to know what the item is, is a body in the wrong field.
+   The server warns rather than refuses — a long title, or a long one with no
+   context and no body, comes back with a `warning` naming what to move.
+8. **`needs-qa` means steps attached.** Define steps with `checks:[…]` on the
    item; record results one step at a time. When every step has a result the
    round is finished and the item goes back at `received`: signed off if all
    passed, otherwise for the builder to review the notes.
-8. **Change this application by pull request — never by editing the running copy.**
+9. **Change this application by pull request — never by editing the running copy.**
    Branch, change it with tests, open a pull request documented in two
    registers (detail for an agent, a plain summary for a project manager),
    tell them it is open. Pull requests are welcome and early ones are better
@@ -96,16 +102,16 @@ understood — usually a typo).
    installation's own data. What is ruled out is the private edit: a change made to the
    installed copy that no one reviewed and the next update overwrites. See
    `CONTRIBUTING.md`.
-9. **A report is not finished while it names work that is not on the board.**
-   Before you report a round, every "your call", "left for you", "not
-   confirmed" and follow-up in it is already an item — a decision with options,
-   or QA with steps. Chat is where those go to be forgotten. **A question is a
-   decision.** A clarifying question on an existing item goes on that item as
-   `options` (`PATCH /api/items/<id> {"options":[…]}`), or becomes its own
-   item; a message alone asks nothing anyone can click. **The report asks
-   nothing**: it names item ids and their statuses. A question mark in a round
-   report is a decision that is not on the board.
-10. **Reports and replies name items by ref first.** Once a project has a
+10. **A report is not finished while it names work that is not on the board.**
+    Before you report a round, every "your call", "left for you", "not
+    confirmed" and follow-up in it is already an item — a decision with options,
+    or QA with steps. Chat is where those go to be forgotten. **A question is a
+    decision.** A clarifying question on an existing item goes on that item as
+    `options` (`PATCH /api/items/<id> {"options":[…]}`), or becomes its own
+    item; a message alone asks nothing anyone can click. **The report asks
+    nothing**: it names item ids and their statuses. A question mark in a round
+    report is a decision that is not on the board.
+11. **Reports and replies name items by ref first.** Once a project has a
     `key`, every item on it has a `ref` — say `WB-DEMO-14`, never the UUID and
     never a truncated one. Fall back to the UUID's first eight characters only
     when the project has no key at all. See **References** below.
@@ -486,7 +492,7 @@ reason to sweep the board. Only the check-in word opens the round.
    less than redirecting finished work.
 4. Report the plan, then the outcome, one line per item. The report points
    at items; it asks nothing. A question you find yourself typing here is a
-   decision — file it, with options, then report the id (rule 9).
+   decision — file it, with options, then report the id (rule 10).
 5. **Re-read the set you worked.** Anything still at `received` was answered in
    the transcript and not on the board, and the board is the only half that
    survives the session.
