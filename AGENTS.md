@@ -397,6 +397,18 @@ keeps its slug: `PATCH /api/projects/<slug> {"name":"…","description":"…"}`
 changes what people read, and add the new remote to `repos` so `wb resolve`
 still finds it.
 
+`GET /api/projects` orders the list by `lastActivityAt` DESC (the latest of
+the project's own creation, any item touched, any message sent), not by
+creation order — the gallery, and `wb resolve`'s "first match wins", both read
+as "whichever of mine moved most recently". Each project also carries `color`,
+one of twelve fixed values (`PROJECT_COLORS` in `src/db.ts`), assigned on
+create so no two unarchived projects share one; `PATCH /api/projects/<slug>
+{"color":"#…"}` changes it, refused with `400` if the value is not one of the
+twelve. Archiving a project frees its colour for reuse; restoring it reclaims
+the same one if nothing else took it meanwhile. Never a setting to switch on
+somebody's behalf — like `groupBy` and the others above, it is the human's
+call.
+
 ### References
 
 Every item has a UUID (`id`) forever, and — once its project has a `key` —

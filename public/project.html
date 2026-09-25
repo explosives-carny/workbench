@@ -11,7 +11,10 @@
   <a class="back" href="/">&#8592; All projects</a>
   <header class="mast">
     <p class="eyebrow" id="eyebrow">Project</p>
-    <h1 id="pname">…</h1>
+    <div class="masttitle">
+      <span class="color-dot" id="pcolordot" aria-hidden="true"></span>
+      <h1 id="pname">…</h1>
+    </div>
     <span class="mono projkey" id="pkey" hidden></span>
     <p class="lede" id="pdesc"></p>
     <div class="rule"></div>
@@ -55,6 +58,11 @@
         <button type="button" data-save="key">Save</button>
         <p class="hint">Renaming the key keeps old references working.</p>
         <div class="saved" id="saved-key"></div>
+
+        <span id="color-label">Colour</span>
+        <div class="colorpicker" id="colorpicker" role="radiogroup" aria-labelledby="color-label" data-field="color"></div>
+        <p class="hint">Shown as a bar on the home page card and here on the masthead. A shade already claimed by another project is marked "in use", but can still be picked.</p>
+        <div class="saved" id="saved-color"></div>
       </fieldset>
 
       <fieldset>
@@ -844,11 +852,57 @@
       keyEl.title = '';
     }
     document.getElementById('pdesc').textContent = data.project.description || '';
+    document.getElementById('pcolordot').style.background = project.color;
     items = data.items;
     document.getElementById('eyebrow').textContent =
       WB.WAITING_ON_YOU.reduce((n, k) => n + (data.counts[k] || 0), 0) + ' waiting on you · ' + items.length + ' items';
     WB.labelChoices(data.labels || [], document.getElementById('labellist'), document.getElementById('labelpicks'), document.getElementById('ilabels'));
+    loadColorPicker(project.color);
     if (redraw !== false) safeRender();
+  }
+
+  // Mirrors PROJECT_COLORS in src/db.ts exactly (a source-level test checks
+  // the two never drift apart). Duplicated rather than fetched: there is no
+  // route that returns the palette on its own, and the twelve values are
+  // fixed — the server is still what refuses a PATCH outside this list.
+  const PROJECT_COLORS = [
+    '#d25228', '#96781d', '#6a8519', '#388d1b', '#1b8d38', '#1b8d71',
+    '#2085a7', '#5476de', '#7654de', '#b84bdd', '#d936b0', '#db4369',
+  ];
+
+  // The picker rebuilds from scratch on every load() — cheap, twelve radios —
+  // except while one of its own radios has focus, the same guard fillSettings
+  // uses, so clicking a swatch is not undone by the next five-second poll.
+  async function loadColorPicker(current) {
+    if (document.activeElement && document.activeElement.name === 'projcolor') return;
+    let usedByOthers = new Set();
+    try {
+      const projectsData = await WB.get('/api/projects');
+      usedByOthers = new Set((projectsData.projects || []).filter((p) => p.slug !== slug).map((p) => p.color));
+    } catch (e) { /* the picker still works without the "in use" hint */ }
+    const el = document.getElementById('colorpicker');
+    el.innerHTML = '';
+    for (const color of PROJECT_COLORS) {
+      const wrap = document.createElement('label');
+      wrap.className = 'swatch';
+      wrap.style.setProperty('--swatch-color', color);
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'projcolor';
+      input.value = color;
+      input.checked = color === current;
+      const inUse = usedByOthers.has(color) && color !== current;
+      input.setAttribute('aria-label', color + (inUse ? ' (in use by another project)' : ''));
+      input.addEventListener('change', () => { if (input.checked) saveProjectField('color', color, 'color'); });
+      wrap.appendChild(input);
+      if (inUse) {
+        const tag = document.createElement('span');
+        tag.className = 'swatch-inuse';
+        tag.textContent = 'in use';
+        wrap.appendChild(tag);
+      }
+      el.appendChild(wrap);
+    }
   }
 
   async function choose(id, option) {

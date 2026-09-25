@@ -206,14 +206,24 @@
   function card(p) {
     const waiting = WB.WAITING_ON_YOU.reduce((n, k) => n + (p.counts[k] || 0), 0);
     const a = document.createElement('a');
-    a.className = 'proj' + (waiting ? ' hot' : '');
+    // "Waiting on you" is the badge below, not a border colour any more — the
+    // project's own colour has that border now.
+    a.className = 'proj';
     a.href = '/p/' + encodeURIComponent(p.slug);
+    // The colour bar is the at-a-glance cue the name and description alone
+    // don't give — never the only one: the name stays the primary label, and
+    // the bar just makes "which project is this" faster to spot in a list of
+    // several. p.color is always one of the twelve PROJECT_COLORS.
+    a.style.setProperty('--proj-color', p.color);
     a.innerHTML =
-      '<div class="row"><span class="t"></span>' +
+      '<div class="row"><span class="color-dot" aria-hidden="true"></span><span class="t"></span>' +
       (waiting ? '<span class="badge you">' + waiting + ' waiting on you</span>' : '<span class="badge">clear</span>') +
-      '</div><div class="d"></div><div class="counts mono"></div>';
+      '</div><div class="d"></div><div class="activity mono"></div><div class="counts mono"></div>';
     a.querySelector('.t').textContent = p.name;
     a.querySelector('.d').textContent = p.description || '';
+    const activityEl = a.querySelector('.activity');
+    activityEl.textContent = 'active ' + WB.relTime(p.lastActivityAt);
+    activityEl.title = WB.fmt(p.lastActivityAt);
     a.querySelector('.counts').textContent =
       WB.STATUSES
         .map((s) => WB.STATUS_LABELS[s] + ' ' + (p.counts[s] || 0))
@@ -228,6 +238,9 @@
       listEl.innerHTML = '<p class="empty">No projects yet. Create one below, or let an agent create one.</p>';
       return;
     }
+    // The API already orders by lastActivityAt DESC — rendered in that order,
+    // not re-sorted, so the poll below reorders the list the moment something
+    // in a project moves, without any client-side sort to keep in sync with it.
     for (const p of data.projects) listEl.appendChild(card(p));
   }
 

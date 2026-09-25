@@ -9,7 +9,7 @@
 // `Request` and read the `Response` in-process.
 import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
-  ProjectKeyTaken,
+  ProjectKeyTaken, PROJECT_COLORS,
   isStatusAllowed, statusesFor, KINDS,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
@@ -294,10 +294,10 @@ function finishedWithoutStatus(who: string, text: string, status: Status | undef
 const ROUTES = [
   'GET    /api                                 this',
   'GET    /api/settings · PATCH /api/settings',
-  'GET    /api/projects[?archived=1][?repo=<remote-or-path>]',
+  'GET    /api/projects[?archived=1][?repo=<remote-or-path>]  ordered by lastActivityAt DESC, each with color',
   'POST   /api/projects                        {name, slug?, description?, repos?, key?}',
   'GET    /api/projects/<slug>[?status=a,b][?messages=all|last|none]',
-  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|sortBy?|repos?|key?}',
+  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|sortBy?|repos?|key?|color?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
   'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
   'PATCH  /api/projects/<slug>/labels          {from,to,actor}',
@@ -407,7 +407,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (body.key !== undefined && typeof body.key !== 'string') {
           return badRequest(ctx, 'key cannot be removed; set a different key instead');
         }
-        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined) {
+        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
           if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
             return badRequest(ctx, 'name must be a non-empty string');
           }
@@ -429,6 +429,9 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'repos must be an array of strings');
           }
+          if (body.color !== undefined && !(PROJECT_COLORS as readonly string[]).includes(body.color)) {
+            return badRequest(ctx, `color must be one of: ${PROJECT_COLORS.join(', ')}`);
+          }
           ctx.wrote = true;
           // Key first: the rest of this request may rename project metadata,
           // but a rejected public-reference change must leave it all untouched.
@@ -442,12 +445,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
             }
           }
           if (typeof body.archived === 'boolean') updated = store.archiveProject(updated.slug, body.archived)!;
-          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined) {
+          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
             updated = store.setProjectSections(updated.slug, body)!;
           }
           return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id), ...(warning ? { warning } : {}) });
         }
-        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, sortBy, repos');
+        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, sortBy, repos, color');
       }
       return badRequest(ctx, `${method} not supported here`);
     }

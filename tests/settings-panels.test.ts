@@ -54,9 +54,9 @@ describe('project settings panel (public/project.html)', () => {
     expect(selectOptionValues(projectHtml, 'sectionMode')).toEqual(allowedByServer('sectionMode'));
   });
 
-  it('has controls for exactly groupBy, sortBy, name, description, key, sectionMode, sections, repos, archived', () => {
+  it('has controls for exactly groupBy, sortBy, name, description, key, color, sectionMode, sections, repos, archived', () => {
     expect(panelFields(projectHtml)).toEqual(
-      ['archived', 'description', 'groupBy', 'key', 'name', 'repos', 'sectionMode', 'sections', 'sortBy'].sort()
+      ['archived', 'color', 'description', 'groupBy', 'key', 'name', 'repos', 'sectionMode', 'sections', 'sortBy'].sort()
     );
   });
 
@@ -100,5 +100,20 @@ describe('board settings panel (public/index.html)', () => {
 
   it('saves each control through PATCH /api/settings', () => {
     expect(indexHtml).toContain("WB.patch('/api/settings'");
+  });
+});
+
+describe('the colour picker mirrors PROJECT_COLORS exactly', () => {
+  it('project.html\'s local palette array matches src/db.ts, so the two cannot drift apart', () => {
+    const dbTs = readFileSync(new URL('../src/db.ts', import.meta.url), 'utf8');
+    const dbMatch = dbTs.match(/export const PROJECT_COLORS = \[([\s\S]*?)\] as const;/);
+    expect(dbMatch).not.toBeNull();
+    const dbColors = [...dbMatch![1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map((m) => m[1]);
+    expect(dbColors.length).toBe(12);
+
+    const pageMatch = projectHtml.match(/const PROJECT_COLORS = \[([\s\S]*?)\];/);
+    expect(pageMatch).not.toBeNull();
+    const pageColors = [...pageMatch![1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map((m) => m[1]);
+    expect(pageColors).toEqual(dbColors);
   });
 });

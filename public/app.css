@@ -129,12 +129,31 @@ a.back:hover, a.back:focus-visible { color: var(--accent); border-color: var(--a
 .projects { display: grid; gap: 10px; margin-top: 32px; }
 a.proj {
   display: block; text-decoration: none; color: inherit; background: var(--panel);
-  border: 1px solid var(--rule); border-radius: 6px; padding: 15px 17px;
+  border: 1px solid var(--rule); border-radius: 6px; padding: 15px 17px 15px 14px;
+  /* The project's own colour: a 5px left bar, the visual cue a name and
+     description alone don't give at a glance across several cards. Not the
+     only cue — the name stays the primary label — so a border-color fallback
+     covers a card whose colour has not loaded for whatever reason. */
+  border-left: 5px solid var(--proj-color, var(--rule));
 }
-a.proj:hover, a.proj:focus-visible { border-color: var(--accent); outline: none; }
-a.proj.hot { border-left: 3px solid var(--you); }
-.row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+a.proj:hover, a.proj:focus-visible { border-color: var(--accent); outline: none; border-left-color: var(--proj-color, var(--accent)); }
+/* "Waiting on you" is carried by the badge alone now — a second cue (a second
+   border colour fighting the project's own) would answer the same question
+   twice and compete with the one border a card gets to spend on identity. */
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .row .t { font-size: 16px; font-weight: 600; }
+/* A small solid circle beside the name — the "or a dot plus bar" alternative
+   the identity cue can take, kept even though the bar above already carries
+   it, because a dot beside the text reads at a glance without looking left
+   to the card's edge. */
+.color-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  background: var(--proj-color, var(--rule));
+}
+/* The project page masthead's own dot, beside the h1 rather than on a card. */
+.masttitle { display: flex; align-items: center; gap: 10px; }
+.masttitle h1 { margin: 0 0 8px; }
+.masttitle .color-dot { width: 13px; height: 13px; }
 .badge {
   margin-left: auto; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em;
   text-transform: uppercase; padding: 3px 8px; border-radius: 3px;
@@ -142,6 +161,7 @@ a.proj.hot { border-left: 3px solid var(--you); }
 }
 .badge.you { color: var(--you); background: var(--you-soft); }
 .proj .d { color: var(--soft); font-size: 13.5px; margin-top: 4px; }
+.proj .activity { color: var(--faint); font-size: 10.5px; margin-top: 7px; }
 .proj .counts { color: var(--faint); font-size: 11px; margin-top: 9px; }
 .empty { color: var(--soft); }
 
@@ -461,6 +481,26 @@ details.settings > summary:focus-visible { outline: 2px solid var(--accent); out
 .agentrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .agentrow input { flex: 1 1 120px; width: auto; min-width: 0; }
 .agentrow .agent-remove { flex: none; }
+
+/* The project colour picker: twelve swatches as radio buttons. A plain
+   radio hidden behind the swatch's own colour would be unreadable against
+   itself, so this restyles the input as the swatch — the ring on :checked is
+   the only extra affordance a colour circle needs. */
+.colorpicker { display: flex; flex-wrap: wrap; gap: 10px 8px; padding-top: 4px; padding-bottom: 14px; }
+.colorpicker .swatch { position: relative; display: inline-flex; }
+.colorpicker input[type="radio"] {
+  appearance: none; -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%;
+  margin: 0; padding: 0; background: var(--swatch-color); border: 2px solid transparent; cursor: pointer;
+}
+.colorpicker input[type="radio"]:checked {
+  border-color: var(--panel); box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--panel);
+}
+.colorpicker input[type="radio"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.swatch-inuse {
+  position: absolute; bottom: -13px; left: 50%; transform: translateX(-50%);
+  font-size: 7.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); white-space: nowrap;
+}
+
 @media (max-width: 360px) {
   .settings-body { padding-inline: 10px; }
   .agentrow { flex-direction: column; align-items: stretch; }
