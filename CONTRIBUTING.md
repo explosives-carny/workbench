@@ -6,9 +6,14 @@ silently forks everybody's tool.
 
 ## The rule
 
-**Do not change the installed application to make one project work.**
+**Change the application by pull request, never by editing the installed copy.**
 
-If a board is missing something you need, you have three options, in order:
+Pull requests are welcome. What is ruled out is the private edit: changing the
+copy that is running on your machine so one project works, where nobody reviews
+it and the next update overwrites it.
+
+If a board is missing something you need, you have three routes. The first two
+need nobody's permission; the third is the normal way the tool gets better:
 
 1. **Use what is there.** Most "I need a new type" turns out to be a section, a
    status, or a document with a body. Check [`docs/what-goes-here.md`](docs/what-goes-here.md)
@@ -17,11 +22,54 @@ If a board is missing something you need, you have three options, in order:
    text cost nothing and need no permission. A project that prefixes item titles
    with `[risk]` has invented a type without changing a line of code.
 3. **Open a pull request.** Anything that changes behaviour for every user of
-   this tool goes through a branch and a review — by a person.
+   this tool goes through a branch, a documented pull request and a review by a
+   person. Open it early: a small pull request with a clear reason is easier to
+   review than a finished feature nobody saw coming.
 
 An agent that edits the working copy to add a feature has not improved the tool;
 it has given one machine a private version that the next update overwrites and
 nobody else can reproduce.
+
+## Who may change the application
+
+Anyone with **write access to this repository** may change the application, and
+they are encouraged to. Write access is granted by the repository owner as a
+GitHub collaborator; that list, not this file, is who the contributors are.
+
+Contributors, and the agents working for them:
+
+- **Change it only by pull request into `main`.** Never push to `main`, and never
+  change an installed copy to get a result the repository does not have.
+- **Open pull requests early and often.** Draft pull requests are fine. A change
+  that waits on your machine helps nobody and drifts from `main`.
+- **Document every pull request twice** (see *How a pull request is
+  documented* below). The description check refuses one that is missing either
+  part.
+- **Do not merge your own pull request.** The repository owner reviews and
+  merges; the point is that a person who did not write the change decides what
+  every other installation inherits.
+- **Keep installation names out of it** — the rule under *What a good pull
+  request contains* applies to contributors exactly as it does to agents.
+
+## How a pull request is documented
+
+Every pull request description has these two sections, filled in. The template
+in `.github/pull_request_template.md` puts them there; the `pr-description`
+check fails a pull request where either is missing, empty, or still the
+template's placeholder text.
+
+**`## Detail (for an agent)`** — written for the next agent or engineer who
+has to understand, review or extend the change without asking you. What
+changed and why, file by file where it matters; any route, field, status or
+rule added or changed, with its exact shape; whether the contract version
+moved; migrations and how an old database opens; the tests that prove it and
+what they do not prove; anything left undone.
+
+**`## Summary (for a project manager)`** — plain words, no code. What someone
+using the board will notice: what they can now do, what looks or behaves
+differently, what they no longer need to do. If nothing a user sees changes,
+say so in one sentence ("No visible change — this makes X safer to change
+later"). Three to six short bullets is the right size.
 
 ## What needs a pull request
 
@@ -44,7 +92,7 @@ bun test
 git add <explicit paths>          # never -A, never .
 git commit
 git push -u origin <branch>
-gh pr create --base main
+gh pr create --base main     # the template supplies the two required sections
 ```
 
 Then **stop and tell the human the PR is open.** Do not merge your own pull

@@ -1,0 +1,16 @@
+name: pr-description
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  pr-description:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Check the description has both required sections
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: bun scripts/check-pr-description.ts
