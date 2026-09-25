@@ -11,8 +11,12 @@ export const REQUIRED_SECTIONS = [
   { heading: 'Summary (for a project manager)', minWords: 5 },
 ] as const;
 
+// Placeholder guidance (HTML comments) and checklist lines (the tool-only
+// confirmation) are not documentation, so neither counts toward a section.
 function stripComments(text: string): string {
-  return text.replace(/<!--[\s\S]*?-->/g, '');
+  return text
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^\s*-\s*\[[ xX]\].*(?:\n(?!\s*-|\s*$)\s+.*)*/gm, '');
 }
 
 /** The text under a level-2 heading, up to the next level-1 or level-2 heading. */
