@@ -483,7 +483,7 @@
     t.className = 'lr-title';
     t.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(item.id);
     t.textContent = item.title;
-    // The row clamps a long title to two lines; the full text is one hover
+    // The row cuts a long title with an ellipsis; the full text is one hover
     // away rather than gone. The link's accessible name is still the whole
     // title (textContent), so nothing is lost for a screen reader either.
     t.title = item.title;

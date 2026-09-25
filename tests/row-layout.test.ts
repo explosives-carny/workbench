@@ -38,10 +38,14 @@ describe('row layout: the title always shows', () => {
     expect(body).toMatch(/who\.title\s*=\s*fullWho/);
   });
 
-  it('gives the title link a guaranteed grow-and-floor share of the row, and clamps it to two lines', () => {
-    expect(appCss).toMatch(/a\.lr-title\s*\{[^}]*flex:\s*1 1 auto/);
-    expect(appCss).toMatch(/a\.lr-title\s*\{[^}]*min-width:\s*min\(40%,\s*12rem\)/);
-    expect(appCss).toMatch(/a\.lr-title\s*\{[^}]*-webkit-line-clamp:\s*2/);
+  it('keeps ref and title on the top line and cuts a long title with an ellipsis', () => {
+    // Zero basis: a long title must not wrap the ref + title under the toggle.
+    expect(appCss).toMatch(/\.lr-main\s*\{[^}]*flex:\s*1 1 0/);
+    expect(appCss).toMatch(/a\.lr-title\s*\{[^}]*white-space:\s*nowrap/);
+    expect(appCss).toMatch(/a\.lr-title\s*\{[^}]*text-overflow:\s*ellipsis/);
+    expect(appCss).not.toMatch(/-webkit-line-clamp/);
+    // Meta always takes the line below the title.
+    expect(appCss).toMatch(/\.lr-meta\s*\{[^}]*flex:\s*1 0 100%/);
   });
 
   it('keeps everything else in the row flex:none or shrinkable, never forcing the title out', () => {
