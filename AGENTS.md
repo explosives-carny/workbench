@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v13.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `13`,
+**Contract v14.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `14`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -486,6 +486,11 @@ empty. Reasoning and failure modes: `docs/what-goes-here.md`.
 set) and returns compact JSON to anything that is not a browser (`?pretty=1`
 forces indentation). `body` is never in a list — `bodyLength` says one is
 there; `GET /api/items/<id>` or `/body` for the text. Ask for what you need.
+
+Name a body's `bodyFormat` (`text`, `markdown`, `html`). Left out, it is guessed
+from the body: a leading `<!doctype html>` or `<html>` is `html`, a Markdown
+heading, list or quote is `markdown`, anything else `text`; an edit guesses only
+while the item is still `text` (v14, `docs/what-goes-here.md`).
 
 ### The check-in word, in full
 
