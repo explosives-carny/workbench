@@ -175,6 +175,23 @@ whoever is looking; sections doing the work a project should.
 
 ## The four kinds of item
 
+**Whichever kind it is, the title is a headline.** A few words that name the
+thing — the explanation, the quote, the evidence go in `context` or a
+document's `body`, never in the title. A title long enough that it has to be
+read in full before you know what the item is about is a body that landed in
+the wrong field, and it costs twice: the board row has to choose between
+showing it and showing anything else, and the person still has to open the
+item to find the actual question underneath it. The server warns rather than
+refuses — a long title, or a long one with no context and no body behind it,
+comes back with a `warning` naming what to move.
+
+The failure that produced this rule (2026-09-25): a real board, measured
+before writing it down, had 25 of roughly 350 items with titles over 100
+characters, five of those with no context and no body at all — the whole
+message had been pasted into the title, because typing into the one field
+`POST` requires is faster than filling in a second one. The rows crowded each
+other off the screen before this was named a rule.
+
 ### 1. A decision — the core case
 
 Something you cannot proceed on without a person choosing. Give it `options`

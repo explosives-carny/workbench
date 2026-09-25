@@ -134,3 +134,110 @@ describe('wb item references', () => {
     expect(result.code).not.toBe(0);
   });
 });
+
+describe('wb archive / restore', () => {
+  test('archives a project, then restores it (reclaiming its colour)', async () => {
+    const p = store.createProject({ name: 'Retire Me' });
+    const before = store.getProject(p.slug)!;
+    const archived = await wb('archive', p.slug);
+    expect(archived.code).toBe(0);
+    expect(archived.stdout).toContain('archived');
+    expect(store.getProject(p.slug)!.archivedAt).not.toBeNull();
+
+    const restored = await wb('restore', p.slug);
+    expect(restored.code).toBe(0);
+    expect(restored.stdout).toContain('restored');
+    const after = store.getProject(p.slug)!;
+    expect(after.archivedAt).toBeNull();
+    expect(after.color).toBe(before.color);
+  });
+
+  test('fails loudly for an unknown slug', async () => {
+    const result = await wb('archive', 'no-such-project');
+    expect(result.code).not.toBe(0);
+  });
+});
+
+describe('wb project', () => {
+  test('prints the project when given no flags', async () => {
+    const result = await wb('project', 'demo');
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('demo');
+    expect(result.stdout).toContain('groupBy:');
+    expect(result.stdout).toContain('colour:');
+  });
+
+  test('sets a subset of fields in one PATCH', async () => {
+    const p = store.createProject({ name: 'Configurable' });
+    const result = await wb('project', p.slug, '--group', 'move', '--sort', 'ref', '--description', 'set from the CLI');
+    expect(result.code).toBe(0);
+    const after = store.getProject(p.slug)!;
+    expect(after.groupBy).toBe('move');
+    expect(after.sortBy).toBe('ref');
+    expect(after.description).toBe('set from the CLI');
+  });
+
+  test('sets sections and repos from a comma-separated list', async () => {
+    const p = store.createProject({ name: 'Listy' });
+    const result = await wb('project', p.slug, '--section-mode', 'declared', '--sections', 'Ship it, Design', '--repos', 'owner/name, ~/code/x*');
+    expect(result.code).toBe(0);
+    const after = store.getProject(p.slug)!;
+    expect(after.sectionMode).toBe('declared');
+    expect(after.sections).toEqual(['Ship it', 'Design']);
+    expect(after.repos).toEqual(['owner/name', '~/code/x*']);
+  });
+
+  test('refuses an unknown flag', async () => {
+    const result = await wb('project', 'demo', '--auto-mode');
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('unknown flag');
+  });
+
+  test('refuses a known flag given no value instead of dropping it', async () => {
+    const result = await wb('project', 'demo', '--name', '--key', 'NEWKEY');
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('--name needs a value');
+  });
+});
+
+describe('wb settings', () => {
+  test('prints settings with onboarding defaults when unset', async () => {
+    const result = await wb('settings');
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('autoCapture: true');
+    expect(result.stdout).toContain('checkInOnStart: true');
+  });
+
+  test('sets a boolean flag bare (true) and explicit false', async () => {
+    const on = await wb('settings', '--post-findings');
+    expect(on.code).toBe(0);
+    expect((await wb('settings')).stdout).toContain('postFindings: true');
+
+    const off = await wb('settings', '--post-findings', 'false');
+    expect(off.code).toBe(0);
+    expect((await wb('settings')).stdout).toContain('postFindings: false');
+  });
+
+  test('sets --agent-name tool=name, merged onto any existing entries', async () => {
+    const first = await wb('settings', '--agent-name', 'claude-code=Spike');
+    expect(first.code).toBe(0);
+    const second = await wb('settings', '--agent-name', 'codex=Forge');
+    expect(second.code).toBe(0);
+    const printed = await wb('settings');
+    const names = JSON.parse(printed.stdout.match(/agentNames: (.+)/)![1]);
+    expect(names).toEqual({ 'claude-code': 'Spike', codex: 'Forge' });
+  });
+
+  test('refuses --auto-mode and any other unknown flag', async () => {
+    const result = await wb('settings', '--auto-mode');
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('unknown flag');
+    expect(result.stderr).toContain('no --auto-mode');
+  });
+
+  test('refuses a known flag given no value', async () => {
+    const result = await wb('settings', '--default-project');
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('needs a value');
+  });
+});

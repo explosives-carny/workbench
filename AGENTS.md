@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v12.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `12`,
+**Contract v13.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `13`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -53,6 +53,14 @@ wb status <id> <status>                            PATCH /api/items/<id> {"statu
 wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
 wb export                                          bun run export — the server also exports on its own after every change
+wb archive <slug>                                  PATCH /api/projects/<slug> {"archived":true,"actor":"<you>"}
+wb restore <slug>                                  PATCH /api/projects/<slug> {"archived":false,"actor":"<you>"} — reclaims its colour if still free
+wb project <slug>                                  GET  /api/projects/<slug> — prints name, key, groupBy, sortBy, sectionMode, color, sections, repos
+wb project <slug> --group s|status|move --sort activity|ref --color '#…' --name … --description … --key … --section-mode adhoc|declared --sections a,b --repos a,b
+                                                   PATCH /api/projects/<slug> {…whichever flags were given…} — any subset, one call
+wb settings                                        GET  /api/settings — prints every key, including its onboarding default when unset
+wb settings --default-project <slug> --backup-plan … --auto-capture --check-in-on-start --post-findings --summarise-on-exit --agent-name tool=name
+                                                   PATCH /api/settings {…} — a boolean flag alone means true; --flag false means false; no --auto-mode: auto is a session order, never a setting
 ```
 
 Responses are `{"ok":true, …}` or `{"ok":false,"error":"…"}`: `400` malformed
@@ -82,11 +90,17 @@ understood — usually a typo).
 6. **One item per question**, context answerable without you in the room:
    tradeoff, recommendation, cost of being wrong. Documents are `kind:
    "document"`; a document that asks for something is two items.
-7. **`needs-qa` means steps attached.** Define steps with `checks:[…]` on the
+7. **A title is a headline, not the body.** A few words that name the thing,
+   at most about 100 characters; the explanation, the quote, the evidence go
+   in `context` (or a document's `body`), never in the title. A title that has
+   to be read in full to know what the item is, is a body in the wrong field.
+   The server warns rather than refuses — a long title, or a long one with no
+   context and no body, comes back with a `warning` naming what to move.
+8. **`needs-qa` means steps attached.** Define steps with `checks:[…]` on the
    item; record results one step at a time. When every step has a result the
    round is finished and the item goes back at `received`: signed off if all
    passed, otherwise for the builder to review the notes.
-8. **Change this application by pull request — never by editing the running copy.**
+9. **Change this application by pull request — never by editing the running copy.**
    Branch, change it with tests, open a pull request documented in two
    registers (detail for an agent, a plain summary for a project manager),
    tell them it is open. Pull requests are welcome and early ones are better
@@ -96,16 +110,16 @@ understood — usually a typo).
    installation's own data. What is ruled out is the private edit: a change made to the
    installed copy that no one reviewed and the next update overwrites. See
    `CONTRIBUTING.md`.
-9. **A report is not finished while it names work that is not on the board.**
-   Before you report a round, every "your call", "left for you", "not
-   confirmed" and follow-up in it is already an item — a decision with options,
-   or QA with steps. Chat is where those go to be forgotten. **A question is a
-   decision.** A clarifying question on an existing item goes on that item as
-   `options` (`PATCH /api/items/<id> {"options":[…]}`), or becomes its own
-   item; a message alone asks nothing anyone can click. **The report asks
-   nothing**: it names item ids and their statuses. A question mark in a round
-   report is a decision that is not on the board.
-10. **Reports and replies name items by ref first.** Once a project has a
+10. **A report is not finished while it names work that is not on the board.**
+    Before you report a round, every "your call", "left for you", "not
+    confirmed" and follow-up in it is already an item — a decision with options,
+    or QA with steps. Chat is where those go to be forgotten. **A question is a
+    decision.** A clarifying question on an existing item goes on that item as
+    `options` (`PATCH /api/items/<id> {"options":[…]}`), or becomes its own
+    item; a message alone asks nothing anyone can click. **The report asks
+    nothing**: it names item ids and their statuses. A question mark in a round
+    report is a decision that is not on the board.
+11. **Reports and replies name items by ref first.** Once a project has a
     `key`, every item on it has a `ref` — say `WB-DEMO-14`, never the UUID and
     never a truncated one. Fall back to the UUID's first eight characters only
     when the project has no key at all. See **References** below.
@@ -391,6 +405,18 @@ keeps its slug: `PATCH /api/projects/<slug> {"name":"…","description":"…"}`
 changes what people read, and add the new remote to `repos` so `wb resolve`
 still finds it.
 
+`GET /api/projects` orders the list by `lastActivityAt` DESC (the latest of
+the project's own creation, any item touched, any message sent), not by
+creation order — the gallery, and `wb resolve`'s "first match wins", both read
+as "whichever of mine moved most recently". Each project also carries `color`,
+one of twelve fixed values (`PROJECT_COLORS` in `src/db.ts`), assigned on
+create so no two unarchived projects share one; `PATCH /api/projects/<slug>
+{"color":"#…"}` changes it, refused with `400` if the value is not one of the
+twelve. Archiving a project frees its colour for reuse; restoring it reclaims
+the same one if nothing else took it meanwhile. Never a setting to switch on
+somebody's behalf — like `groupBy` and the others above, it is the human's
+call.
+
 ### References
 
 Every item has a UUID (`id`) forever, and — once its project has a `key` —
@@ -486,7 +512,7 @@ reason to sweep the board. Only the check-in word opens the round.
    less than redirecting finished work.
 4. Report the plan, then the outcome, one line per item. The report points
    at items; it asks nothing. A question you find yourself typing here is a
-   decision — file it, with options, then report the id (rule 9).
+   decision — file it, with options, then report the id (rule 10).
 5. **Re-read the set you worked.** Anything still at `received` was answered in
    the transcript and not on the board, and the board is the only half that
    survives the session.

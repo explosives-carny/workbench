@@ -168,6 +168,39 @@ export type GroupBy = 'section' | 'status' | 'move';
 export type SortBy = 'activity' | 'ref';
 
 /**
+ * Twelve distinct hues a project's colour is drawn from — a fixed, closed
+ * palette rather than a free-typed value, so "distinct" and "enough contrast
+ * to read as a bar" stay true no matter who picks. Generated rather than
+ * quoted from a named scheme: 12 hues spaced 30° apart in HSL at a fixed
+ * saturation (68%), each tuned to its own lightness so its sRGB relative
+ * luminance falls in the narrow band that gives >=3:1 WCAG contrast against
+ * BOTH this app's light page background (`--ground` #f7f7f5) and its dark one
+ * (`--ground` #17181a) — the one range of colours that reads as a bar on
+ * either theme without a second, theme-specific palette. Verified by direct
+ * contrast-ratio computation against both values, not eyeballed.
+ */
+// Ordered so each next project gets the hue farthest from those already
+// taken (180° apart, then 90°, then 30° gaps): colours are assigned first-free
+// in this order, and a hue-wheel order gave the first few projects
+// neighbouring hues that were hard to tell apart.
+export const PROJECT_COLORS = [
+  '#d25228', // 15°  vermillion
+  '#2085a7', // 195° sky
+  '#388d1b', // 105° green
+  '#b84bdd', // 285° violet
+  '#96781d', // 45°  olive gold
+  '#5476de', // 225° blue
+  '#1b8d71', // 165° teal
+  '#db4369', // 345° rose
+  '#6a8519', // 75°  moss
+  '#7654de', // 255° indigo
+  '#1b8d38', // 135° emerald
+  '#d936b0', // 315° magenta
+] as const;
+
+export type ProjectColor = typeof PROJECT_COLORS[number];
+
+/**
  * The status groups, in board order, when a project groups by status.
  *
  * Open is deliberately every TASK status that is still live — the two waiting on
@@ -261,8 +294,23 @@ export type Project = {
    * the board had no rule for which one was "mine" and read both, or guessed.
    */
   repos: string[];
+  /**
+   * One of {@link PROJECT_COLORS}, assigned on create so no two unarchived
+   * projects share a hue (until there are more than twelve of them). Shown as
+   * a bar on the home-page card and the project masthead — the visual cue a
+   * name and a description alone do not give at a glance.
+   */
+  color: string;
   createdAt: string;
   archivedAt: string | null;
+  /**
+   * The latest moment anything happened here: the project's own creation, or
+   * any item's `createdAt`/`updatedAt`, or any message's `createdAt` —
+   * whichever is newest. Computed with the row, in one grouped query across
+   * all three tables rather than one query per project, so listing every
+   * project stays a single round trip.
+   */
+  lastActivityAt: string;
 };
 
 /**
@@ -571,6 +619,20 @@ export function openDb(path: string): Database {
       -- Repositories this project is about (JSON array), so a session resolves
       -- its board from the directory or remote it is standing in.
       repos        TEXT NOT NULL DEFAULT '[]',
+      -- One of PROJECT_COLORS, or NULL until assigned. No column default:
+      -- every project gets one explicitly, at creation for a new row and by
+      -- the migration below for an existing one — never a fallback value that
+      -- would make two projects share a hue by coincidence rather than
+      -- because the palette genuinely ran out.
+      --
+      -- Declared before sort_by rather than after it deliberately: SQLite's
+      -- ALTER TABLE DROP COLUMN cannot correctly rewrite this schema's text
+      -- when the LAST column's own comment contains a comma (verified with a
+      -- minimal repro; a documented rewriter limitation, not a bug in this
+      -- file) — and a comma is the one thing an English sentence about a
+      -- fixed list of values cannot avoid. Keeping any column but the very
+      -- last one free to carry an ordinary comment is the simpler fix.
+      color        TEXT,
       -- Row order inside a group: 'activity' (newest first) or 'ref' (by
       -- reference number ascending). Activity is the default everywhere,
       -- including for new projects — a queue order is a deliberate choice.
@@ -661,6 +723,38 @@ export function openDb(path: string): Database {
   if (!pcols.has('key')) db.exec('ALTER TABLE projects ADD COLUMN key TEXT');
   if (!pcols.has('old_keys')) db.exec("ALTER TABLE projects ADD COLUMN old_keys TEXT NOT NULL DEFAULT '[]'");
   if (!pcols.has('next_seq')) db.exec('ALTER TABLE projects ADD COLUMN next_seq INTEGER NOT NULL DEFAULT 1');
+  if (!pcols.has('color')) db.exec('ALTER TABLE projects ADD COLUMN color TEXT');
+  // Backfill: every project without a colour gets the first palette entry no
+  // *other* project already assigned gets, oldest project first — the same
+  // rule createProject uses for a brand new one, applied once in creation
+  // order so a database that predates colours ends up looking exactly like
+  // one that had been assigning them all along. Runs on every open (like the
+  // kind/status backfill above): a colourless project — restored from an
+  // export written before this column existed, say — is caught here too.
+  {
+    const used = new Set<string>(
+      (db.query("SELECT color FROM projects WHERE color IS NOT NULL AND archived_at IS NULL").all() as any[])
+        .map((r) => r.color)
+    );
+    // Unarchived projects first, and an archived row never reserves its colour:
+    // only live projects need distinct hues, so eight retired projects must not
+    // push eight live ones into sharing.
+    const missing = db.query("SELECT id, archived_at FROM projects WHERE color IS NULL ORDER BY (archived_at IS NOT NULL) ASC, created_at ASC, id ASC").all() as any[];
+    for (const row of missing) {
+      let next = PROJECT_COLORS.find((c) => !used.has(c));
+      if (!next) {
+        // More projects than palette entries: reuse the least-used colour so
+        // far in this pass rather than leaving any project uncoloured.
+        const counts = new Map<string, number>(PROJECT_COLORS.map((c) => [c, 0]));
+        for (const r2 of db.query('SELECT color FROM projects WHERE color IS NOT NULL').all() as any[]) {
+          if (counts.has(r2.color)) counts.set(r2.color, (counts.get(r2.color) || 0) + 1);
+        }
+        next = [...PROJECT_COLORS].sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0))[0];
+      }
+      db.query('UPDATE projects SET color = ? WHERE id = ?').run(next, row.id);
+      if (!row.archived_at) used.add(next);
+    }
+  }
   const columns = new Set<string>(db.query('PRAGMA table_info(items)').all().map((r: any) => r.name));
   if (!columns.has('seq')) db.exec('ALTER TABLE items ADD COLUMN seq INTEGER');
   if (!columns.has('client_id')) db.exec("ALTER TABLE items ADD COLUMN client_id TEXT NOT NULL DEFAULT ''");
@@ -780,8 +874,19 @@ function rowToProject(r: any): Project {
         return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string' && x.trim()) : [];
       } catch { return []; }
     })(),
+    // Falls back to the first palette entry rather than an empty string: a row
+    // read mid-migration (or via a raw query this function was never meant to
+    // see) still gets something PROJECT_COLORS recognises rather than a blank
+    // bar. The migration above is what actually guarantees every stored row
+    // has one.
+    color: (PROJECT_COLORS as readonly string[]).includes(r.color) ? r.color : PROJECT_COLORS[0],
     createdAt: r.created_at,
     archivedAt: r.archived_at,
+    // Computed by the caller's query (listProjects and getProject both join
+    // for it); falls back to the project's own createdAt when a query did
+    // not, which is never wrong — a project with no activity yet is exactly
+    // as fresh as its own creation.
+    lastActivityAt: typeof r.last_activity_at === 'string' && r.last_activity_at ? r.last_activity_at : r.created_at,
   };
 }
 
@@ -871,22 +976,73 @@ export class Store {
     if (owner) throw new ProjectKeyTaken(owner.slug, key);
   }
 
+  /**
+   * The `lastActivityAt` join, shared by `listProjects` and `getProject` so a
+   * project read either way carries the same computed field. One grouped
+   * query across all three tables that could hold the newest timestamp
+   * (the project's own row, so a project with nothing on it yet still gets
+   * its creation time rather than NULL; every item's `created_at` and
+   * `updated_at`; every message's `created_at`, joined through its item) —
+   * not one query per project, which is the N+1 the counts() comment
+   * elsewhere in this file already warns against.
+   */
+  private static readonly ACTIVITY_JOIN = `
+    LEFT JOIN (
+      SELECT id AS project_id, created_at AS at FROM projects
+      UNION ALL
+      SELECT project_id, created_at AS at FROM items
+      UNION ALL
+      SELECT project_id, updated_at AS at FROM items
+      UNION ALL
+      SELECT items.project_id AS project_id, messages.created_at AS at
+      FROM messages JOIN items ON items.id = messages.item_id
+    ) act ON act.project_id = p.id
+  `;
+
   listProjects(includeArchived = false): Project[] {
-    const sql = includeArchived
-      ? 'SELECT * FROM projects ORDER BY created_at DESC'
-      : 'SELECT * FROM projects WHERE archived_at IS NULL ORDER BY created_at DESC';
+    const where = includeArchived ? '' : 'WHERE p.archived_at IS NULL';
+    const sql = `
+      SELECT p.*, MAX(act.at) AS last_activity_at FROM projects p
+      ${Store.ACTIVITY_JOIN}
+      ${where}
+      GROUP BY p.id
+      ORDER BY last_activity_at DESC, p.created_at DESC
+    `;
     return this.db.query(sql).all().map(rowToProject);
   }
 
   getProject(slug: string): Project | null {
-    const row = this.db.query('SELECT * FROM projects WHERE slug = ?').get(slug);
+    const row = this.db.query(`
+      SELECT p.*, MAX(act.at) AS last_activity_at FROM projects p
+      ${Store.ACTIVITY_JOIN}
+      WHERE p.slug = ?
+      GROUP BY p.id
+    `).get(slug);
+    return row ? rowToProject(row) : null;
+  }
+
+  /**
+   * The same shape as {@link getProject}, addressed by internal id. A route
+   * that already has an item's `projectId` (an item's own PATCH, its messages,
+   * its checks) uses this rather than scanning `listProjects` for it — the
+   * project owning an item needed a direct lookup and got a full-table scan
+   * borrowed from elsewhere instead, once. Also how a write route checks
+   * whether the project it is writing into is archived.
+   */
+  getProjectById(id: string): Project | null {
+    const row = this.db.query(`
+      SELECT p.*, MAX(act.at) AS last_activity_at FROM projects p
+      ${Store.ACTIVITY_JOIN}
+      WHERE p.id = ?
+      GROUP BY p.id
+    `).get(id);
     return row ? rowToProject(row) : null;
   }
 
   /**
    * The project a repository reference belongs to, or null. `ref` is a remote
    * URL, `owner/name`, or a directory path; see normaliseRepoRef. First match
-   * wins in creation order, newest first — the same order the gallery shows.
+   * wins in the same order the gallery shows — most recently active first.
    */
   resolveProject(ref: string, home = ''): Project | null {
     const target = normaliseRepoRef(ref, home);
@@ -907,6 +1063,7 @@ export class Store {
     if (existing) return existing;
     const key = input.key === undefined ? null : normaliseProjectKey(input.key);
     if (key) this.assertKeyAvailable(key);
+    const createdAt = now();
     const project: Project = {
       id: randomUUID(),
       slug,
@@ -931,13 +1088,40 @@ export class Store {
       // read as a feed of what just happened before it is worked as a queue.
       sortBy: 'activity',
       repos: normaliseLabels(input.repos),
-      createdAt: now(),
+      color: this.nextAvailableColor(),
+      createdAt,
       archivedAt: null,
+      lastActivityAt: createdAt,
     };
     this.db
-      .query('INSERT INTO projects (id, slug, name, description, key, old_keys, next_seq, section_mode, sections, group_by, repos, sort_by, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-      .run(project.id, project.slug, project.name, project.description, project.key, JSON.stringify(project.oldKeys), project.nextSeq, project.sectionMode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.sortBy, project.createdAt);
+      .query('INSERT INTO projects (id, slug, name, description, key, old_keys, next_seq, section_mode, sections, group_by, repos, sort_by, color, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+      .run(project.id, project.slug, project.name, project.description, project.key, JSON.stringify(project.oldKeys), project.nextSeq, project.sectionMode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.sortBy, project.color, project.createdAt);
     return project;
+  }
+
+  /**
+   * The colour a new (or restored) project should get: the first palette
+   * entry no *other* unarchived project is currently using. `exceptProjectId`
+   * lets a restore check "free" without being blocked by its own stored
+   * value. Once every entry is claimed by an unarchived project — more than
+   * twelve of them at once — the least-used entry across every project
+   * (archived included, so a colour several retired projects share is
+   * preferred over one a single live project holds alone) is reused, ties
+   * broken by palette order, so creation never fails for want of a free hue.
+   */
+  private nextAvailableColor(exceptProjectId?: string): string {
+    const used = new Set(
+      this.listProjects(false)
+        .filter((p) => p.id !== exceptProjectId)
+        .map((p) => p.color)
+    );
+    const free = PROJECT_COLORS.find((c) => !used.has(c));
+    if (free) return free;
+    const counts = new Map<string, number>(PROJECT_COLORS.map((c) => [c, 0]));
+    for (const row of this.db.query('SELECT color FROM projects WHERE color IS NOT NULL').all() as any[]) {
+      if (counts.has(row.color)) counts.set(row.color, (counts.get(row.color) || 0) + 1);
+    }
+    return [...PROJECT_COLORS].sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0))[0];
   }
 
   /**
@@ -988,6 +1172,16 @@ export class Store {
     const project = this.getProject(slug);
     if (!project) return null;
     this.db.query('UPDATE projects SET archived_at = ? WHERE id = ?').run(archived ? now() : null, project.id);
+    // Archiving releases this project's colour for a new project to claim;
+    // restoring tries to reclaim the same one, but only if nothing else took
+    // it in the meantime — otherwise it is treated like a brand new project
+    // and given whatever is next free, rather than forcing a collision.
+    if (!archived) {
+      const stillFree = !this.listProjects(false).some((p) => p.id !== project.id && p.color === project.color);
+      if (!stillFree) {
+        this.db.query('UPDATE projects SET color = ? WHERE id = ?').run(this.nextAvailableColor(project.id), project.id);
+      }
+    }
     return this.getProject(slug);
   }
 
@@ -1354,7 +1548,7 @@ export class Store {
     return out;
   }
 
-  setProjectSections(slug: string, patch: { name?: string; description?: string; sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy; sortBy?: SortBy; repos?: string[] }): Project | null {
+  setProjectSections(slug: string, patch: { name?: string; description?: string; sectionMode?: SectionMode; sections?: string[]; groupBy?: GroupBy; sortBy?: SortBy; repos?: string[]; color?: string }): Project | null {
     const project = this.getProject(slug);
     if (!project) return null;
     // The slug is deliberately not editable: it is the key in URLs, exports
@@ -1366,9 +1560,13 @@ export class Store {
     const groupBy = patch.groupBy ?? project.groupBy;
     const sortBy = patch.sortBy ?? project.sortBy;
     const repos = patch.repos === undefined ? project.repos : normaliseLabels(patch.repos);
+    // Membership in PROJECT_COLORS is the caller's job (app.ts refuses
+    // anything else with a 400 naming the palette); trusted here the same way
+    // groupBy and sortBy are.
+    const color = patch.color ?? project.color;
     this.db
-      .query('UPDATE projects SET name = ?, description = ?, section_mode = ?, sections = ?, group_by = ?, sort_by = ?, repos = ? WHERE id = ?')
-      .run(name, description, mode, JSON.stringify(sections), groupBy, sortBy, JSON.stringify(repos), project.id);
+      .query('UPDATE projects SET name = ?, description = ?, section_mode = ?, sections = ?, group_by = ?, sort_by = ?, repos = ?, color = ? WHERE id = ?')
+      .run(name, description, mode, JSON.stringify(sections), groupBy, sortBy, JSON.stringify(repos), color, project.id);
     return this.getProject(slug);
   }
 

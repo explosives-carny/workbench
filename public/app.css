@@ -87,7 +87,12 @@ h1 { font-size: clamp(28px, 5vw, 38px); font-weight: 650; letter-spacing: -.022e
 h2 { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
 .lede { color: var(--soft); max-width: 62ch; margin: 0; }
 .titlerow { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.titlerow h1 { margin: 0 0 8px; }
+/* The item page's own title is never clamped or truncated, at any width — this
+   is the one place the full title always has to be readable without a hover.
+   min-width: 0 lets it shrink below a flex item's default content-size floor,
+   and flex-wrap on .titlerow above means the ref chip beside it drops to its
+   own line rather than squeezing the heading, at any width. */
+.titlerow h1 { margin: 0 0 8px; min-width: 0; overflow-wrap: anywhere; flex: 1 1 auto; }
 /* The key beside the project name: shown only once one is set, since a project
    with none has nothing worth stating here. */
 .projkey { color: var(--soft); font-size: 12px; margin: 0 0 8px; display: inline-block; }
@@ -110,6 +115,12 @@ h2 { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
    got 8px. The bottom margin collapses with the following sibling's, so the two
    pages that already had 30-32px keep exactly what they had. */
 .rule { height: 3px; width: 52px; background: var(--accent); margin: 20px 0 30px; }
+.archived-banner {
+  display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--gone); background: var(--gone-soft);
+  border: 1px solid currentColor; border-radius: 3px; padding: 5px 11px; margin: -6px 0 22px;
+}
+.archived-banner[hidden] { display: none; }
 .mono { font-family: var(--mono); }
 
 a { color: var(--accent); }
@@ -124,12 +135,31 @@ a.back:hover, a.back:focus-visible { color: var(--accent); border-color: var(--a
 .projects { display: grid; gap: 10px; margin-top: 32px; }
 a.proj {
   display: block; text-decoration: none; color: inherit; background: var(--panel);
-  border: 1px solid var(--rule); border-radius: 6px; padding: 15px 17px;
+  border: 1px solid var(--rule); border-radius: 6px; padding: 15px 17px 15px 14px;
+  /* The project's own colour: a 5px left bar, the visual cue a name and
+     description alone don't give at a glance across several cards. Not the
+     only cue — the name stays the primary label — so a border-color fallback
+     covers a card whose colour has not loaded for whatever reason. */
+  border-left: 5px solid var(--proj-color, var(--rule));
 }
-a.proj:hover, a.proj:focus-visible { border-color: var(--accent); outline: none; }
-a.proj.hot { border-left: 3px solid var(--you); }
-.row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+a.proj:hover, a.proj:focus-visible { border-color: var(--accent); outline: none; border-left-color: var(--proj-color, var(--accent)); }
+/* "Waiting on you" is carried by the badge alone now — a second cue (a second
+   border colour fighting the project's own) would answer the same question
+   twice and compete with the one border a card gets to spend on identity. */
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .row .t { font-size: 16px; font-weight: 600; }
+/* A small solid circle beside the name — the "or a dot plus bar" alternative
+   the identity cue can take, kept even though the bar above already carries
+   it, because a dot beside the text reads at a glance without looking left
+   to the card's edge. */
+.color-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  background: var(--proj-color, var(--rule));
+}
+/* The project page masthead's own dot, beside the h1 rather than on a card. */
+.masttitle { display: flex; align-items: center; gap: 10px; }
+.masttitle h1 { margin: 0 0 8px; }
+.masttitle .color-dot { width: 13px; height: 13px; }
 .badge {
   margin-left: auto; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em;
   text-transform: uppercase; padding: 3px 8px; border-radius: 3px;
@@ -137,6 +167,35 @@ a.proj.hot { border-left: 3px solid var(--you); }
 }
 .badge.you { color: var(--you); background: var(--you-soft); }
 .proj .d { color: var(--soft); font-size: 13.5px; margin-top: 4px; }
+.proj .activity { color: var(--faint); font-size: 10.5px; margin-top: 7px; }
+
+/* ---- archived projects ---- */
+/* A collapsed section below the live list — kept as a record, not the first
+   thing the home page shows, but never hidden entirely. */
+details.archived-projects {
+  margin-top: 22px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel);
+}
+details.archived-projects[hidden] { display: none; }
+details.archived-projects > summary {
+  cursor: pointer; padding: 11px 15px; font-family: var(--mono); font-size: 11px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--soft); list-style: none;
+}
+details.archived-projects > summary::-webkit-details-marker { display: none; }
+details.archived-projects > summary::before { content: '\25b8'; display: inline-block; width: 1em; transition: transform .15s; }
+details.archived-projects[open] > summary::before { transform: rotate(90deg); }
+details.archived-projects > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.archived-projects .projects { margin: 0; padding: 0 15px 15px; }
+a.proj.archived { opacity: .82; }
+a.proj.archived:hover, a.proj.archived:focus-visible { opacity: 1; }
+button.restore-btn {
+  margin-left: auto; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 3px; color: var(--soft);
+}
+button.restore-btn:hover { border-color: var(--accent); color: var(--accent); }
+button.restore-btn:disabled { opacity: .6; cursor: default; }
+.restore-note { font-size: 10.5px; margin-top: 4px; min-height: 0; }
+.restore-note:empty { display: none; }
+.restore-note.err { color: var(--you); }
 .proj .counts { color: var(--faint); font-size: 11px; margin-top: 9px; }
 .empty { color: var(--soft); }
 
@@ -198,10 +257,22 @@ button.lr-toggle {
   border-top-left-radius: 0; border-top-right-radius: 0; border-top: 0;
   margin-bottom: 0;
 }
-.lr-main { flex: 1 1 240px; min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+/* The title is what the row is FOR — a row with plenty of labels, a long
+   author signature and a status chip must still show it. `.lr-main` is a
+   plain flexible wrapper (the ref chip is flex:none, sized to its content);
+   the guaranteed floor lives on the title itself, so it is the one thing on
+   the row that never gets squeezed toward zero. */
+.lr-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 9px; }
 a.lr-title {
+  flex: 1 1 auto; min-width: min(40%, 12rem);
   font-size: 14.5px; font-weight: 550; color: inherit; text-decoration: none;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow-wrap: anywhere;
+  /* Two lines, not one: a title long enough to need this is exactly the one a
+     single-line ellipsis hides almost all of. The full text still reaches
+     screen readers (it is the link's accessible name) and a sighted reader
+     gets it from the title= attribute on hover. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 a.lr-title:hover, a.lr-title:focus-visible { color: var(--accent); text-decoration: underline; }
 .lr-doc {
@@ -211,15 +282,18 @@ a.lr-title:hover, a.lr-title:focus-visible { color: var(--accent); text-decorati
 /* A label is a chip AND a control, so it reads as neutral until it is the one
    filtering — then it takes the accent and stops being decoration. Deliberately
    quieter than the status colours: five hues already carry meaning on this row
-   and labels must not compete with them. */
-button.lr-label {
+   and labels must not compete with them. Untyped so the "+N" overflow chip
+   (a plain span — there is no single label it could filter on) shares the
+   same look without inheriting a button's pointer cursor. */
+.lr-label {
   font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
   color: var(--soft); background: var(--rule-2); border: 1px solid transparent;
   border-radius: 2px; padding: 2px 6px; flex: none; cursor: pointer; line-height: 1.4;
 }
-button.lr-label:hover { color: var(--ink-2); border-color: var(--rule); }
-button.lr-label.on { color: var(--accent); background: var(--accent-soft); border-color: currentColor; }
-button.lr-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lr-label:hover { color: var(--ink-2); border-color: var(--rule); }
+.lr-label.on { color: var(--accent); background: var(--accent-soft); border-color: currentColor; }
+.lr-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lr-label.lr-more { cursor: default; }
 
 button.labelfilter {
   font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
@@ -237,8 +311,11 @@ button.labelfilter:focus-visible { outline: 2px solid var(--accent); outline-off
 }
 .lr-meta .chip { margin-left: 0; }
 @media (max-width: 620px) {
+  /* The meta cluster (labels, time, author, status) moves to its own line
+     under the title rather than squeezing it — the row's flex-wrap already
+     does this once main claims its min-width; this just gives meta the full
+     width once it is down there instead of a cramped leftover sliver. */
   .lr-meta { margin-left: 0; width: 100%; }
-  a.lr-title { white-space: normal; }
 }
 
 /* ---- imported documents ---- */
@@ -399,6 +476,70 @@ footer {
   color: var(--soft); font-weight: 500; background: var(--ground);
 }
 .mddoc tr:last-child td { border-bottom: 0; }
+
+/* ---- settings panel ---- */
+/* A collapsed control by default: these are the human's calls (groupBy,
+   sortBy, agent names, the onboarding answers), reachable but not competing
+   with the board itself for the first thing anyone sees on the page. */
+details.settings {
+  margin: 20px 0 30px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel);
+}
+details.settings > summary {
+  cursor: pointer; padding: 12px 16px; font-family: var(--mono); font-size: 11px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--soft); list-style: none;
+}
+details.settings > summary::-webkit-details-marker { display: none; }
+details.settings > summary::before { content: '\25b8'; display: inline-block; width: 1em; transition: transform .15s; }
+details.settings[open] > summary::before { transform: rotate(90deg); }
+details.settings > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-body { padding: 2px 16px 16px; display: grid; gap: 18px; max-width: 100%; }
+.settings-body fieldset {
+  border: 1px solid var(--rule); border-radius: 5px; padding: 12px 14px 14px;
+  margin: 0; display: grid; gap: 7px; min-width: 0;
+}
+.settings-body legend {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--soft); padding: 0 4px;
+}
+/* Labels above their control, not beside it — the one layout that survives
+   both a wide panel and a 360px phone without a control shrinking to nothing. */
+.settings-body label:not(.checkbox) { display: block; font-size: 12px; color: var(--soft); margin-top: 4px; }
+.settings-body label.checkbox { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink); }
+.settings-body label.checkbox input { width: auto; }
+.settings-body .hint { font-size: 11.5px; color: var(--faint); margin: 0 0 2px; }
+.settings-body select, .settings-body input[type="text"], .settings-body textarea {
+  max-width: 100%; width: 100%;
+}
+.settings-body textarea { min-height: 58px; font-family: var(--mono); font-size: 12.5px; }
+.settings-body button { align-self: start; }
+.agentrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.agentrow input { flex: 1 1 120px; width: auto; min-width: 0; }
+.agentrow .agent-remove { flex: none; }
+
+/* The project colour picker: twelve swatches as radio buttons. A plain
+   radio hidden behind the swatch's own colour would be unreadable against
+   itself, so this restyles the input as the swatch — the ring on :checked is
+   the only extra affordance a colour circle needs. */
+.colorpicker { display: flex; flex-wrap: wrap; gap: 10px 8px; padding-top: 4px; padding-bottom: 14px; }
+.colorpicker .swatch { position: relative; display: inline-flex; }
+.colorpicker input[type="radio"] {
+  appearance: none; -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%;
+  margin: 0; padding: 0; background: var(--swatch-color); border: 2px solid transparent; cursor: pointer;
+}
+.colorpicker input[type="radio"]:checked {
+  border-color: var(--panel); box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--panel);
+}
+.colorpicker input[type="radio"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.swatch-inuse {
+  position: absolute; bottom: -13px; left: 50%; transform: translateX(-50%);
+  font-size: 7.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); white-space: nowrap;
+}
+
+@media (max-width: 360px) {
+  .settings-body { padding-inline: 10px; }
+  .agentrow { flex-direction: column; align-items: stretch; }
+  .agentrow input { width: 100%; }
+}
 
 /* ---- checklists ---- */
 .checkhead { display: flex; align-items: center; gap: 14px; margin: 4px 0 12px; }

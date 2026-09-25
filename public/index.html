@@ -15,7 +15,58 @@
     <div class="rule"></div>
   </header>
 
+  <details class="settings" id="boardsettings">
+    <summary>Board settings</summary>
+    <div class="settings-body">
+      <fieldset>
+        <legend>Defaults</legend>
+        <label for="set-defaultProject">Default project</label>
+        <select id="set-defaultProject" data-field="defaultProject"></select>
+        <p class="hint">Used when a session cannot resolve a project from its repository.</p>
+
+        <label for="set-backupPlan">Backup plan</label>
+        <input type="text" id="set-backupPlan" data-field="backupPlan" placeholder="a path, a git remote, or none">
+        <button type="button" id="save-backupPlan">Save</button>
+        <p class="hint">A path, a git remote, or none.</p>
+        <div class="saved" id="saved-backupPlan"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Session behaviour</legend>
+        <label class="checkbox"><input type="checkbox" id="set-autoCapture" data-field="autoCapture"> Put decisions on the board automatically</label>
+        <p class="hint">Off means only when you ask. Default when unset: on.</p>
+
+        <label class="checkbox"><input type="checkbox" id="set-checkInOnStart" data-field="checkInOnStart"> Read the board at the start of every session</label>
+        <p class="hint">Off means only when you say so. Default when unset: on.</p>
+
+        <label class="checkbox"><input type="checkbox" id="set-postFindings" data-field="postFindings"> Put defects and risks found on the board</label>
+        <p class="hint">Off means tell you in chat instead. Default when unset: on.</p>
+
+        <label class="checkbox"><input type="checkbox" id="set-summariseOnExit" data-field="summariseOnExit"> Post a summary before finishing a session</label>
+        <p class="hint">Useful if somebody else picks the work up. Default when unset: off.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Agent names</legend>
+        <p class="hint">The name each tool is called, so a reply reads as the name a person recognises rather than the tool's own name.</p>
+        <div id="agentnames-rows" data-field="agentNames"></div>
+        <button type="button" id="agentnames-add">Add row</button>
+        <div class="saved" id="saved-agentNames"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Setup</legend>
+        <p class="mono" id="onboarded-line" data-field="onboardedAt">Not set up yet</p>
+      </fieldset>
+    </div>
+  </details>
+
   <div id="list" class="projects" aria-live="polite"></div>
+
+  <details class="archived-projects" id="archivedprojects" hidden>
+    <summary id="archived-summary">Archived projects (0)</summary>
+    <div id="archivedlist" class="projects" aria-live="polite"></div>
+  </details>
 
   <section class="newproj">
     <h2>New project</h2>
@@ -36,17 +87,148 @@
 (async function () {
   const listEl = document.getElementById('list');
 
+  // Board settings panel. Closed by default, remembered across visits — this
+  // machine has one board, so there is only one open/closed preference to keep.
+  const BOARD_SETTINGS_KEY = 'wb.settingsOpen.board';
+  const boardSettingsEl = document.getElementById('boardsettings');
+  try {
+    if (localStorage.getItem(BOARD_SETTINGS_KEY) === '1') boardSettingsEl.open = true;
+  } catch (e) { /* not worth failing over */ }
+  boardSettingsEl.addEventListener('toggle', () => {
+    try { localStorage.setItem(BOARD_SETTINGS_KEY, boardSettingsEl.open ? '1' : '0'); } catch (e) { /* not worth failing over */ }
+  });
+
+  function note(id, text, isErr) {
+    const el = document.getElementById('saved-' + id);
+    if (el) { el.textContent = text; el.className = 'saved' + (isErr ? ' err' : ''); }
+  }
+
+  async function patchSettings(patch, noteId) {
+    if (noteId) note(noteId, 'saving…');
+    try {
+      await WB.patch('/api/settings', patch);
+      if (noteId) note(noteId, 'saved');
+    } catch (e) { if (noteId) note(noteId, e.message, true); }
+  }
+
+  // One row per tool → name pair. Rebuilt from settings on load, edited in
+  // place, and saved whole — `agentNames` is a small map, not a list with ids,
+  // so there is nothing to reconcile row by row.
+  function agentRow(tool, name) {
+    const row = document.createElement('div');
+    row.className = 'agentrow';
+    const toolInput = document.createElement('input');
+    toolInput.type = 'text';
+    toolInput.className = 'agent-tool';
+    toolInput.placeholder = 'tool (e.g. claude-code)';
+    toolInput.setAttribute('aria-label', 'Tool');
+    toolInput.value = tool || '';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'agent-name';
+    nameInput.placeholder = 'the name they call it';
+    nameInput.setAttribute('aria-label', 'Name');
+    nameInput.value = name || '';
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'agent-remove';
+    rm.textContent = 'Remove';
+    rm.setAttribute('aria-label', 'Remove this agent name');
+    rm.addEventListener('click', () => { row.remove(); saveAgentNames(); });
+    toolInput.addEventListener('change', saveAgentNames);
+    nameInput.addEventListener('change', saveAgentNames);
+    row.append(toolInput, nameInput, rm);
+    return row;
+  }
+
+  function renderAgentNames(map) {
+    const rows = document.getElementById('agentnames-rows');
+    rows.innerHTML = '';
+    const entries = Object.entries(map || {});
+    if (!entries.length) entries.push(['', '']);
+    for (const [tool, name] of entries) rows.appendChild(agentRow(tool, name));
+  }
+
+  async function saveAgentNames() {
+    const map = {};
+    for (const row of document.querySelectorAll('#agentnames-rows .agentrow')) {
+      const tool = row.querySelector('.agent-tool').value.trim();
+      const name = row.querySelector('.agent-name').value.trim();
+      if (tool) map[tool] = name;
+    }
+    await patchSettings({ agentNames: map }, 'agentNames');
+  }
+
+  document.getElementById('agentnames-add').addEventListener('click', () => {
+    document.getElementById('agentnames-rows').appendChild(agentRow('', ''));
+  });
+
+  async function loadSettings() {
+    const [settingsData, projectsData] = await Promise.all([WB.get('/api/settings'), WB.get('/api/projects')]);
+    const settings = settingsData.settings || {};
+    const sel = document.getElementById('set-defaultProject');
+    const active = document.activeElement;
+    if (sel !== active) {
+      sel.innerHTML = '<option value="">(none)</option>';
+      for (const p of projectsData.projects) {
+        const o = document.createElement('option');
+        o.value = p.slug;
+        o.textContent = p.name;
+        sel.appendChild(o);
+      }
+      sel.value = settings.defaultProject || '';
+    }
+    function setIfNotFocused(id, value) {
+      const el = document.getElementById(id);
+      if (el && el !== active) el.value = value;
+    }
+    setIfNotFocused('set-backupPlan', settings.backupPlan || '');
+    // Unset reads as the documented default, not as off — a checkbox showing
+    // false for a setting nobody has touched would misreport what onboarding
+    // actually promises.
+    document.getElementById('set-autoCapture').checked = settings.autoCapture !== false;
+    document.getElementById('set-checkInOnStart').checked = settings.checkInOnStart !== false;
+    document.getElementById('set-postFindings').checked = settings.postFindings !== false;
+    document.getElementById('set-summariseOnExit').checked = settings.summariseOnExit === true;
+    document.getElementById('onboarded-line').textContent = settings.onboardedAt
+      ? 'Set up on ' + WB.fmt(settings.onboardedAt)
+      : 'Not set up yet';
+    if (!document.getElementById('agentnames-rows').contains(active)) renderAgentNames(settings.agentNames);
+  }
+
+  document.getElementById('set-defaultProject').addEventListener('change', (e) => {
+    patchSettings({ defaultProject: e.target.value });
+  });
+  document.getElementById('save-backupPlan').addEventListener('click', () => {
+    patchSettings({ backupPlan: document.getElementById('set-backupPlan').value.trim() }, 'backupPlan');
+  });
+  for (const key of ['autoCapture', 'checkInOnStart', 'postFindings', 'summariseOnExit']) {
+    document.getElementById('set-' + key).addEventListener('change', (e) => {
+      patchSettings({ [key]: e.target.checked });
+    });
+  }
+
   function card(p) {
     const waiting = WB.WAITING_ON_YOU.reduce((n, k) => n + (p.counts[k] || 0), 0);
     const a = document.createElement('a');
-    a.className = 'proj' + (waiting ? ' hot' : '');
+    // "Waiting on you" is the badge below, not a border colour any more — the
+    // project's own colour has that border now.
+    a.className = 'proj';
     a.href = '/p/' + encodeURIComponent(p.slug);
+    // The colour bar is the at-a-glance cue the name and description alone
+    // don't give — never the only one: the name stays the primary label, and
+    // the bar just makes "which project is this" faster to spot in a list of
+    // several. p.color is always one of the twelve PROJECT_COLORS.
+    a.style.setProperty('--proj-color', p.color);
     a.innerHTML =
-      '<div class="row"><span class="t"></span>' +
+      '<div class="row"><span class="color-dot" aria-hidden="true"></span><span class="t"></span>' +
       (waiting ? '<span class="badge you">' + waiting + ' waiting on you</span>' : '<span class="badge">clear</span>') +
-      '</div><div class="d"></div><div class="counts mono"></div>';
+      '</div><div class="d"></div><div class="activity mono"></div><div class="counts mono"></div>';
     a.querySelector('.t').textContent = p.name;
     a.querySelector('.d').textContent = p.description || '';
+    const activityEl = a.querySelector('.activity');
+    activityEl.textContent = 'active ' + WB.relTime(p.lastActivityAt);
+    activityEl.title = WB.fmt(p.lastActivityAt);
     a.querySelector('.counts').textContent =
       WB.STATUSES
         .map((s) => WB.STATUS_LABELS[s] + ' ' + (p.counts[s] || 0))
@@ -54,14 +236,76 @@
     return a;
   }
 
+  // An archived project's card: no "waiting on you" badge (kept work is not
+  // being waited on) and a Restore button in its place. Still a link to the
+  // project itself — archived is "kept as a record", not hidden — so the
+  // button stops the click from also navigating.
+  function archivedCard(p) {
+    const a = document.createElement('a');
+    a.className = 'proj archived';
+    a.href = '/p/' + encodeURIComponent(p.slug);
+    a.style.setProperty('--proj-color', p.color);
+    a.innerHTML =
+      '<div class="row"><span class="color-dot" aria-hidden="true"></span><span class="t"></span>' +
+      '<button type="button" class="restore-btn">Restore</button></div>' +
+      '<div class="d"></div><div class="activity mono"></div><div class="restore-note mono"></div>';
+    a.querySelector('.t').textContent = p.name;
+    a.querySelector('.d').textContent = p.description || '';
+    const activityEl = a.querySelector('.activity');
+    activityEl.textContent = 'active ' + WB.relTime(p.lastActivityAt);
+    activityEl.title = WB.fmt(p.lastActivityAt);
+    const restoreBtn = a.querySelector('.restore-btn');
+    const noteEl = a.querySelector('.restore-note');
+    restoreBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      restoreBtn.disabled = true;
+      restoreBtn.textContent = 'Restoring…';
+      try {
+        await WB.patch('/api/projects/' + encodeURIComponent(p.slug), { archived: false });
+        await render();
+      } catch (err) {
+        restoreBtn.disabled = false;
+        restoreBtn.textContent = 'Restore';
+        noteEl.textContent = err.message;
+        noteEl.className = 'restore-note mono err';
+      }
+    });
+    return a;
+  }
+
   async function render() {
-    const data = await WB.get('/api/projects');
+    // One call for both lists: ?archived=1 returns every project, active and
+    // archived alike, so the two sections below can never disagree about
+    // which project is which the way two separate requests racing a change
+    // could.
+    const data = await WB.get('/api/projects?archived=1');
+    const active = data.projects.filter((p) => !p.archivedAt);
+    const archived = data.projects.filter((p) => p.archivedAt);
+
     listEl.innerHTML = '';
-    if (!data.projects.length) {
-      listEl.innerHTML = '<p class="empty">No projects yet. Create one below, or let an agent create one.</p>';
-      return;
+    if (!active.length) {
+      listEl.innerHTML = archived.length
+        ? '<p class="empty">Every project is archived. Restore one below, or create a new one.</p>'
+        : '<p class="empty">No projects yet. Create one below, or let an agent create one.</p>';
+    } else {
+      // The API already orders by lastActivityAt DESC — rendered in that
+      // order, not re-sorted, so the poll below reorders the list the moment
+      // something in a project moves, without any client-side sort to keep in
+      // sync with it.
+      for (const p of active) listEl.appendChild(card(p));
     }
-    for (const p of data.projects) listEl.appendChild(card(p));
+
+    const archivedSection = document.getElementById('archivedprojects');
+    const archivedListEl = document.getElementById('archivedlist');
+    archivedListEl.innerHTML = '';
+    if (archived.length) {
+      archivedSection.hidden = false;
+      document.getElementById('archived-summary').textContent = 'Archived projects (' + archived.length + ')';
+      for (const p of archived) archivedListEl.appendChild(archivedCard(p));
+    } else {
+      archivedSection.hidden = true;
+    }
   }
 
   document.getElementById('newproj').addEventListener('submit', async (e) => {
@@ -75,9 +319,11 @@
   });
 
   render();
+  loadSettings();
   // Cheap and good enough: an agent writing while this page is open should show
   // up without a manual refresh, and the payload is small.
   setInterval(render, 5000);
+  setInterval(loadSettings, 5000);
 })();
 </script>
 </body>

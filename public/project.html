@@ -11,16 +11,101 @@
   <a class="back" href="/">&#8592; All projects</a>
   <header class="mast">
     <p class="eyebrow" id="eyebrow">Project</p>
-    <h1 id="pname">…</h1>
+    <div class="masttitle">
+      <span class="color-dot" id="pcolordot" aria-hidden="true"></span>
+      <h1 id="pname">…</h1>
+    </div>
     <span class="mono projkey" id="pkey" hidden></span>
     <p class="lede" id="pdesc"></p>
     <div class="rule"></div>
   </header>
 
+  <p class="archived-banner" id="archivedbanner" hidden>Archived — kept as a record</p>
+
+  <details class="settings" id="projsettings">
+    <summary>Project settings</summary>
+    <div class="settings-body">
+      <fieldset>
+        <legend>Layout</legend>
+        <label for="set-groupBy">Group by</label>
+        <select id="set-groupBy" data-field="groupBy">
+          <option value="section">Section</option>
+          <option value="status">Status</option>
+          <option value="move">Whose move</option>
+        </select>
+        <p class="hint">Which heading each row sits under on this board.</p>
+
+        <label for="set-sortBy">Order rows by</label>
+        <select id="set-sortBy" data-field="sortBy">
+          <option value="activity">Latest activity</option>
+          <option value="ref">Reference number</option>
+        </select>
+        <p class="hint">Newest-first, or a stable queue ordered by reference number.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Details</legend>
+        <label for="set-name">Name</label>
+        <input type="text" id="set-name" data-field="name">
+        <button type="button" data-save="name">Save</button>
+        <div class="saved" id="saved-name"></div>
+
+        <label for="set-description">Description</label>
+        <input type="text" id="set-description" data-field="description">
+        <button type="button" data-save="description">Save</button>
+        <div class="saved" id="saved-description"></div>
+
+        <label for="set-key">Key</label>
+        <input type="text" id="set-key" data-field="key">
+        <button type="button" data-save="key">Save</button>
+        <p class="hint">Renaming the key keeps old references working.</p>
+        <div class="saved" id="saved-key"></div>
+
+        <span id="color-label">Colour</span>
+        <div class="colorpicker" id="colorpicker" role="radiogroup" aria-labelledby="color-label" data-field="color"></div>
+        <p class="hint">Shown as a bar on the home page card and here on the masthead. A shade already claimed by another project is marked "in use", but can still be picked.</p>
+        <div class="saved" id="saved-color"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Sections</legend>
+        <label for="set-sectionMode">Mode</label>
+        <select id="set-sectionMode" data-field="sectionMode">
+          <option value="adhoc">Ad hoc</option>
+          <option value="declared">Declared</option>
+        </select>
+        <p class="hint">Ad hoc warns on near-duplicates; declared refuses unlisted sections.</p>
+
+        <div id="sections-group">
+          <label for="set-sections">Declared sections, one per line</label>
+          <textarea id="set-sections" data-field="sections" rows="4"></textarea>
+          <button type="button" data-save="sections">Save</button>
+          <div class="saved" id="saved-sections"></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Repositories</legend>
+        <label for="set-repos">Repository patterns, one per line</label>
+        <textarea id="set-repos" data-field="repos" rows="3"></textarea>
+        <p class="hint">Agents use this to find this project from a repository.</p>
+        <button type="button" data-save="repos">Save</button>
+        <div class="saved" id="saved-repos"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Archive</legend>
+        <button type="button" id="archive-btn" data-field="archived">Archive project</button>
+        <button type="button" id="restore-btn" data-field="archived" hidden>Restore project</button>
+        <div class="saved" id="saved-archived"></div>
+      </fieldset>
+    </div>
+  </details>
+
   <div class="filters" id="filters" role="group" aria-label="Show items by status"></div>
   <div id="items" aria-live="polite"></div>
 
-  <section class="newproj">
+  <section class="newproj" id="addsection">
     <h2>Add an item</h2>
     <form id="newitem">
       <input type="text" id="ititle" placeholder="What needs deciding or doing" aria-label="Item title" required>
@@ -55,6 +140,82 @@
   let items = [];
   // The project itself, for groupBy. Held rather than re-read per render.
   let project = null;
+
+  // Project settings panel. Closed by default, remembered per project — a
+  // setting nobody opens yet must not clutter the page, but somebody who opens
+  // it to change groupBy should not have to reopen it every visit.
+  const SETTINGS_OPEN_KEY = 'wb.settingsOpen.' + slug;
+  const settingsEl = document.getElementById('projsettings');
+  try {
+    if (localStorage.getItem(SETTINGS_OPEN_KEY) === '1') settingsEl.open = true;
+  } catch (e) { /* not worth failing over */ }
+  settingsEl.addEventListener('toggle', () => {
+    try { localStorage.setItem(SETTINGS_OPEN_KEY, settingsEl.open ? '1' : '0'); } catch (e) { /* not worth failing over */ }
+  });
+
+  function settingsNote(id, text, isErr) {
+    const el = document.getElementById('saved-' + id);
+    if (el) { el.textContent = text; el.className = 'saved' + (isErr ? ' err' : ''); }
+  }
+
+  // A select saves the moment it changes and repaints, per the contract: these
+  // are the human's calls, never the agent's, so there is nothing to batch or
+  // confirm — the choice itself is the commit.
+  async function saveProjectField(field, value, noteId) {
+    const id = noteId || field;
+    settingsNote(id, 'saving…');
+    try {
+      await WB.patch('/api/projects/' + encodeURIComponent(slug), { [field]: value });
+      await load(true);
+      settingsNote(id, 'saved');
+    } catch (e) { settingsNote(id, e.message, true); }
+  }
+
+  // Fills the panel from the project just loaded. Skips whatever field has
+  // focus, the same guard the reply box uses, so a poll landing mid-edit does
+  // not overwrite a sentence being typed into Name or the sections textarea.
+  function fillSettings(p) {
+    const active = document.activeElement;
+    function setValue(id, value) {
+      const el = document.getElementById(id);
+      if (el && el !== active) el.value = value;
+    }
+    setValue('set-groupBy', p.groupBy);
+    setValue('set-sortBy', p.sortBy);
+    setValue('set-name', p.name);
+    setValue('set-description', p.description || '');
+    setValue('set-key', p.key || '');
+    setValue('set-sectionMode', p.sectionMode);
+    setValue('set-sections', (p.sections || []).join('\n'));
+    setValue('set-repos', (p.repos || []).join('\n'));
+    document.getElementById('sections-group').hidden = !(p.sectionMode === 'declared' || p.groupBy === 'section');
+    document.getElementById('archive-btn').hidden = !!p.archivedAt;
+    document.getElementById('restore-btn').hidden = !p.archivedAt;
+  }
+
+  document.getElementById('set-groupBy').addEventListener('change', (e) => saveProjectField('groupBy', e.target.value));
+  document.getElementById('set-sortBy').addEventListener('change', (e) => saveProjectField('sortBy', e.target.value));
+  document.getElementById('set-sectionMode').addEventListener('change', (e) => saveProjectField('sectionMode', e.target.value));
+
+  for (const field of ['name', 'description', 'key']) {
+    document.querySelector('[data-save="' + field + '"]').addEventListener('click', () => {
+      saveProjectField(field, document.getElementById('set-' + field).value.trim());
+    });
+  }
+  for (const field of ['sections', 'repos']) {
+    document.querySelector('[data-save="' + field + '"]').addEventListener('click', () => {
+      const value = document.getElementById('set-' + field).value.split('\n').map((s) => s.trim()).filter(Boolean);
+      saveProjectField(field, value);
+    });
+  }
+
+  document.getElementById('archive-btn').addEventListener('click', () => {
+    if (!confirm('Archive this project? It stays on the board, filed as archived.')) return;
+    saveProjectField('archived', true, 'archived');
+  });
+  document.getElementById('restore-btn').addEventListener('click', () => {
+    saveProjectField('archived', false, 'archived');
+  });
 
   // Completed work is hidden by default. A board that shows everything ever
   // decided stops answering the only question it is for — what is outstanding —
@@ -322,14 +483,37 @@
     t.className = 'lr-title';
     t.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(item.id);
     t.textContent = item.title;
+    // The row clamps a long title to two lines; the full text is one hover
+    // away rather than gone. The link's accessible name is still the whole
+    // title (textContent), so nothing is lost for a screen reader either.
+    t.title = item.title;
     main.appendChild(t);
+    // Main holds only the ref chip and the title — the two things the row
+    // exists to show. Everything else (labels, the document tag, who spoke
+    // and when, the choice, the status) lives in the meta cluster below,
+    // which is the part allowed to shrink and wrap so the title never has to.
+    a.appendChild(main);
+
+    const meta = document.createElement('div');
+    meta.className = 'lr-meta';
+
     // A document behind the row is worth saying so, because the row cannot show
     // it and the only way in is to open the item.
+    if (item.bodyLength) {
+      const doc = document.createElement('span');
+      doc.className = 'lr-doc mono';
+      doc.textContent = 'document';
+      meta.appendChild(doc);
+    }
     // Labels sit on the row because that is where the relationship is useful —
     // seeing that three rows share one is the whole point, and it is invisible
     // if you have to open each item to find out. Clickable: reading a label and
-    // wanting only that label is one gesture, not a trip to a filter menu.
-    for (const label of item.labels || []) {
+    // wanting only that label is one gesture, not a trip to a filter menu. Only
+    // the first two show as chips — a row with six labels used to push the
+    // title down to a sliver just to display all of them — and the rest fold
+    // into a "+N" chip naming them in its title=.
+    const labels = item.labels || [];
+    for (const label of labels.slice(0, 2)) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'lr-label mono' + (labelFilter === label ? ' on' : '');
@@ -341,32 +525,39 @@
         saveLabelFilter();
         safeRender(true);
       });
-      main.appendChild(chip);
+      meta.appendChild(chip);
     }
-    if (item.bodyLength) {
-      const doc = document.createElement('span');
-      doc.className = 'lr-doc mono';
-      doc.textContent = 'document';
-      main.appendChild(doc);
+    const hiddenLabels = labels.slice(2);
+    if (hiddenLabels.length) {
+      const more = document.createElement('span');
+      more.className = 'lr-label mono lr-more';
+      more.textContent = '+' + hiddenLabels.length;
+      more.title = hiddenLabels.join(', ');
+      meta.appendChild(more);
     }
-    a.appendChild(main);
 
-    const meta = document.createElement('div');
-    meta.className = 'lr-meta';
-
-    // The three things the roll-up exists to show.
+    // The three things the roll-up exists to show, compacted: a relative time
+    // ("3m", "5h", "2d", then a short date) rather than a full timestamp, and
+    // the short name rather than the full session signature — both crowded
+    // the title out when a row had a long author + session tag on it. The full
+    // value is one hover away in title=, never dropped.
     const last = lastWord(item);
     const who = document.createElement('span');
     who.className = 'lr-who mono' + (last && last.who === 'you' ? ' you' : '');
     // An item with no replies used to show "no replies" and nothing else, so a
     // row could carry no date at all — which is exactly the row you want a date
     // on, because nothing has happened to it since it was raised.
+    const whenIso = last ? last.createdAt : item.createdAt;
+    const shortWho = last ? (last.who === 'you' ? 'you' : (last.author || 'agent')) : 'raised';
     // The session tag after an agent's name is what separates two sessions of
-    // the same tool — the same "spike" can be two workers, and the row has to
-    // say which one spoke.
-    who.textContent = last
-      ? (last.who === 'you' ? 'you' : (last.author || 'agent') + (last.session ? '·' + last.session : '')) + ' · ' + WB.fmt(last.createdAt)
-      : 'raised ' + WB.fmt(item.createdAt);
+    // the same tool — the same "spike" can be two workers — so it still rides
+    // along in the full signature even though the row itself now shows only
+    // the name.
+    const fullWho = last
+      ? (last.who === 'you' ? 'you' : (last.author || 'agent') + (last.session ? '·' + last.session : ''))
+      : 'raised';
+    who.textContent = shortWho + ' · ' + WB.relTime(whenIso);
+    who.title = fullWho + ' · ' + WB.fmt(whenIso);
     meta.appendChild(who);
 
     const choice = document.createElement('span');
@@ -597,6 +788,7 @@
       [...hidden].sort(),
       labelFilter,
       project && project.groupBy,
+      project && project.sortBy,
       items.map((i) => [i.id, i.ref, i.version, i.status, i.choice, i.title, i.context, i.section, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
         (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
     ]);
@@ -640,11 +832,12 @@
 
   async function load(redraw) {
     const data = await WB.get('/api/projects/' + encodeURIComponent(slug));
-    // A project grouping by status has no section headings, so the section box
-    // would file things somewhere nothing displays. Hide it rather than keep a
-    // field whose value is invisible.
+    // A project grouping by status, or by whose move it is, has no section
+    // headings, so the section box would file things somewhere nothing
+    // displays. Hide it rather than keep a field whose value is invisible.
     project = data.project;
-    document.getElementById('isection').hidden = project.groupBy === 'status';
+    document.getElementById('isection').hidden = project.groupBy === 'status' || project.groupBy === 'move';
+    fillSettings(project);
     document.getElementById('pname').textContent = data.project.name;
     const keyEl = document.getElementById('pkey');
     if (data.project.key) {
@@ -661,11 +854,60 @@
       keyEl.title = '';
     }
     document.getElementById('pdesc').textContent = data.project.description || '';
+    document.getElementById('pcolordot').style.background = project.color;
+    // Archived is "kept as a record", not hidden: the banner says so, adding
+    // new items stops making sense (there is nothing left to decide here),
+    // but every existing item stays exactly as readable and repliable as
+    // before — a write here still lands (the server warns, never refuses).
+    document.getElementById('archivedbanner').hidden = !project.archivedAt;
+    document.getElementById('addsection').hidden = !!project.archivedAt;
     items = data.items;
     document.getElementById('eyebrow').textContent =
       WB.WAITING_ON_YOU.reduce((n, k) => n + (data.counts[k] || 0), 0) + ' waiting on you · ' + items.length + ' items';
     WB.labelChoices(data.labels || [], document.getElementById('labellist'), document.getElementById('labelpicks'), document.getElementById('ilabels'));
+    loadColorPicker(project.color);
     if (redraw !== false) safeRender();
+  }
+
+  // Mirrors PROJECT_COLORS in src/db.ts exactly (a source-level test checks
+  // the two never drift apart). Duplicated rather than fetched: there is no
+  // route that returns the palette on its own, and the twelve values are
+  // fixed — the server is still what refuses a PATCH outside this list.
+  const PROJECT_COLORS = ['#d25228', '#2085a7', '#388d1b', '#b84bdd', '#96781d', '#5476de', '#1b8d71', '#db4369', '#6a8519', '#7654de', '#1b8d38', '#d936b0'];
+
+  // The picker rebuilds from scratch on every load() — cheap, twelve radios —
+  // except while one of its own radios has focus, the same guard fillSettings
+  // uses, so clicking a swatch is not undone by the next five-second poll.
+  async function loadColorPicker(current) {
+    if (document.activeElement && document.activeElement.name === 'projcolor') return;
+    let usedByOthers = new Set();
+    try {
+      const projectsData = await WB.get('/api/projects');
+      usedByOthers = new Set((projectsData.projects || []).filter((p) => p.slug !== slug).map((p) => p.color));
+    } catch (e) { /* the picker still works without the "in use" hint */ }
+    const el = document.getElementById('colorpicker');
+    el.innerHTML = '';
+    for (const color of PROJECT_COLORS) {
+      const wrap = document.createElement('label');
+      wrap.className = 'swatch';
+      wrap.style.setProperty('--swatch-color', color);
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'projcolor';
+      input.value = color;
+      input.checked = color === current;
+      const inUse = usedByOthers.has(color) && color !== current;
+      input.setAttribute('aria-label', color + (inUse ? ' (in use by another project)' : ''));
+      input.addEventListener('change', () => { if (input.checked) saveProjectField('color', color, 'color'); });
+      wrap.appendChild(input);
+      if (inUse) {
+        const tag = document.createElement('span');
+        tag.className = 'swatch-inuse';
+        tag.textContent = 'in use';
+        wrap.appendChild(tag);
+      }
+      el.appendChild(wrap);
+    }
   }
 
   async function choose(id, option) {

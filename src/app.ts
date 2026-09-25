@@ -9,7 +9,7 @@
 // `Request` and read the `Response` in-process.
 import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
-  ProjectKeyTaken,
+  ProjectKeyTaken, PROJECT_COLORS,
   isStatusAllowed, statusesFor, KINDS,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
@@ -22,7 +22,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '12';
+export const CONTRACT_VERSION = '13';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -245,6 +245,34 @@ function blockedWithoutReason(item: { status: Status; blockedBy: string }): stri
   return 'status is "blocked" with no blockedBy — say what it is waiting on (an item ref, a PR, or "deploy of X") with {"blockedBy":"..."}.';
 }
 
+// A title is a headline, not the body (AGENTS.md rule 7). Warned, not refused
+// — refusing would lose the item entirely over a formatting mistake, and the
+// caller may fix it or may not care. The failure this answers (2026-09-25): a
+// real board had 25 of ~350 items with titles over 100 characters, five of
+// those with no context and no body at all — the whole message pasted into
+// the one field POST requires.
+function titleWarning(item: { title: string; context: string; body: string }): string | undefined {
+  const len = item.title.length;
+  if (len > 120) {
+    return `title is ${len} characters — keep it to a short headline and move the rest into context`;
+  }
+  if (len > 100 && !item.context.trim() && !item.body.length) {
+    return `title reads like a body and the item has no context — move the explanation into context`;
+  }
+  return undefined;
+}
+
+// An archived project is "kept as a record", not actively worked — but
+// nothing here refuses a write into one; the human archived the project, not
+// its history, and a late reply or a stray automation should still land
+// rather than fail closed. Warned instead, so the caller notices rather than
+// wondering later why an answer landed on a project the board's own banner
+// already says is archived.
+function archivedProjectWarning(project: { name: string; archivedAt: string | null } | null): string | undefined {
+  if (!project || !project.archivedAt) return undefined;
+  return `project "${project.name}" is archived — the write landed, but this project is kept as a record, not actively worked`;
+}
+
 async function readJson(req: Request): Promise<any> {
   const text = await req.text();
   if (!text.trim()) return {};
@@ -277,10 +305,10 @@ function finishedWithoutStatus(who: string, text: string, status: Status | undef
 const ROUTES = [
   'GET    /api                                 this',
   'GET    /api/settings · PATCH /api/settings',
-  'GET    /api/projects[?archived=1][?repo=<remote-or-path>]',
+  'GET    /api/projects[?archived=1][?repo=<remote-or-path>]  ordered by lastActivityAt DESC, each with color',
   'POST   /api/projects                        {name, slug?, description?, repos?, key?}',
   'GET    /api/projects/<slug>[?status=a,b][?messages=all|last|none]',
-  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|sortBy?|repos?|key?}',
+  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|sortBy?|repos?|key?|color?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
   'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
   'PATCH  /api/projects/<slug>/labels          {from,to,actor}',
@@ -390,7 +418,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (body.key !== undefined && typeof body.key !== 'string') {
           return badRequest(ctx, 'key cannot be removed; set a different key instead');
         }
-        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined) {
+        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
           if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
             return badRequest(ctx, 'name must be a non-empty string');
           }
@@ -412,6 +440,9 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'repos must be an array of strings');
           }
+          if (body.color !== undefined && !(PROJECT_COLORS as readonly string[]).includes(body.color)) {
+            return badRequest(ctx, `color must be one of: ${PROJECT_COLORS.join(', ')}`);
+          }
           ctx.wrote = true;
           // Key first: the rest of this request may rename project metadata,
           // but a rejected public-reference change must leave it all untouched.
@@ -425,12 +456,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
             }
           }
           if (typeof body.archived === 'boolean') updated = store.archiveProject(updated.slug, body.archived)!;
-          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined) {
+          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
             updated = store.setProjectSections(updated.slug, body)!;
           }
           return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id), ...(warning ? { warning } : {}) });
         }
-        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, sortBy, repos');
+        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, sortBy, repos, color');
       }
       return badRequest(ctx, `${method} not supported here`);
     }
@@ -504,6 +535,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         // Policy first, for every item, so a batch either lands whole or is
         // refused whole — half a set is worse than none.
         const warnings: string[] = [];
+        const archivedWarn = archivedProjectWarning(project);
+        if (archivedWarn) warnings.push(archivedWarn);
         for (const input of parsed) {
           const { warning } = sectionPolicy(store, project, input.section);
           if (warning) warnings.push(warning);
@@ -514,6 +547,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         for (const item of created) {
           const warning = blockedWithoutReason(item);
           if (warning) warnings.push(warning);
+          const titleWarn = titleWarning(item);
+          if (titleWarn) warnings.push(titleWarn);
         }
         return json(ctx, withIgnored({ ok: true, items: created, ...(warnings.length ? { warnings } : {}) }, ignored), 201);
       }
@@ -524,6 +559,10 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
   if (parts[0] === 'items' && parts.length >= 2) {
     const item = store.resolveItem(decodeURIComponent(parts[1]));
     if (!item) return notFound(ctx, `no item with id "${parts[1]}"`);
+    // One lookup, shared by every route below that needs the owning project —
+    // for section/label policy on a PATCH, and for the archived-project
+    // warning on every write path an item has (PATCH, a message, a check).
+    const owner = store.getProjectById(item.projectId);
 
     if (parts.length === 2) {
       if (method === 'GET') return json(ctx, { ok: true, item });
@@ -533,18 +572,17 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         const ignored = ignoredKeys(body, ITEM_FIELDS);
         if (typeof body.position === 'number') (patch as any).position = body.position;
         const warnings: string[] = [];
-        if (patch.section !== undefined || patch.labels !== undefined) {
-          const owner = store.listProjects(true).find((p) => p.id === item.projectId);
-          if (owner) {
-            if (patch.section !== undefined) {
-              const { warning } = sectionPolicy(store, owner, patch.section);
-              if (warning) warnings.push(warning);
-            }
-            // Labels already on this item are "in use" by it, so exclude them:
-            // re-saving the same set must not warn about itself.
-            const added = (patch.labels || []).filter((l) => !item.labels.some((x) => x.toLowerCase() === String(l).toLowerCase()));
-            warnings.push(...labelPolicy(store, owner, added));
+        const archivedWarn = archivedProjectWarning(owner);
+        if (archivedWarn) warnings.push(archivedWarn);
+        if (owner && (patch.section !== undefined || patch.labels !== undefined)) {
+          if (patch.section !== undefined) {
+            const { warning } = sectionPolicy(store, owner, patch.section);
+            if (warning) warnings.push(warning);
           }
+          // Labels already on this item are "in use" by it, so exclude them:
+          // re-saving the same set must not warn about itself.
+          const added = (patch.labels || []).filter((l) => !item.labels.some((x) => x.toLowerCase() === String(l).toLowerCase()));
+          warnings.push(...labelPolicy(store, owner, added));
         }
         const ifVersion = typeof body.ifVersion === 'number' ? body.ifVersion : undefined;
         // A status change without the version you read is a blind write in a
@@ -562,6 +600,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           });
           const blockedWarning = updated ? blockedWithoutReason(updated) : undefined;
           if (blockedWarning) warnings.push(blockedWarning);
+          const titleWarn = updated ? titleWarning(updated) : undefined;
+          if (titleWarn) warnings.push(titleWarn);
           return json(ctx, withIgnored({ ok: true, item: updated, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignored));
         } catch (error) {
           if (error instanceof VersionConflict) {
@@ -629,7 +669,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           by: actorOf(body, 'by') ?? 'you',
           session: sessionOf(body),
         });
-        return json(ctx, withIgnored({ ok: true, item: updated }, ignoredKeys(body, CHECK_FIELDS)));
+        const archivedWarn = archivedProjectWarning(owner);
+        return json(ctx, withIgnored({ ok: true, item: updated, ...(archivedWarn ? { warning: archivedWarn } : {}) }, ignoredKeys(body, CHECK_FIELDS)));
       } catch (error: any) {
         if (error?.statusCode === 400) return badRequest(ctx, error.message);
         throw error;
@@ -652,8 +693,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           status,
         });
         const after = store.getItem(item.id)!;
-        const warning = finishedWithoutStatus(who, body.text, status, after.status);
-        return json(ctx, withIgnored({ ok: true, message, item: after, ...(warning ? { warning } : {}) }, ignoredKeys(body, MESSAGE_FIELDS)), 201);
+        const warnings = [finishedWithoutStatus(who, body.text, status, after.status), archivedProjectWarning(owner)].filter(Boolean) as string[];
+        return json(ctx, withIgnored({ ok: true, message, item: after, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignoredKeys(body, MESSAGE_FIELDS)), 201);
       }
       return badRequest(ctx, `${method} not supported here`);
     }

@@ -1,6 +1,6 @@
 {
   "name": "workbench",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "description": "A local, human-in-the-loop decision board for AI-assisted projects. Agents ask; you answer in a browser; every session reads the same answers.",
   "type": "module",
