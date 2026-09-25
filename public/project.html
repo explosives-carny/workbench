@@ -473,14 +473,37 @@
     t.className = 'lr-title';
     t.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(item.id);
     t.textContent = item.title;
+    // The row clamps a long title to two lines; the full text is one hover
+    // away rather than gone. The link's accessible name is still the whole
+    // title (textContent), so nothing is lost for a screen reader either.
+    t.title = item.title;
     main.appendChild(t);
+    // Main holds only the ref chip and the title — the two things the row
+    // exists to show. Everything else (labels, the document tag, who spoke
+    // and when, the choice, the status) lives in the meta cluster below,
+    // which is the part allowed to shrink and wrap so the title never has to.
+    a.appendChild(main);
+
+    const meta = document.createElement('div');
+    meta.className = 'lr-meta';
+
     // A document behind the row is worth saying so, because the row cannot show
     // it and the only way in is to open the item.
+    if (item.bodyLength) {
+      const doc = document.createElement('span');
+      doc.className = 'lr-doc mono';
+      doc.textContent = 'document';
+      meta.appendChild(doc);
+    }
     // Labels sit on the row because that is where the relationship is useful —
     // seeing that three rows share one is the whole point, and it is invisible
     // if you have to open each item to find out. Clickable: reading a label and
-    // wanting only that label is one gesture, not a trip to a filter menu.
-    for (const label of item.labels || []) {
+    // wanting only that label is one gesture, not a trip to a filter menu. Only
+    // the first two show as chips — a row with six labels used to push the
+    // title down to a sliver just to display all of them — and the rest fold
+    // into a "+N" chip naming them in its title=.
+    const labels = item.labels || [];
+    for (const label of labels.slice(0, 2)) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'lr-label mono' + (labelFilter === label ? ' on' : '');
@@ -492,32 +515,39 @@
         saveLabelFilter();
         safeRender(true);
       });
-      main.appendChild(chip);
+      meta.appendChild(chip);
     }
-    if (item.bodyLength) {
-      const doc = document.createElement('span');
-      doc.className = 'lr-doc mono';
-      doc.textContent = 'document';
-      main.appendChild(doc);
+    const hiddenLabels = labels.slice(2);
+    if (hiddenLabels.length) {
+      const more = document.createElement('span');
+      more.className = 'lr-label mono lr-more';
+      more.textContent = '+' + hiddenLabels.length;
+      more.title = hiddenLabels.join(', ');
+      meta.appendChild(more);
     }
-    a.appendChild(main);
 
-    const meta = document.createElement('div');
-    meta.className = 'lr-meta';
-
-    // The three things the roll-up exists to show.
+    // The three things the roll-up exists to show, compacted: a relative time
+    // ("3m", "5h", "2d", then a short date) rather than a full timestamp, and
+    // the short name rather than the full session signature — both crowded
+    // the title out when a row had a long author + session tag on it. The full
+    // value is one hover away in title=, never dropped.
     const last = lastWord(item);
     const who = document.createElement('span');
     who.className = 'lr-who mono' + (last && last.who === 'you' ? ' you' : '');
     // An item with no replies used to show "no replies" and nothing else, so a
     // row could carry no date at all — which is exactly the row you want a date
     // on, because nothing has happened to it since it was raised.
+    const whenIso = last ? last.createdAt : item.createdAt;
+    const shortWho = last ? (last.who === 'you' ? 'you' : (last.author || 'agent')) : 'raised';
     // The session tag after an agent's name is what separates two sessions of
-    // the same tool — the same "spike" can be two workers, and the row has to
-    // say which one spoke.
-    who.textContent = last
-      ? (last.who === 'you' ? 'you' : (last.author || 'agent') + (last.session ? '·' + last.session : '')) + ' · ' + WB.fmt(last.createdAt)
-      : 'raised ' + WB.fmt(item.createdAt);
+    // the same tool — the same "spike" can be two workers — so it still rides
+    // along in the full signature even though the row itself now shows only
+    // the name.
+    const fullWho = last
+      ? (last.who === 'you' ? 'you' : (last.author || 'agent') + (last.session ? '·' + last.session : ''))
+      : 'raised';
+    who.textContent = shortWho + ' · ' + WB.relTime(whenIso);
+    who.title = fullWho + ' · ' + WB.fmt(whenIso);
     meta.appendChild(who);
 
     const choice = document.createElement('span');

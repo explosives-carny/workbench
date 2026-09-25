@@ -187,6 +187,27 @@ window.WB = (function () {
     return frag;
   }
 
+  // A compact relative time for a crowded row — "3m", "5h", "2d" — where `fmt`
+  // gives the full timestamp for a title= attribute or a page with room to
+  // spare. Past a month a short date reads better than a triple-digit day
+  // count, and future timestamps (clock skew, an imported document) fall back
+  // to `fmt` rather than printing a negative number.
+  function relTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const diffMs = Date.now() - d.getTime();
+    if (diffMs < 0) return fmt(iso);
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return mins + 'm';
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + 'h';
+    const days = Math.floor(hours / 24);
+    if (days < 30) return days + 'd';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
   return {
     STATUS_LABELS,
     WAITING_ON_YOU,
@@ -202,5 +223,6 @@ window.WB = (function () {
     patch: (p, b) => req('PATCH', p, b),
     del: (p) => req('DELETE', p),
     fmt,
+    relTime,
   };
 })();
