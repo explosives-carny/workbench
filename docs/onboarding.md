@@ -108,3 +108,15 @@ what you write.
 
 Then honour all of it. Asking and then behaving identically is worse than not
 asking.
+
+## Settings panels on the page
+
+Every setting in the table above, plus a project's `groupBy`, `sortBy`,
+`sectionMode`, `sections` and `repos`, now has a control on the page itself —
+a person does not have to know the API to change them. Board settings are a
+collapsed **Board settings** panel on the home page; a project's own settings
+are a collapsed **Project settings** panel on its page, under the masthead.
+Both save each control as it changes; nothing here needs an agent to set it,
+though an agent still may. `autoMode` and scope are never among them — those
+are a session's working orders, not a setting, and have no place on this page
+or in `settings` at all.
