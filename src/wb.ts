@@ -186,6 +186,20 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb block <id|ref> <what it waits on>     set status blocked and blockedBy (reads the version, retries once on 409)
   wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
   wb export [dir]                          write one JSON per project to the content directory
+  wb archive <slug>                        archive a project (its colour frees for reuse)
+  wb restore <slug>                        restore an archived project (reclaims its colour if still free)
+  wb project <slug> [flags]                print the project, or set any subset of:
+                                              --group section|status|move   --sort activity|ref
+                                              --color '#rrggbb'             --name <name>
+                                              --description <text>         --key <KEY>
+                                              --section-mode adhoc|declared --sections a,b,c
+                                              --repos owner/name,~/code/*
+  wb settings [flags]                      print settings, or set any subset of:
+                                              --default-project <slug>     --backup-plan <text>
+                                              --auto-capture[=false]       --check-in-on-start[=false]
+                                              --post-findings[=false]      --summarise-on-exit[=true]
+                                              --agent-name <tool>=<name>
+                                            (no --auto-mode: auto is a session's working order, never a setting)
 
   Refs such as WB-DEMO-14 work anywhere an id does.
 
@@ -333,6 +347,124 @@ async function main() {
     // database path rules stay in one place.
     const proc = Bun.spawn(['bun', 'run', new URL('./cli.ts', import.meta.url).pathname, 'export', dir], { stdout: 'inherit', stderr: 'inherit' });
     process.exit(await proc.exited);
+  }
+
+  if (cmd === 'archive') {
+    const slug = args[0] || fail('usage: wb archive <slug>');
+    const who = await actor(flags);
+    const { status, json } = await call('PATCH', `/api/projects/${slug}`, { archived: true, actor: who });
+    if (!json.ok) fail(`${status}: ${json.error}`);
+    out(flags, `${slug}  archived (colour ${json.project.color} freed for reuse)`, json.project);
+    return;
+  }
+
+  if (cmd === 'restore') {
+    const slug = args[0] || fail('usage: wb restore <slug>');
+    const who = await actor(flags);
+    const { status, json } = await call('PATCH', `/api/projects/${slug}`, { archived: false, actor: who });
+    if (!json.ok) fail(`${status}: ${json.error}`);
+    out(flags, `${slug}  restored (colour ${json.project.color})`, json.project);
+    return;
+  }
+
+  // Every setting reachable both on the page and through this shell (AGENTS.md
+  // "Settings panels on the page"): a subset of these flags in one PATCH, or
+  // none of them to just print the project. Unknown flags are refused rather
+  // than silently ignored — a typo'd flag name here used to mean "nothing
+  // happened, no error", the same failure `ignored` on the HTTP response
+  // exists to catch.
+  const PROJECT_FLAGS = new Set(['group', 'sort', 'color', 'name', 'description', 'key', 'section-mode', 'sections', 'repos', 'json', 'actor']);
+  if (cmd === 'project') {
+    const slug = args[0] || fail('usage: wb project <slug> [flags] (wb help for the flag list)');
+    for (const k of Object.keys(flags)) {
+      if (!PROJECT_FLAGS.has(k)) fail(`unknown flag --${k} for "wb project" (wb help for the list)`);
+    }
+    const patch: Record<string, unknown> = {};
+    if (typeof flags.group === 'string') patch.groupBy = flags.group;
+    if (typeof flags.sort === 'string') patch.sortBy = flags.sort;
+    if (typeof flags.color === 'string') patch.color = flags.color;
+    if (typeof flags.name === 'string') patch.name = flags.name;
+    if (typeof flags.description === 'string') patch.description = flags.description;
+    if (typeof flags.key === 'string') patch.key = flags.key;
+    if (typeof flags['section-mode'] === 'string') patch.sectionMode = flags['section-mode'];
+    if (typeof flags.sections === 'string') patch.sections = flags.sections.split(',').map((s) => s.trim()).filter(Boolean);
+    if (typeof flags.repos === 'string') patch.repos = flags.repos.split(',').map((s) => s.trim()).filter(Boolean);
+    if (Object.keys(patch).length) {
+      (patch as any).actor = await actor(flags);
+      const { status, json } = await call('PATCH', `/api/projects/${slug}`, patch);
+      if (!json.ok) fail(`${status}: ${json.error}`);
+      if (json.warning) console.error(`wb: warning: ${json.warning}`);
+      out(flags, `${slug}  updated`, json.project);
+      return;
+    }
+    const { status, json } = await call('GET', `/api/projects/${slug}`);
+    if (!json.ok) fail(`${status}: ${json.error}`);
+    const p = json.project;
+    out(flags, [
+      `${p.slug}  ${p.name}`,
+      p.key ? `key: ${p.key}` : null,
+      p.description ? `description: ${p.description}` : null,
+      `groupBy: ${p.groupBy}  sortBy: ${p.sortBy}  sectionMode: ${p.sectionMode}  colour: ${p.color}`,
+      p.sections?.length ? `sections: ${p.sections.join(', ')}` : null,
+      p.repos?.length ? `repos: ${p.repos.join(', ')}` : null,
+      `archivedAt: ${p.archivedAt || '-'}  lastActivityAt: ${p.lastActivityAt}`,
+    ].filter(Boolean).join('\n'), p);
+    return;
+  }
+
+  const SETTINGS_FLAGS = new Set(['default-project', 'backup-plan', 'auto-capture', 'check-in-on-start', 'post-findings', 'summarise-on-exit', 'agent-name', 'json', 'actor']);
+  if (cmd === 'settings') {
+    for (const k of Object.keys(flags)) {
+      if (!SETTINGS_FLAGS.has(k)) fail(`unknown flag --${k} for "wb settings" (wb help for the list; there is no --auto-mode — auto is a session order, never a setting)`);
+    }
+    // A bare boolean flag (--auto-capture) means true; an explicit value other
+    // than the literal string "false" also means true, so --auto-capture=1 or
+    // a typo does not silently turn a setting off.
+    const boolFlag = (v: string | boolean | undefined): boolean | undefined =>
+      v === undefined ? undefined : typeof v === 'boolean' ? v : v !== 'false';
+    const patch: Record<string, unknown> = {};
+    if (typeof flags['default-project'] === 'string') patch.defaultProject = flags['default-project'];
+    if (typeof flags['backup-plan'] === 'string') patch.backupPlan = flags['backup-plan'];
+    if (flags['auto-capture'] !== undefined) patch.autoCapture = boolFlag(flags['auto-capture']);
+    if (flags['check-in-on-start'] !== undefined) patch.checkInOnStart = boolFlag(flags['check-in-on-start']);
+    if (flags['post-findings'] !== undefined) patch.postFindings = boolFlag(flags['post-findings']);
+    if (flags['summarise-on-exit'] !== undefined) patch.summariseOnExit = boolFlag(flags['summarise-on-exit']);
+    if (typeof flags['agent-name'] === 'string') {
+      const eq = flags['agent-name'].indexOf('=');
+      if (eq < 1) fail('--agent-name expects tool=name, e.g. --agent-name claude-code=Spike');
+      const tool = flags['agent-name'].slice(0, eq).trim();
+      const agentName = flags['agent-name'].slice(eq + 1).trim();
+      if (!tool) fail('--agent-name expects tool=name, e.g. --agent-name claude-code=Spike');
+      // Merged onto whatever is already there — a single-entry PATCH must not
+      // wipe out every other tool's name, and settings has no per-key route.
+      const current = await call('GET', '/api/settings');
+      const names = { ...(current.json?.settings?.agentNames && typeof current.json.settings.agentNames === 'object' ? current.json.settings.agentNames : {}) };
+      names[tool] = agentName;
+      patch.agentNames = names;
+    }
+    if (Object.keys(patch).length) {
+      const { status, json } = await call('PATCH', '/api/settings', patch);
+      if (!json.ok) fail(`${status}: ${json.error}`);
+      out(flags, 'settings updated', json.settings);
+      return;
+    }
+    const { json } = await call('GET', '/api/settings');
+    if (!json.ok) fail(json.error);
+    const s = json.settings || {};
+    out(flags, [
+      `onboardedAt: ${s.onboardedAt || '(not set up yet)'}`,
+      `defaultProject: ${s.defaultProject || '-'}`,
+      `backupPlan: ${s.backupPlan || '-'}`,
+      // Onboarding's own defaults for whichever key was never answered
+      // (docs/onboarding.md), so "print settings" reads as "what is actually
+      // in effect" rather than only what somebody explicitly set.
+      `autoCapture: ${s.autoCapture !== false}`,
+      `checkInOnStart: ${s.checkInOnStart !== false}`,
+      `postFindings: ${s.postFindings !== false}`,
+      `summariseOnExit: ${s.summariseOnExit === true}`,
+      `agentNames: ${JSON.stringify(s.agentNames || {})}`,
+    ].join('\n'), s);
+    return;
   }
 
   fail(`unknown command "${cmd}" (${basename(process.argv[1])} help)`);

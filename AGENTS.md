@@ -53,6 +53,14 @@ wb status <id> <status>                            PATCH /api/items/<id> {"statu
 wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
 wb export                                          bun run export — the server also exports on its own after every change
+wb archive <slug>                                  PATCH /api/projects/<slug> {"archived":true,"actor":"<you>"}
+wb restore <slug>                                  PATCH /api/projects/<slug> {"archived":false,"actor":"<you>"} — reclaims its colour if still free
+wb project <slug>                                  GET  /api/projects/<slug> — prints name, key, groupBy, sortBy, sectionMode, color, sections, repos
+wb project <slug> --group s|status|move --sort activity|ref --color '#…' --name … --description … --key … --section-mode adhoc|declared --sections a,b --repos a,b
+                                                   PATCH /api/projects/<slug> {…whichever flags were given…} — any subset, one call
+wb settings                                        GET  /api/settings — prints every key, including its onboarding default when unset
+wb settings --default-project <slug> --backup-plan … --auto-capture --check-in-on-start --post-findings --summarise-on-exit --agent-name tool=name
+                                                   PATCH /api/settings {…} — a boolean flag alone means true; --flag false means false; no --auto-mode: auto is a session order, never a setting
 ```
 
 Responses are `{"ok":true, …}` or `{"ok":false,"error":"…"}`: `400` malformed
