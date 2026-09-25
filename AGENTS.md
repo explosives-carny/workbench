@@ -1,6 +1,6 @@
 # Workbench — agent contract
 
-**Contract v10.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+**Contract v11.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
 overrides). `GET /api` returns the version the server speaks; if it is not `10`,
 re-read this file.
 
@@ -86,8 +86,16 @@ understood — usually a typo).
    item; record results one step at a time. When every step has a result the
    round is finished and the item goes back at `received`: signed off if all
    passed, otherwise for the builder to review the notes.
-8. **Never edit this application to add a feature.** Branch, PR, tell them.
-   See `CONTRIBUTING.md`.
+8. **Change this application by pull request — never by editing the running copy.**
+   Branch, change it with tests, open a pull request documented in two
+   registers (detail for an agent, a plain summary for a project manager),
+   tell them it is open. Pull requests are welcome and early ones are better
+   than late ones. **A pull request changes the tool, never a project**: no
+   board contents, project data, labels, settings, paths, ports or other
+   installation configuration go into the repository — those live in the
+   installation's own data. What is ruled out is the private edit: a change made to the
+   installed copy that no one reviewed and the next update overwrites. See
+   `CONTRIBUTING.md`.
 9. **A report is not finished while it names work that is not on the board.**
    Before you report a round, every "your call", "left for you", "not
    confirmed" and follow-up in it is already an item — a decision with options,
@@ -559,4 +567,5 @@ refuse.
   the four kinds of item, writing QA steps, and the failures behind each rule.
 - `docs/onboarding.md` — the setup questions and the board layouts.
 - `docs/integrations/README.md` — the one portable wiring block, plus vendor notes.
-- `CONTRIBUTING.md` — what needs a pull request and what you can do without one.
+- `CONTRIBUTING.md` — who may change the application, how a pull request is
+  documented, and what you can do without one.
