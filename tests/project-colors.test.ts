@@ -165,13 +165,14 @@ describe('PATCH /api/projects/<slug> color', () => {
 describe('the home page renders projects in API order, not a client-side sort', () => {
   const indexHtml = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 
-  it('iterates data.projects directly with no re-sort', () => {
+  it('iterates the API response directly with no re-sort, for both the active and archived lists', () => {
     const start = indexHtml.indexOf('async function render()');
     expect(start).toBeGreaterThan(-1);
     const end = indexHtml.indexOf('\n  }', start);
     const body = indexHtml.slice(start, end);
     expect(body).not.toMatch(/\.sort\(/);
-    expect(body).toContain('for (const p of data.projects) listEl.appendChild(card(p));');
+    expect(body).toContain('for (const p of active) listEl.appendChild(card(p));');
+    expect(body).toContain('for (const p of archived) archivedListEl.appendChild(archivedCard(p));');
   });
 
   it('shows the project colour and a relative activity time on each card', () => {

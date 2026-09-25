@@ -262,6 +262,17 @@ function titleWarning(item: { title: string; context: string; body: string }): s
   return undefined;
 }
 
+// An archived project is "kept as a record", not actively worked — but
+// nothing here refuses a write into one; the human archived the project, not
+// its history, and a late reply or a stray automation should still land
+// rather than fail closed. Warned instead, so the caller notices rather than
+// wondering later why an answer landed on a project the board's own banner
+// already says is archived.
+function archivedProjectWarning(project: { name: string; archivedAt: string | null } | null): string | undefined {
+  if (!project || !project.archivedAt) return undefined;
+  return `project "${project.name}" is archived — the write landed, but this project is kept as a record, not actively worked`;
+}
+
 async function readJson(req: Request): Promise<any> {
   const text = await req.text();
   if (!text.trim()) return {};
@@ -524,6 +535,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         // Policy first, for every item, so a batch either lands whole or is
         // refused whole — half a set is worse than none.
         const warnings: string[] = [];
+        const archivedWarn = archivedProjectWarning(project);
+        if (archivedWarn) warnings.push(archivedWarn);
         for (const input of parsed) {
           const { warning } = sectionPolicy(store, project, input.section);
           if (warning) warnings.push(warning);
@@ -546,6 +559,10 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
   if (parts[0] === 'items' && parts.length >= 2) {
     const item = store.resolveItem(decodeURIComponent(parts[1]));
     if (!item) return notFound(ctx, `no item with id "${parts[1]}"`);
+    // One lookup, shared by every route below that needs the owning project —
+    // for section/label policy on a PATCH, and for the archived-project
+    // warning on every write path an item has (PATCH, a message, a check).
+    const owner = store.getProjectById(item.projectId);
 
     if (parts.length === 2) {
       if (method === 'GET') return json(ctx, { ok: true, item });
@@ -555,18 +572,17 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         const ignored = ignoredKeys(body, ITEM_FIELDS);
         if (typeof body.position === 'number') (patch as any).position = body.position;
         const warnings: string[] = [];
-        if (patch.section !== undefined || patch.labels !== undefined) {
-          const owner = store.listProjects(true).find((p) => p.id === item.projectId);
-          if (owner) {
-            if (patch.section !== undefined) {
-              const { warning } = sectionPolicy(store, owner, patch.section);
-              if (warning) warnings.push(warning);
-            }
-            // Labels already on this item are "in use" by it, so exclude them:
-            // re-saving the same set must not warn about itself.
-            const added = (patch.labels || []).filter((l) => !item.labels.some((x) => x.toLowerCase() === String(l).toLowerCase()));
-            warnings.push(...labelPolicy(store, owner, added));
+        const archivedWarn = archivedProjectWarning(owner);
+        if (archivedWarn) warnings.push(archivedWarn);
+        if (owner && (patch.section !== undefined || patch.labels !== undefined)) {
+          if (patch.section !== undefined) {
+            const { warning } = sectionPolicy(store, owner, patch.section);
+            if (warning) warnings.push(warning);
           }
+          // Labels already on this item are "in use" by it, so exclude them:
+          // re-saving the same set must not warn about itself.
+          const added = (patch.labels || []).filter((l) => !item.labels.some((x) => x.toLowerCase() === String(l).toLowerCase()));
+          warnings.push(...labelPolicy(store, owner, added));
         }
         const ifVersion = typeof body.ifVersion === 'number' ? body.ifVersion : undefined;
         // A status change without the version you read is a blind write in a
@@ -653,7 +669,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           by: actorOf(body, 'by') ?? 'you',
           session: sessionOf(body),
         });
-        return json(ctx, withIgnored({ ok: true, item: updated }, ignoredKeys(body, CHECK_FIELDS)));
+        const archivedWarn = archivedProjectWarning(owner);
+        return json(ctx, withIgnored({ ok: true, item: updated, ...(archivedWarn ? { warning: archivedWarn } : {}) }, ignoredKeys(body, CHECK_FIELDS)));
       } catch (error: any) {
         if (error?.statusCode === 400) return badRequest(ctx, error.message);
         throw error;
@@ -676,8 +693,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           status,
         });
         const after = store.getItem(item.id)!;
-        const warning = finishedWithoutStatus(who, body.text, status, after.status);
-        return json(ctx, withIgnored({ ok: true, message, item: after, ...(warning ? { warning } : {}) }, ignoredKeys(body, MESSAGE_FIELDS)), 201);
+        const warnings = [finishedWithoutStatus(who, body.text, status, after.status), archivedProjectWarning(owner)].filter(Boolean) as string[];
+        return json(ctx, withIgnored({ ok: true, message, item: after, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignoredKeys(body, MESSAGE_FIELDS)), 201);
       }
       return badRequest(ctx, `${method} not supported here`);
     }

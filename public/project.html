@@ -20,6 +20,8 @@
     <div class="rule"></div>
   </header>
 
+  <p class="archived-banner" id="archivedbanner" hidden>Archived — kept as a record</p>
+
   <details class="settings" id="projsettings">
     <summary>Project settings</summary>
     <div class="settings-body">
@@ -103,7 +105,7 @@
   <div class="filters" id="filters" role="group" aria-label="Show items by status"></div>
   <div id="items" aria-live="polite"></div>
 
-  <section class="newproj">
+  <section class="newproj" id="addsection">
     <h2>Add an item</h2>
     <form id="newitem">
       <input type="text" id="ititle" placeholder="What needs deciding or doing" aria-label="Item title" required>
@@ -853,6 +855,12 @@
     }
     document.getElementById('pdesc').textContent = data.project.description || '';
     document.getElementById('pcolordot').style.background = project.color;
+    // Archived is "kept as a record", not hidden: the banner says so, adding
+    // new items stops making sense (there is nothing left to decide here),
+    // but every existing item stays exactly as readable and repliable as
+    // before — a write here still lands (the server warns, never refuses).
+    document.getElementById('archivedbanner').hidden = !project.archivedAt;
+    document.getElementById('addsection').hidden = !!project.archivedAt;
     items = data.items;
     document.getElementById('eyebrow').textContent =
       WB.WAITING_ON_YOU.reduce((n, k) => n + (data.counts[k] || 0), 0) + ' waiting on you · ' + items.length + ' items';

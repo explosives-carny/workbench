@@ -63,6 +63,11 @@
 
   <div id="list" class="projects" aria-live="polite"></div>
 
+  <details class="archived-projects" id="archivedprojects" hidden>
+    <summary id="archived-summary">Archived projects (0)</summary>
+    <div id="archivedlist" class="projects" aria-live="polite"></div>
+  </details>
+
   <section class="newproj">
     <h2>New project</h2>
     <form id="newproj">
@@ -231,17 +236,76 @@
     return a;
   }
 
+  // An archived project's card: no "waiting on you" badge (kept work is not
+  // being waited on) and a Restore button in its place. Still a link to the
+  // project itself — archived is "kept as a record", not hidden — so the
+  // button stops the click from also navigating.
+  function archivedCard(p) {
+    const a = document.createElement('a');
+    a.className = 'proj archived';
+    a.href = '/p/' + encodeURIComponent(p.slug);
+    a.style.setProperty('--proj-color', p.color);
+    a.innerHTML =
+      '<div class="row"><span class="color-dot" aria-hidden="true"></span><span class="t"></span>' +
+      '<button type="button" class="restore-btn">Restore</button></div>' +
+      '<div class="d"></div><div class="activity mono"></div><div class="restore-note mono"></div>';
+    a.querySelector('.t').textContent = p.name;
+    a.querySelector('.d').textContent = p.description || '';
+    const activityEl = a.querySelector('.activity');
+    activityEl.textContent = 'active ' + WB.relTime(p.lastActivityAt);
+    activityEl.title = WB.fmt(p.lastActivityAt);
+    const restoreBtn = a.querySelector('.restore-btn');
+    const noteEl = a.querySelector('.restore-note');
+    restoreBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      restoreBtn.disabled = true;
+      restoreBtn.textContent = 'Restoring…';
+      try {
+        await WB.patch('/api/projects/' + encodeURIComponent(p.slug), { archived: false });
+        await render();
+      } catch (err) {
+        restoreBtn.disabled = false;
+        restoreBtn.textContent = 'Restore';
+        noteEl.textContent = err.message;
+        noteEl.className = 'restore-note mono err';
+      }
+    });
+    return a;
+  }
+
   async function render() {
-    const data = await WB.get('/api/projects');
+    // One call for both lists: ?archived=1 returns every project, active and
+    // archived alike, so the two sections below can never disagree about
+    // which project is which the way two separate requests racing a change
+    // could.
+    const data = await WB.get('/api/projects?archived=1');
+    const active = data.projects.filter((p) => !p.archivedAt);
+    const archived = data.projects.filter((p) => p.archivedAt);
+
     listEl.innerHTML = '';
-    if (!data.projects.length) {
-      listEl.innerHTML = '<p class="empty">No projects yet. Create one below, or let an agent create one.</p>';
-      return;
+    if (!active.length) {
+      listEl.innerHTML = archived.length
+        ? '<p class="empty">Every project is archived. Restore one below, or create a new one.</p>'
+        : '<p class="empty">No projects yet. Create one below, or let an agent create one.</p>';
+    } else {
+      // The API already orders by lastActivityAt DESC — rendered in that
+      // order, not re-sorted, so the poll below reorders the list the moment
+      // something in a project moves, without any client-side sort to keep in
+      // sync with it.
+      for (const p of active) listEl.appendChild(card(p));
     }
-    // The API already orders by lastActivityAt DESC — rendered in that order,
-    // not re-sorted, so the poll below reorders the list the moment something
-    // in a project moves, without any client-side sort to keep in sync with it.
-    for (const p of data.projects) listEl.appendChild(card(p));
+
+    const archivedSection = document.getElementById('archivedprojects');
+    const archivedListEl = document.getElementById('archivedlist');
+    archivedListEl.innerHTML = '';
+    if (archived.length) {
+      archivedSection.hidden = false;
+      document.getElementById('archived-summary').textContent = 'Archived projects (' + archived.length + ')';
+      for (const p of archived) archivedListEl.appendChild(archivedCard(p));
+    } else {
+      archivedSection.hidden = true;
+    }
   }
 
   document.getElementById('newproj').addEventListener('submit', async (e) => {

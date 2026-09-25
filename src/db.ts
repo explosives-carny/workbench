@@ -1015,6 +1015,24 @@ export class Store {
   }
 
   /**
+   * The same shape as {@link getProject}, addressed by internal id. A route
+   * that already has an item's `projectId` (an item's own PATCH, its messages,
+   * its checks) uses this rather than scanning `listProjects` for it — the
+   * project owning an item needed a direct lookup and got a full-table scan
+   * borrowed from elsewhere instead, once. Also how a write route checks
+   * whether the project it is writing into is archived.
+   */
+  getProjectById(id: string): Project | null {
+    const row = this.db.query(`
+      SELECT p.*, MAX(act.at) AS last_activity_at FROM projects p
+      ${Store.ACTIVITY_JOIN}
+      WHERE p.id = ?
+      GROUP BY p.id
+    `).get(id);
+    return row ? rowToProject(row) : null;
+  }
+
+  /**
    * The project a repository reference belongs to, or null. `ref` is a remote
    * URL, `owner/name`, or a directory path; see normaliseRepoRef. First match
    * wins in the same order the gallery shows — most recently active first.
