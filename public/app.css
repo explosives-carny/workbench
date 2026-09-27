@@ -108,6 +108,32 @@ h2 { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
 .ref-chip:hover { color: var(--ink-2); border-color: var(--rule); }
 .ref-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ref-chip.copied { color: var(--ok); background: var(--ok-soft); border-color: currentColor; }
+/* A small "Copy" control beside a message, the context, the body or the whole
+   item — same visual language and the same click-to-copy pattern as the ref
+   chip above, just spelled out with a label instead of assumed from the
+   copied text itself. */
+.copy-btn {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--soft);
+  background: var(--rule-2); border: 1px solid transparent; border-radius: 3px;
+  padding: 2px 7px; cursor: pointer; line-height: 1.5; flex: none;
+}
+.copy-btn:hover { color: var(--ink-2); border-color: var(--rule); }
+.copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.copy-btn.copied { color: var(--ok); background: var(--ok-soft); border-color: currentColor; }
+/* "Copy item" is the one control that copies more than a single block, so it
+   reads slightly larger — level with the ref chip it sits beside in the
+   titlerow, not with the per-message controls in the thread. */
+.copy-item-btn { font-size: 11px; padding: 3px 9px; }
+/* The context sits beside its own copy control the same way a message does,
+   without disturbing .lede's own width and wrapping. */
+.ctxrow { display: flex; align-items: flex-start; gap: 10px; }
+.ctxrow .lede { flex: 1 1 auto; margin: 0; }
+/* Above the body rather than below it: reaching for "copy the whole thing" is
+   the first thing anybody wants once they have read the heading, not after
+   scrolling past a long document to find a control at the bottom. */
+.doccopybar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.msgfoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px; }
+.msgfoot .when { margin-top: 0; }
 /* The rule owns the space on both sides of itself. It used to own only the top,
    and every page that looked right did so by accident — the gap underneath came
    from whatever followed having its own margin-top. The single-item page's panel
@@ -268,6 +294,11 @@ a.lr-title {
   flex: 0 1 auto; min-width: 0;
   font-size: 14.5px; font-weight: 550; color: inherit; text-decoration: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* Belt and braces alongside the link's draggable="false": a browser that
+     still offers to drag the link rather than select its text ignores the
+     attribute silently, and this is the CSS the attribute was standardised to
+     replace. */
+  -webkit-user-drag: none;
 }
 a.lr-title:hover, a.lr-title:focus-visible { color: var(--accent); text-decoration: underline; }
 .lr-doc {

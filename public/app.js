@@ -110,31 +110,51 @@ window.WB = (function () {
     }
   }
 
-  // Copy `ref` onto the clipboard, with feedback either way. Wrapped so a
-  // denied permission or an insecure context (clipboard APIs need HTTPS or
-  // localhost) never throws out of a click handler — it falls back to
-  // selecting the chip's own text so the person can still copy it by hand.
-  async function copyRef(chip, ref) {
+  // Select an element's text by hand — the fallback every copy control shares
+  // when the clipboard API is denied or unavailable (it needs HTTPS or
+  // localhost). Wrapped because a private window or a permission prompt the
+  // person dismissed must never throw out of a click handler.
+  function selectElementText(el) {
     try {
-      await navigator.clipboard.writeText(ref);
-    } catch (err) {
-      try {
-        const range = document.createRange();
-        range.selectNodeContents(chip);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (selErr) { /* nothing left to try; the chip still shows the ref */ }
-      chip.title = 'Copy failed — text selected';
-      return;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return true;
+    } catch (e) {
+      return false;
     }
-    const original = chip.textContent;
-    chip.classList.add('copied');
-    chip.textContent = 'Copied';
+  }
+
+  // Copy `text` onto the clipboard and flash `label` on `el` for feedback,
+  // restoring its original text after `restoreMs`. One place for the pattern
+  // the ref chip introduced, reused by every "Copy" control on the item page:
+  // a message, the context, the body, and the whole item. On failure the text
+  // named by `selectFallbackEl` (the chip itself, or the block being copied)
+  // is selected instead, so the person can still copy it by hand.
+  async function copyWithFeedback(el, text, label, opts) {
+    opts = opts || {};
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      selectElementText(opts.selectFallbackEl || el);
+      el.title = opts.failTitle || 'Copy failed — text selected';
+      return false;
+    }
+    const original = el.textContent;
+    el.classList.add('copied');
+    el.textContent = label || original;
     setTimeout(() => {
-      chip.classList.remove('copied');
-      chip.textContent = original;
-    }, 1200);
+      el.classList.remove('copied');
+      el.textContent = original;
+    }, opts.restoreMs || 1200);
+    return true;
+  }
+
+  // Copy `ref` onto the clipboard, with feedback either way.
+  async function copyRef(chip, ref) {
+    await copyWithFeedback(chip, ref, 'Copied');
   }
 
   // The chip a person quotes elsewhere — clicking it copies the reference.
@@ -208,6 +228,36 @@ window.WB = (function () {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
+  // The "Copy item" plain text: the ref, the title, the status, the context
+  // and the whole thread, laid out for pasting into a chat message or an
+  // email — somewhere that will never render the board's own HTML. Pure and
+  // self-contained (statusLabels passed in rather than closed over) so it can
+  // be exercised directly in a test without the DOM the rest of this file
+  // needs; see tests/copy-text.test.ts.
+  function formatItemPlainText(item, statusLabels) {
+    const labels = statusLabels || {};
+    const lines = [];
+    const heading = [item.ref, item.title].filter(Boolean).join('  ');
+    lines.push(heading || item.title || '(untitled)');
+    lines.push('Status: ' + (labels[item.status] || item.status || ''));
+    if (item.context) {
+      lines.push('');
+      lines.push(item.context);
+    }
+    const messages = item.messages || [];
+    if (messages.length) {
+      lines.push('');
+      lines.push('Discussion:');
+      for (const m of messages) {
+        const who = m.who === 'you' ? 'You' : (m.author || 'Agent');
+        lines.push('');
+        lines.push(who + ':');
+        lines.push(m.text);
+      }
+    }
+    return lines.join('\n');
+  }
+
   return {
     STATUS_LABELS,
     WAITING_ON_YOU,
@@ -217,6 +267,9 @@ window.WB = (function () {
     labelChoices,
     refChip,
     renderBlockedBy,
+    selectElementText,
+    copyWithFeedback,
+    formatItemPlainText,
     STATUSES: Object.keys(STATUS_LABELS),
     get: (p) => req('GET', p),
     post: (p, b) => req('POST', p, b),

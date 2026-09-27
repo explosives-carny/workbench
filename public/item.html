@@ -15,8 +15,12 @@
     <div class="titlerow">
       <span id="refslot"></span>
       <h1 id="title">…</h1>
+      <span id="copyitemslot"></span>
     </div>
-    <p class="lede" id="ctx"></p>
+    <div class="ctxrow">
+      <p class="lede" id="ctx"></p>
+      <span id="ctxcopyslot"></span>
+    </div>
     <p class="blocked-line" id="blocked" hidden></p>
     <div class="rule"></div>
   </header>
@@ -38,6 +42,29 @@
   let draft = '';
   let deferred = null;
   let lastSig = null;
+
+  // A small "Copy" control beside a block of text: a message, the context,
+  // the body, or the whole item. `getText` is read at click time (never
+  // stale, since a message or the body can be miles down the thread by the
+  // time somebody reaches for it), and `opts.selectFallbackEl` is what gets
+  // selected by hand when the clipboard API is denied — the paragraph or
+  // article holding the real text, not the small button itself.
+  function makeCopyBtn(getText, ariaLabel, opts) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-btn mono' + (opts && opts.big ? ' copy-item-btn' : '');
+    btn.textContent = 'Copy';
+    btn.title = ariaLabel;
+    btn.setAttribute('aria-label', ariaLabel);
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const text = getText();
+      if (!text) return;
+      WB.copyWithFeedback(btn, text, 'Copied', opts);
+    });
+    return btn;
+  }
   // A result clicked but not yet saved because it still needs a note.
   const pendingResult = {};
 
@@ -86,12 +113,18 @@
       doc.className = 'mddoc';
       doc.innerHTML = MD(item.body);
       placeChecks(doc);
-      el.appendChild(doc);
+      const bar = document.createElement('div');
+      bar.className = 'doccopybar';
+      bar.appendChild(makeCopyBtn(() => item.body, 'Copy the body (markdown source)', { selectFallbackEl: doc }));
+      el.append(bar, doc);
     } else {
+      const bar = document.createElement('div');
+      bar.className = 'doccopybar';
       const pre = document.createElement('pre');
       pre.className = 'doc';
       pre.textContent = item.body;
-      el.appendChild(pre);
+      bar.appendChild(makeCopyBtn(() => item.body, 'Copy the body', { selectFallbackEl: pre }));
+      el.append(bar, pre);
     }
   }
 
@@ -290,7 +323,11 @@
         const when = document.createElement('div');
         when.className = 'when';
         when.textContent = WB.fmt(msg.createdAt);
-        d.append(who, p, when);
+        const foot = document.createElement('div');
+        foot.className = 'msgfoot';
+        foot.appendChild(when);
+        foot.appendChild(makeCopyBtn(() => msg.text, 'Copy this message', { selectFallbackEl: p }));
+        d.append(who, p, foot);
         thread.appendChild(d);
       }
       card.appendChild(thread);
@@ -381,7 +418,20 @@
     const ref = WB.refChip(item.ref);
     if (ref) refslot.appendChild(ref);
     document.getElementById('title').textContent = item.title;
-    document.getElementById('ctx').textContent = item.context || '';
+    const ctxEl = document.getElementById('ctx');
+    ctxEl.textContent = item.context || '';
+    const copyItemSlot = document.getElementById('copyitemslot');
+    copyItemSlot.innerHTML = '';
+    copyItemSlot.appendChild(makeCopyBtn(
+      () => WB.formatItemPlainText(item, WB.STATUS_LABELS),
+      'Copy item as plain text',
+      { big: true }
+    ));
+    const ctxCopySlot = document.getElementById('ctxcopyslot');
+    ctxCopySlot.innerHTML = '';
+    if (item.context) {
+      ctxCopySlot.appendChild(makeCopyBtn(() => item.context, 'Copy the context', { selectFallbackEl: ctxEl }));
+    }
     // Blocked by: the item key comes from this item's own ref (WB-<KEY>-<n>),
     // so only refs on this board are linked.
     const blockedEl = document.getElementById('blocked');

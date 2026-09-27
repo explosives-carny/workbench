@@ -487,6 +487,12 @@
     // away rather than gone. The link's accessible name is still the whole
     // title (textContent), so nothing is lost for a screen reader either.
     t.title = item.title;
+    // Anchors are draggable by default, so a click-and-drag that starts on the
+    // title text picks up the link itself (a ghost image, the URL as payload)
+    // instead of selecting the text underneath the pointer — the one thing
+    // that blocked copying a title straight off the board. Turning that off
+    // leaves the click-to-open and the keyboard behaviour exactly as they were.
+    t.draggable = false;
     main.appendChild(t);
     // Main holds only the ref chip and the title — the two things the row
     // exists to show. Everything else (labels, the document tag, who spoke
