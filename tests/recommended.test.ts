@@ -1,7 +1,8 @@
 // A decision names the option the agent recommends (AGENTS.md rule 6,
 // contract v16). The field is `recommended`, a subset of `options`; marking
-// it in the option text ("B (Recommended)") is what it replaces. Refused when
-// a decision offers options without one; legacy items stay editable.
+// it in the option text ("B (Recommended)") is what it replaces. A missing
+// recommendation is warned in v16 (refused from v17); one that names no option
+// is refused now. Older items stay editable and answerable.
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { openDb, Store } from '../src/db.ts';
@@ -56,11 +57,47 @@ function legacyDecision(): string {
 }
 
 describe('creating a decision', () => {
-  test('options without recommended are refused, naming the field', async () => {
+  test('options without recommended land with a warning that names the field and v17', async () => {
     const res = await ask({ options: ['A', 'B'] });
+    expect(res.status).toBe(201);
+    const warned = res.json.warnings.join(' ');
+    expect(warned).toContain('"recommended"');
+    expect(warned).toContain('v17');
+  });
+
+  test('a decision with a recommendation carries no recommendation warning', async () => {
+    const res = await ask({ options: ['A', 'B'], recommended: ['A'] });
+    expect(res.json.warnings).toBeUndefined();
+  });
+
+  test('one option ending "(Recommended)" is converted into the field', async () => {
+    const res = await ask({ options: ['A', 'B (Recommended)'] });
+    expect(res.status).toBe(201);
+    expect(res.json.items[0].options).toEqual(['A', 'B']);
+    expect(res.json.items[0].recommended).toEqual(['B']);
+    expect(res.json.warnings.join(' ')).toContain('send the field instead of the suffix');
+  });
+
+  test('two "(Recommended)" options are not converted, and are warned about', async () => {
+    const res = await ask({ options: ['A (Recommended)', 'B (recommended)'] });
+    expect(res.status).toBe(201);
+    expect(res.json.items[0].recommended).toEqual([]);
+    expect(res.json.warnings.join(' ')).toContain('list the option in "recommended" instead');
+  });
+
+  test('an empty string cannot be the recommendation', async () => {
+    const res = await ask({ options: ['', 'B'], recommended: [''] });
     expect(res.status).toBe(400);
-    expect(res.json.error).toContain('"recommended"');
-    expect(store.listItems(store.getProject('demo')!.id)).toHaveLength(0);
+    expect(res.json.error).toContain('non-empty');
+  });
+
+  test('a clientId retry of an item filed before the rule returns it without a warning', async () => {
+    const project = store.getProject('demo')!;
+    const old = store.createItem(project.id, { title: 'Old question', options: ['A', 'B'], clientId: 'r1' });
+    const res = await ask({ title: 'Old question', options: ['A', 'B'], clientId: 'r1' });
+    expect(res.status).toBe(201);
+    expect(res.json.items[0].id).toBe(old.id);
+    expect(res.json.warnings).toBeUndefined();
   });
 
   test('a recommendation that is not one of the options is refused', async () => {
@@ -88,10 +125,10 @@ describe('creating a decision', () => {
     expect(res.json.items[0].recommended).toEqual(['A', 'C']);
   });
 
-  test('a batch with one bad decision lands nothing', async () => {
+  test('a batch with one bad recommendation lands nothing', async () => {
     const res = await api('POST', '/api/projects/demo/items', [
       { title: 'good', options: ['A', 'B'], recommended: ['A'] },
-      { title: 'bad', options: ['A', 'B'] },
+      { title: 'bad', options: ['A', 'B'], recommended: ['Z'] },
     ]);
     expect(res.status).toBe(400);
     expect(res.json.error).toContain('"bad"');
@@ -115,18 +152,36 @@ describe('creating a decision', () => {
   });
 
   test('an option that says "recommended" in its text is warned about', async () => {
-    const res = await ask({ options: ['A (Recommended)', 'B'], recommended: ['A (Recommended)'] });
+    const res = await ask({ options: ['A, recommended by vendor', 'B'], recommended: ['B'] });
     expect(res.status).toBe(201);
     expect(res.json.warnings.join(' ')).toContain('list the option in "recommended" instead');
   });
 });
 
 describe('changing an item', () => {
-  test('new options that drop the recommendation are refused on a decision', async () => {
+  test('new options that drop the recommendation are warned about on a decision', async () => {
     const id = (await ask({ options: ['A', 'B'], recommended: ['B'] })).json.items[0].id;
     const res = await api('PATCH', `/api/items/${id}`, { options: ['A', 'C'] });
-    expect(res.status).toBe(400);
-    expect(res.json.error).toContain('"recommended"');
+    expect(res.status).toBe(200);
+    expect(res.json.item.recommended).toEqual([]);
+    expect(res.json.warning).toContain('"recommended"');
+  });
+
+  test('new options with a "(Recommended)" suffix are converted on a PATCH', async () => {
+    const id = (await ask({ options: ['A', 'B'], recommended: ['B'] })).json.items[0].id;
+    const res = await api('PATCH', `/api/items/${id}`, { options: ['A (Recommended)', 'C'] });
+    expect(res.status).toBe(200);
+    expect(res.json.item.options).toEqual(['A', 'C']);
+    expect(res.json.item.recommended).toEqual(['A']);
+  });
+
+  test('turning a document with options into an issue is checked like a move into needs-decision', async () => {
+    const project = store.getProject('demo')!;
+    const doc = store.createItem(project.id, { title: 'Spec', kind: 'document', options: ['A', 'B'] });
+    const res = await api('PATCH', `/api/items/${doc.id}`, { kind: 'issue' });
+    expect(res.status).toBe(200);
+    expect(res.json.item.status).toBe('needs-decision');
+    expect(res.json.warning).toContain('"recommended"');
   });
 
   test('new options keep a recommendation still offered', async () => {
@@ -149,12 +204,13 @@ describe('changing an item', () => {
     expect((await api('PATCH', `/api/items/${id}`, { recommended: ['Z'] })).status).toBe(400);
   });
 
-  test('moving an optioned item into needs-decision without a recommendation is refused', async () => {
-    const id = (await ask({ status: 'in-progress', options: ['A', 'B'] })).json.items[0].id;
-    const res = await api('PATCH', `/api/items/${id}`, { status: 'needs-decision', ifVersion: 1 });
-    expect(res.status).toBe(400);
-    const ok = await api('PATCH', `/api/items/${id}`, { status: 'needs-decision', recommended: ['A'], ifVersion: 1 });
-    expect(ok.status).toBe(200);
+  test('the status select can reopen an older decision; it is warned, never refused', async () => {
+    const id = legacyDecision();
+    await api('PATCH', `/api/items/${id}`, { choice: 'A', status: 'received' });
+    const res = await api('PATCH', `/api/items/${id}`, { status: 'needs-decision' });
+    expect(res.status).toBe(200);
+    expect(res.json.item.status).toBe('needs-decision');
+    expect(res.json.warning).toContain('"recommended"');
   });
 
   test('a legacy decision can still be retitled and labelled', async () => {
@@ -179,11 +235,11 @@ describe('changing an item', () => {
 });
 
 describe('replying', () => {
-  test('a reply that moves an optioned item back to needs-decision needs a recommendation first', async () => {
+  test('a reply that moves an optioned item back to needs-decision lands and says which PATCH adds the recommendation', async () => {
     const id = (await ask({ status: 'in-progress', options: ['A', 'B'] })).json.items[0].id;
     const res = await api('POST', `/api/items/${id}/messages`, { who: 'agent', text: 'back to you', status: 'needs-decision' });
-    expect(res.status).toBe(400);
-    expect(store.listMessages(id)).toHaveLength(0);
+    expect(res.status).toBe(201);
+    expect(res.json.warning).toContain(`PATCH /api/items/${id}`);
   });
 
   test('a person replying on a legacy decision is not refused', async () => {

@@ -142,7 +142,7 @@ contract's rules so the common calls cannot be made wrong:
 
 ```bash
 wb board <slug>                          # what is waiting on the agent: received + in-progress
-wb ask <slug> '[{"title":"Deploy?","context":"...","options":["Do it","Hold"]}]'
+wb ask <slug> '[{"title":"Deploy?","context":"...","options":["Do it","Hold"],"recommended":["Do it"]}]'
 wb reply <id> "Landed: ..." --status complete
 ```
 
@@ -151,7 +151,7 @@ The same three over plain HTTP, for anything without a shell:
 ```bash
 curl -s 'localhost:4317/api/projects/<slug>?status=received,in-progress&messages=last'
 curl -s localhost:4317/api/projects/<slug>/items -H 'content-type: application/json' \
-  -d '[{"title":"Deploy?","context":"...","options":["Do it","Hold"],"clientId":"r1-deploy"}]'
+  -d '[{"title":"Deploy?","context":"...","options":["Do it","Hold"],"recommended":["Do it"],"clientId":"r1-deploy"}]'
 curl -s localhost:4317/api/items/<id>/messages -H 'content-type: application/json' \
   -d '{"who":"agent","actor":"your-name","status":"complete","text":"Landed — here is what happened."}'
 ```

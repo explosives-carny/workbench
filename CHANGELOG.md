@@ -4,10 +4,12 @@
 
 - A decision now shows which answer the agent recommends: that button carries
   a "Recommended" tag and a heavier border, instead of the agent writing
-  "(Recommended)" into the answer text. Agents must name at least one
-  recommendation on any decision that offers buttons, or the board refuses it
-  and says what to add. Items filed before this change still work as before
-  (contract v16).
+  "(Recommended)" into the answer text. Agents are expected to name at least one
+  recommendation on any decision that offers buttons: for now the board accepts
+  one without and tells the agent what to add, and the next contract version
+  will turn it away. An answer written the old way, ending "(Recommended)", is
+  converted into the tag automatically. Items filed before this change still
+  work as before, including reopening them from the status menu (contract v16).
 - Board settings now check what they are given: a setting with the wrong kind
   of value is refused with a message saying which one, and an unknown setting
   name is not saved and is reported back, instead of either being stored and

@@ -907,7 +907,7 @@ function rowToProject(r: any): Project {
 // survive; duplicates collapse. Shared by create and update so both agree.
 export function normaliseRecommended(recommended: string[] | undefined, options: string[]): string[] {
   if (!Array.isArray(recommended)) return [];
-  return [...new Set(recommended.filter((o) => typeof o === 'string' && options.includes(o)))];
+  return [...new Set(recommended.filter((o) => typeof o === 'string' && o.trim() && options.includes(o)))];
 }
 
 function rowToItem(r: any): Item {
@@ -923,7 +923,7 @@ function rowToItem(r: any): Item {
   let recommended: string[] = [];
   try {
     const parsed = JSON.parse(r.recommended ?? '[]');
-    if (Array.isArray(parsed)) recommended = parsed.filter((o) => typeof o === 'string' && options.includes(o));
+    if (Array.isArray(parsed)) recommended = parsed.filter((o) => typeof o === 'string' && o.trim() && options.includes(o));
   } catch {
     recommended = [];
   }
@@ -1284,6 +1284,13 @@ export class Store {
     const item = rowToItem(row);
     item.messages = this.listMessages(item.id);
     return item;
+  }
+
+  /** True when a create with this clientId would return an existing item (see createItem). */
+  hasClientId(projectId: string, clientId: string | undefined): boolean {
+    const key = typeof clientId === 'string' ? clientId.trim().slice(0, 120) : '';
+    if (!key) return false;
+    return Boolean(this.db.query('SELECT 1 FROM items WHERE project_id = ? AND client_id = ?').get(projectId, key));
   }
 
   /** Resolve UUIDs first, then current and former display references. */

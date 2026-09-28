@@ -90,10 +90,13 @@ understood — usually a typo).
 6. **One item per question**, context answerable without you in the room:
    tradeoff, recommendation, cost of being wrong. **A decision with `options`
    names at least one in `recommended`** — the exact option text, e.g.
-   `"options":["A","B"],"recommended":["B"]`; the board marks it. Never write
-   "(Recommended)" into an option or the context: the server refuses a
-   decision whose options carry no `recommended`, and warns on an option
-   whose text says it. Documents are `kind: "document"`; a document that asks
+   `"options":["A","B"],"recommended":["B"]`; the board marks it. No
+   preference is a recommendation too: list every option. Never write
+   "(Recommended)" into an option or the context. Today a decision with
+   options and no `recommended` lands with a warning, and a single option
+   ending "(Recommended)" is converted into the field; **contract v17 refuses
+   a write that sets options without one.** A `recommended` entry that is not
+   one of the options is refused now. Documents are `kind: "document"`; a document that asks
    for something is two items.
 7. **A title is a headline, not the body.** A few words that name the thing,
    at most about 100 characters; the explanation, the quote, the evidence go
@@ -120,7 +123,7 @@ understood — usually a typo).
     confirmed" and follow-up in it is already an item — a decision with options,
     or QA with steps. Chat is where those go to be forgotten. **A question is a
     decision.** A clarifying question on an existing item goes on that item as
-    `options` (`PATCH /api/items/<id> {"options":[…]}`), or becomes its own
+    `options` (`PATCH /api/items/<id> {"options":[…],"recommended":[…]}`), or becomes its own
     item; a message alone asks nothing anyone can click. **The report asks
     nothing**: it names item ids and their statuses. A question mark in a round
     report is a decision that is not on the board.

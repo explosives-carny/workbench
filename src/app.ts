@@ -316,21 +316,43 @@ function titleWarning(item: { title: string; context: string; body: string }): s
 // "(Recommended)" in an option's text, which nothing could display, check or
 // keep out of `choice` once clicked. Now it is the `recommended` field.
 //
-// Refused, not warned, because this is the one thing the field exists to
-// guarantee. Checked only on a caller's write that touches options,
-// recommended or moves the item INTO needs-decision — so a title edit or a
-// person's click on an item filed before the rule still lands. The store's own
-// status moves (a reply flipping to received) never pass through here, and
-// import calls the store directly, so a restore of old data never fails.
+// A recommendation that names no option is refused: only a writer that knows
+// the field sends it, so refusing breaks nobody. A MISSING one is warned in
+// contract v16 and refused from v17 on a write that sets options — the same
+// warn-then-refuse the ifVersion rule took, so a writer still on v15 is told
+// before it is turned away. A status change alone (the board's status select
+// reopening an older decision) is only ever warned: it cannot add a
+// recommendation, and refusing it would strand the item. The store's own
+// status moves and import never pass through here.
+function recommendationRefusal(options: string[], recommended: string[] | undefined): string | undefined {
+  const bad = (recommended || []).find((o) => !o.trim() || !options.includes(o));
+  if (bad === undefined) return undefined;
+  if (!bad.trim()) return 'recommended entries must be non-empty option text';
+  return `recommended "${bad}" is not one of the options — use the exact option text`;
+}
+
 type DecisionShape = { kind: Kind; status: Status; options: string[]; recommended?: string[] };
-function decisionPolicy(next: DecisionShape): string | undefined {
-  const unknown = (next.recommended || []).filter((o) => !next.options.includes(o));
-  if (unknown.length) {
-    return `recommended "${unknown[0]}" is not one of the options — use the exact option text`;
-  }
-  if (next.kind !== 'issue' || next.status !== 'needs-decision' || !next.options.length) return undefined;
-  if (normaliseRecommended(next.recommended, next.options).length) return undefined;
-  return `a decision with options needs at least one recommended — add "recommended":["<one of the options>"]`;
+function lacksRecommendation(next: DecisionShape): boolean {
+  if (next.kind !== 'issue' || next.status !== 'needs-decision' || !next.options.length) return false;
+  return normaliseRecommended(next.recommended, next.options).length === 0;
+}
+const MISSING_RECOMMENDATION =
+  'a decision with options has no recommended — add "recommended":["<one of the options>"]; contract v17 refuses this';
+
+// The old convention, accepted for one contract version: exactly one option
+// ending "(Recommended)" and no `recommended` sent becomes that option, with
+// the suffix taken off the text. Two or more such options, or a stripped text
+// that collides with another option, is left alone and warned about.
+const RECOMMENDED_SUFFIX = /\s*\(recommended\)\s*$/i;
+function convertRecommendedSuffix(input: { options?: string[]; recommended?: string[] }): string | undefined {
+  if (!input.options || input.recommended !== undefined) return undefined;
+  const marked = input.options.filter((o) => RECOMMENDED_SUFFIX.test(o));
+  if (marked.length !== 1) return undefined;
+  const plain = marked[0].replace(RECOMMENDED_SUFFIX, '');
+  if (!plain.trim() || input.options.includes(plain)) return undefined;
+  input.options = input.options.map((o) => (o === marked[0] ? plain : o));
+  input.recommended = [plain];
+  return `option "${marked[0]}" was stored as "${plain}" with "recommended":["${plain}"] — send the field instead of the suffix`;
 }
 
 // Warned, not refused: default status for an issue is needs-decision, so
@@ -341,7 +363,7 @@ function noOptionsWarning(item: { kind: Kind; status: Status; options: string[] 
   return 'a decision with no options gives nothing to click — add "options" and mark at least one in "recommended"';
 }
 
-// The old convention, caught on the way in so it does not linger.
+// Whatever the suffix conversion did not take, caught so it does not linger.
 function recommendedInTextWarning(options: string[] | undefined): string | undefined {
   const marked = (options || []).find((o) => /recommend/i.test(o));
   if (!marked) return undefined;
@@ -627,14 +649,20 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         const archivedWarn = archivedProjectWarning(project);
         if (archivedWarn) warnings.push(archivedWarn);
         for (const input of parsed) {
-          const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
-          const refusal = decisionPolicy({
-            kind,
-            status: input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind),
-            options: input.options || [],
-            recommended: input.recommended,
-          });
-          if (refusal) return badRequest(ctx, parsed.length > 1 ? `"${input.title}": ${refusal}` : refusal);
+          const named = (text: string) => (parsed.length > 1 ? `"${input.title}": ${text}` : text);
+          // A retry of something already filed returns the existing item
+          // untouched, so the rule is not applied to it a second time.
+          if (!store.hasClientId(project.id, input.clientId)) {
+            const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
+            const converted = convertRecommendedSuffix(input);
+            if (converted) warnings.push(named(converted));
+            const refusal = recommendationRefusal(input.options || [], input.recommended);
+            if (refusal) return badRequest(ctx, named(refusal));
+            const status = input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind);
+            if (lacksRecommendation({ kind, status, options: input.options || [], recommended: input.recommended })) {
+              warnings.push(named(MISSING_RECOMMENDATION));
+            }
+          }
           const { warning } = sectionPolicy(store, project, input.section);
           if (warning) warnings.push(warning);
           warnings.push(...labelPolicy(store, project, input.labels));
@@ -689,19 +717,22 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           const added = (patch.labels || []).filter((l) => !item.labels.some((x) => x.toLowerCase() === String(l).toLowerCase()));
           warnings.push(...labelPolicy(store, owner, added));
         }
-        const movesIntoDecision = patch.status === 'needs-decision' && item.status !== 'needs-decision';
+        // Same arithmetic as the store's updateItem: where the item lands.
+        const kind: Kind = patch.kind === undefined ? item.kind : (patch.kind === 'document' ? 'document' : 'issue');
+        const wanted = patch.status ?? item.status;
+        const landsAt = isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind);
+        // A document turned into an issue lands at needs-decision without
+        // naming the status, so it counts as a move in.
+        const movesIntoDecision = landsAt === 'needs-decision' && (item.status !== 'needs-decision' || kind !== item.kind);
         if (patch.options !== undefined || patch.recommended !== undefined || movesIntoDecision) {
-          const kind: Kind = patch.kind === undefined ? item.kind : (patch.kind === 'document' ? 'document' : 'issue');
-          const wanted = patch.status ?? item.status;
+          const converted = patch.options !== undefined ? convertRecommendedSuffix(patch) : undefined;
+          if (converted) warnings.push(converted);
           const options = patch.options ?? item.options;
-          const refusal = decisionPolicy({
-            kind,
-            status: isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind),
-            options,
-            // Sent → checked as sent; not sent → what the store will keep.
-            recommended: patch.recommended ?? normaliseRecommended(item.recommended, options),
-          });
+          const refusal = recommendationRefusal(options, patch.recommended);
           if (refusal) return badRequest(ctx, refusal);
+          // Sent → checked as sent; not sent → what the store will keep.
+          const recommended = patch.recommended ?? normaliseRecommended(item.recommended, options);
+          if (lacksRecommendation({ kind, status: landsAt, options, recommended })) warnings.push(MISSING_RECOMMENDATION);
           const textWarn = recommendedInTextWarning(patch.options);
           if (textWarn) warnings.push(textWarn);
         }
@@ -807,10 +838,10 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (typeof body.text !== 'string' || !body.text.trim()) return badRequest(ctx, 'text is required');
         const who = body.who === 'you' ? 'you' : 'agent';
         const status = asStatus(body.status);
-        if (status === 'needs-decision' && item.status !== 'needs-decision') {
-          const refusal = decisionPolicy({ kind: item.kind, status, options: item.options, recommended: item.recommended });
-          if (refusal) return badRequest(ctx, refusal);
-        }
+        // A message cannot carry a recommendation, so the action it names is
+        // the PATCH that can.
+        const reopensWithout = status === 'needs-decision' && item.status !== 'needs-decision'
+          && lacksRecommendation({ kind: item.kind, status, options: item.options, recommended: item.recommended });
         ctx.wrote = true;
         const message = store.addMessage(item.id, {
           who,
@@ -820,7 +851,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           status,
         });
         const after = store.getItem(item.id)!;
-        const warnings = [finishedWithoutStatus(who, body.text, status, after.status), archivedProjectWarning(owner)].filter(Boolean) as string[];
+        const warnings = [
+          finishedWithoutStatus(who, body.text, status, after.status),
+          archivedProjectWarning(owner),
+          reopensWithout ? `this decision has options and no recommended — PATCH /api/items/${item.id} {"recommended":["<one of the options>"]}` : undefined,
+        ].filter(Boolean) as string[];
         return json(ctx, withIgnored({ ok: true, message, item: after, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignoredKeys(body, MESSAGE_FIELDS)), 201);
       }
       return badRequest(ctx, `${method} not supported here`);

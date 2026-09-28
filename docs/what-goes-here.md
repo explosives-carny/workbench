@@ -197,9 +197,10 @@ other off the screen before this was named a rule.
 Something you cannot proceed on without a person choosing. Give it `options`
 when the choice is genuinely closed, and leave them off when it is open. With
 options, list the one you would pick in `recommended` (`"recommended":["B"]`,
-the exact option text; more than one if they are equally good) — the board
-marks that button, and a decision with options and no recommendation is
-refused. The option text stays the answer itself: "B (Recommended)" is what the
+the exact option text; more than one if they are equally good, every one if
+you genuinely have no preference) — the board marks that button. A decision
+with options and no recommendation is warned about now and refused from
+contract v17. The option text stays the answer itself: "B (Recommended)" is what the
 field replaced, because it could not be styled or checked and it came back as
 the person's `choice` when they clicked it.
 
