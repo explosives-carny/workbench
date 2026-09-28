@@ -37,6 +37,24 @@ window.WB = (function () {
   // the two asks are different in kind.
   const WAITING_ON_YOU = ['needs-decision', 'needs-qa'];
 
+  // QA is not all theirs: a step can belong to an agent. The server derives
+  // `qa` (the make-up of the steps) and `qaWaitingOn` (who has open steps);
+  // these only present them, so a row, a filter and a count cannot disagree.
+  const QA_LABELS = { human: 'Human QA', agent: 'Agent QA', mixed: 'Mixed QA' };
+  function qaChip(item) {
+    if (!item || item.status !== 'needs-qa' || !QA_LABELS[item.qa]) return null;
+    const el = document.createElement('span');
+    el.className = 'qa-chip qa-' + item.qa;
+    el.textContent = QA_LABELS[item.qa];
+    if (item.qa === 'mixed' && item.qaWaitingOn) el.title = 'Open steps wait on the ' + (item.qaWaitingOn === 'agent' ? 'agent' : 'person');
+    return el;
+  }
+  // Decisions plus QA, less the QA only an agent has left to run.
+  function waitingOnYou(counts, qaCounts) {
+    const all = WAITING_ON_YOU.reduce((n, k) => n + ((counts && counts[k]) || 0), 0);
+    return all - ((qaCounts && qaCounts.waitingOnAgent) || 0);
+  }
+
   async function req(method, path, body) {
     const res = await fetch(path, {
       method,
@@ -211,6 +229,9 @@ window.WB = (function () {
   return {
     STATUS_LABELS,
     WAITING_ON_YOU,
+    QA_LABELS,
+    qaChip,
+    waitingOnYou,
     DOCUMENT_STATUSES,
     ISSUE_STATUSES,
     statusesFor,

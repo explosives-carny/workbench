@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Items waiting on QA now say who does it: each step is marked for a person
+  or an agent, and the board shows the item as Human QA, Agent QA or Mixed QA,
+  with each step tagged. The QA filter counts each kind, and the "whose move"
+  layout puts QA the agent is running with the agent's work instead of yours.
+  Steps without a mark count as yours (contract v17).
 - A decision now shows which answer the agent recommends: that button carries
   a "Recommended" tag and a heavier border, instead of the agent writing
   "(Recommended)" into the answer text. Agents are expected to name at least one

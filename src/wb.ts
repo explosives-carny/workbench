@@ -260,7 +260,7 @@ async function main() {
     if (!json.ok) fail(json.error);
     const i = json.item;
     const thread = (i.messages || []).map((m: any) => `  [${m.createdAt}] ${m.who === 'you' ? 'YOU' : m.author}${m.session ? '·' + m.session : ''}: ${m.text}`).join('\n');
-    const checks = (i.checks || []).map((c: any) => `  [${(c.result || ' ').padEnd(4)}] ${c.id}: ${c.label}${c.note ? ` — ${c.note}` : ''}${c.by ? ` (${c.by})` : ''}`).join('\n');
+    const checks = (i.checks || []).map((c: any) => `  [${(c.result || ' ').padEnd(4)}] ${c.id} ${c.owner === 'agent' ? 'agent' : 'human'}: ${c.label}${c.note ? ` — ${c.note}` : ''}${c.by ? ` (${c.by})` : ''}`).join('\n');
     out(flags, [
       `${label(i)}  ${i.kind} ${i.status} v${i.version} by ${i.updatedBy || '-'} ${i.updatedAt}`,
       `id:      ${i.id}`,
@@ -270,6 +270,7 @@ async function main() {
       i.recommended?.length ? `recommended: ${i.recommended.join(' | ')}` : null,
       i.choice ? `choice:  ${i.choice}` : null,
       `context: ${i.context}`,
+      i.qa ? `qa:      ${i.qa}${i.qaWaitingOn ? ` (open steps: ${i.qaWaitingOn})` : ''}` : null,
       checks ? `checks:\n${checks}` : null,
       i.body ? `body (${i.bodyFormat}, ${i.body.length} chars):\n${i.body}` : null,
       `thread:\n${thread || '  (none)'}`,

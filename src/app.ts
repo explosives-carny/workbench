@@ -10,7 +10,7 @@
 import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
   ProjectKeyTaken, PROJECT_COLORS,
-  isStatusAllowed, statusesFor, KINDS, defaultStatusFor, normaliseRecommended,
+  isStatusAllowed, statusesFor, KINDS, defaultStatusFor, normaliseRecommended, CHECK_OWNERS,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
 import { join } from 'path';
@@ -22,7 +22,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '16';
+export const CONTRACT_VERSION = '17';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -108,7 +108,7 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // enough for a writer to notice and fix itself.
 const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
 const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
-const CHECK_FIELDS = new Set(['result', 'note', 'actor', 'by', 'session']);
+const CHECK_FIELDS = new Set(['result', 'note', 'owner', 'actor', 'by', 'session']);
 
 function ignoredKeys(body: any, known: Set<string>): string[] {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return [];
@@ -176,6 +176,9 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
       throw new Error('recommended must be an array of option strings, e.g. "recommended":["B"]');
     }
   }
+  if (Array.isArray(body.checks) && body.checks.some((c: any) => c?.owner !== undefined && c.owner !== '' && !CHECK_OWNERS.includes(c.owner))) {
+    throw new Error('check owner must be human or agent');
+  }
   if (body.bodyFormat !== undefined && !['text', 'markdown', 'html'].includes(body.bodyFormat)) {
     throw new Error('bodyFormat must be text, markdown or html');
   }
@@ -215,6 +218,7 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
           label: String(c?.label ?? ''),
           result: ['', 'pass', 'fail', 'skip'].includes(c?.result) ? c.result : '',
           note: typeof c?.note === 'string' ? c.note : '',
+          owner: c?.owner === 'human' || c?.owner === 'agent' ? c.owner : '',
           by: typeof c?.by === 'string' ? c.by : '',
           at: typeof c?.at === 'string' ? c.at : '',
         }))
@@ -318,7 +322,7 @@ function titleWarning(item: { title: string; context: string; body: string }): s
 //
 // A recommendation that names no option is refused: only a writer that knows
 // the field sends it, so refusing breaks nobody. A MISSING one is warned in
-// contract v16 and refused from v17 on a write that sets options — the same
+// contract v16 and refused by a later version on a write that sets options — the same
 // warn-then-refuse the ifVersion rule took, so a writer still on v15 is told
 // before it is turned away. A status change alone (the board's status select
 // reopening an older decision) is only ever warned: it cannot add a
@@ -337,7 +341,7 @@ function lacksRecommendation(next: DecisionShape): boolean {
   return normaliseRecommended(next.recommended, next.options).length === 0;
 }
 const MISSING_RECOMMENDATION =
-  'a decision with options has no recommended — add "recommended":["<one of the options>"]; contract v17 refuses this';
+  'a decision with options has no recommended — add "recommended":["<one of the options>"]; a later contract version refuses this';
 
 // The old convention, accepted for one contract version: exactly one option
 // ending "(Recommended)" and no `recommended` sent becomes that option, with
@@ -377,6 +381,17 @@ function recommendedInTextWarning(options: string[] | undefined): string | undef
   const marked = (options || []).find((o) => /recommend/i.test(o));
   if (!marked) return undefined;
   return `option "${marked}" says recommended in its text — take it out and list the option in "recommended" instead`;
+}
+
+// A QA step says who runs it (AGENTS.md rule 8). Warned, not refused: a step
+// without one still reads as the person's, which is what needs-qa meant before
+// owners existed, so nothing is lost — but the board cannot tell the person
+// which QA is theirs until every step says.
+function unownedStepsWarning(item: { kind: Kind; status: Status; checks: { owner: string }[] }): string | undefined {
+  if (item.kind !== 'issue' || item.status !== 'needs-qa') return undefined;
+  const unowned = item.checks.filter((c) => !c.owner).length;
+  if (!unowned) return undefined;
+  return `${unowned} of ${item.checks.length} steps have no owner and count as human QA — set "owner":"human" or "agent" on each`;
 }
 
 // An archived project is "kept as a record", not actively worked — but
@@ -473,12 +488,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
       const repo = url.searchParams.get('repo');
       if (repo !== null) {
         const match = store.resolveProject(repo, opts.home);
-        return json(ctx, { ok: true, projects: match ? [{ ...match, counts: store.counts(match.id) }] : [], resolvedFrom: repo });
+        return json(ctx, { ok: true, projects: match ? [{ ...match, counts: store.counts(match.id), qaCounts: store.qaCounts(match.id) }] : [], resolvedFrom: repo });
       }
       // GET /api/projects — everything the index needs in one call, counts
       // included, so the gallery never fans out one request per project.
       const includeArchived = url.searchParams.get('archived') === '1';
-      const projects = store.listProjects(includeArchived).map((p) => ({ ...p, counts: store.counts(p.id) }));
+      const projects = store.listProjects(includeArchived).map((p) => ({ ...p, counts: store.counts(p.id), qaCounts: store.qaCounts(p.id) }));
       return json(ctx, { ok: true, projects });
     }
     if (method === 'POST') {
@@ -529,6 +544,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           project,
           items,
           counts: store.counts(project.id),
+          qaCounts: store.qaCounts(project.id),
           sections: store.sectionsInUse(project),
           labels: store.labelsInUse(project.id),
         });
@@ -685,6 +701,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (warning) warnings.push(warning);
           const titleWarn = titleWarning(item);
           if (titleWarn) warnings.push(titleWarn);
+          const ownerWarn = unownedStepsWarning(item);
+          if (ownerWarn) warnings.push(parsed.length > 1 ? `"${item.title}": ${ownerWarn}` : ownerWarn);
           // Only when the caller asked for a decision by name: an issue filed
           // with no status also lands at needs-decision, and warning on every
           // one of those would teach callers to ignore warnings.
@@ -763,6 +781,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (blockedWarning) warnings.push(blockedWarning);
           const titleWarn = updated ? titleWarning(updated) : undefined;
           if (titleWarn) warnings.push(titleWarn);
+          const ownerWarn = updated && (patch.checks !== undefined || patch.status !== undefined) ? unownedStepsWarning(updated) : undefined;
+          if (ownerWarn) warnings.push(ownerWarn);
           const optionsWarn = updated && (movesIntoDecision || patch.options !== undefined) ? noOptionsWarning(updated) : undefined;
           if (optionsWarn) warnings.push(optionsWarn);
           return json(ctx, withIgnored({ ok: true, item: updated, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignored));
@@ -821,6 +841,9 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
       if (body.result !== undefined && !['', 'pass', 'fail', 'skip'].includes(body.result)) {
         return badRequest(ctx, "result must be '', pass, fail or skip");
       }
+      if (body.owner !== undefined && !CHECK_OWNERS.includes(body.owner)) {
+        return badRequest(ctx, 'owner must be human or agent');
+      }
       try {
         ctx.wrote = true;
         const updated = store.setCheck(item.id, parts[3], {
@@ -831,6 +854,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           // must not read as machine-recorded.
           by: actorOf(body, 'by') ?? 'you',
           session: sessionOf(body),
+          owner: body.owner,
         });
         const archivedWarn = archivedProjectWarning(owner);
         return json(ctx, withIgnored({ ok: true, item: updated, ...(archivedWarn ? { warning: archivedWarn } : {}) }, ignoredKeys(body, CHECK_FIELDS)));

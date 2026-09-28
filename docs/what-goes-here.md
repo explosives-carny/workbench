@@ -199,8 +199,8 @@ when the choice is genuinely closed, and leave them off when it is open. With
 options, list the one you would pick in `recommended` (`"recommended":["B"]`,
 the exact option text; more than one if they are equally good, every one if
 you genuinely have no preference) — the board marks that button. A decision
-with options and no recommendation is warned about now and refused from
-contract v17. The option text stays the answer itself: "B (Recommended)" is what the
+with options and no recommendation is warned about now and refused by a
+later contract version. The option text stays the answer itself: "B (Recommended)" is what the
 field replaced, because it could not be styled or checked and it came back as
 the person's `choice` when they clicked it.
 
@@ -282,6 +282,15 @@ This is the part that goes wrong, and it goes wrong the same handful of ways
 every time. Two rounds of real QA on the reference board produced 30 skipped and
 4 falsely-failed steps, and **not one of them was a defect in the product.** Every
 one was a defect in the instruction.
+
+**Say whose step it is.** Mark each step `"owner":"human"` or `"agent"`. An agent
+step is one you run and record yourself, with what you already have; a human
+step needs the person — their device, their account, their judgement. When a
+step sets up or feeds a later human step (boot the fixture, then check the
+screen it produces), give both to the person: an agent step finished at the
+wrong moment, or run against the wrong build, turns the human steps after it
+into false fails. Mixed is fine when the agent steps stand on their own, like a
+test suite run beside a visual check.
 
 A QA worker has your item and nothing else. Not your session, not your terminal,
 not the conversation where you decided any of this.

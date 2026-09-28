@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v16.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `16`,
+**Contract v17.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `17`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -52,6 +52,7 @@ wb reply <id> "Landed: …" --status complete        …same, with "status" — 
 wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
 wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
+                                                   — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
 wb export                                          bun run export — the server also exports on its own after every change
 wb archive <slug>                                  PATCH /api/projects/<slug> {"archived":true,"actor":"<you>"}
 wb restore <slug>                                  PATCH /api/projects/<slug> {"archived":false,"actor":"<you>"} — reclaims its colour if still free
@@ -94,8 +95,8 @@ understood — usually a typo).
    preference is a recommendation too: list every option. Never write
    "(Recommended)" into an option or the context. Today a decision with
    options and no `recommended` lands with a warning, and a single option
-   ending "(Recommended)" is converted into the field; **contract v17 refuses
-   a write that sets options without one.** A `recommended` entry that is not
+   ending "(Recommended)" is converted into the field; **a later contract
+   version refuses a write that sets options without one.** A `recommended` entry that is not
    one of the options is refused now. Documents are `kind: "document"`; a document that asks
    for something is two items.
 7. **A title is a headline, not the body.** A few words that name the thing,
@@ -104,8 +105,12 @@ understood — usually a typo).
    to be read in full to know what the item is, is a body in the wrong field.
    The server warns rather than refuses — a long title, or a long one with no
    context and no body, comes back with a `warning` naming what to move.
-8. **`needs-qa` means steps attached.** Define steps with `checks:[…]` on the
-   item; record results one step at a time. When every step has a result the
+8. **`needs-qa` means steps attached, each with an owner.** Define steps with
+   `checks:[…]` on the item, each `"owner":"human"` or `"agent"` — who runs
+   it. The board shows the item as Human QA, Agent QA or Mixed QA from them. A
+   step whose setup or result a later human step depends on is `human`, even if
+   an agent could run it, so the sequence stays in one pair of hands. Record
+   results one step at a time. When every step has a result the
    round is finished and the item goes back at `received`: signed off if all
    passed, otherwise for the builder to review the notes.
 9. **Change this application by pull request — never by editing the running copy.**
@@ -326,6 +331,18 @@ item — the whole list, only while no results are recorded. **Record** a result
 with `PATCH /api/items/<id>/checks/<step>`, one step per call, never by
 re-sending the array, which would overwrite a result somebody else just typed.
 A `fail` or `skip` needs a `note`; `pass` does not.
+
+**Every step has an owner**: `"owner":"human"` for the person, `"agent"` for a
+model. A step with none counts as human (what `needs-qa` meant before owners)
+and the write comes back with a warning naming how many. The item reads back
+`qa` — `human`, `agent` or `mixed`, from the owners — and `qaWaitingOn`, the
+owner of the open steps (the person first), which the board uses to put Agent
+QA with the agent's work. An agent runs and records its own steps; the
+person's are left for them. Give a step to the agent only when nothing the
+person does later depends on how or when it ran: "restart the server, then
+sign in" is one human step, not an agent step followed by a human one. An
+owner changes with `PATCH /api/items/<id>/checks/<step> {"owner":"…"}` until
+the step has a result; after that it is part of the record.
 
 **The server enforces the first half.** Sending `checks` onto an item whose
 steps already carry results is a `409` with `conflict: "checks"` and the step
