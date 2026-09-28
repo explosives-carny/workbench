@@ -7,7 +7,8 @@
   name is not saved and is reported back, instead of either being stored and
   breaking the settings panel (contract v15).
 - Restoring a board from its backup now brings back each project's layout,
-  sections, colour and archived state, not just its items and name.
+  sections, colour and archived state, not just its items and name. An archived
+  project keeps the date it was archived.
 - A document or item body sent without saying its format is now shown the right
   way: a whole web page renders as a page, and Markdown renders formatted,
   instead of either showing up as raw source. A format the writer names is

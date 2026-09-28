@@ -102,8 +102,27 @@ describe('importAll restores a project the way it was', () => {
     expect(back.archivedAt).toBeNull();
     const oldBack = target.getProject(old.slug)!;
     expect(oldBack.groupBy).toBe('section');
-    expect(oldBack.archivedAt).toBeTruthy();
+    // The original retirement date, not the time of the restore.
+    expect(oldBack.archivedAt).toBe(source.getProject(old.slug)!.archivedAt);
     expect(target.listProjects(false).map((p) => p.slug)).not.toContain(old.slug);
+  });
+
+  test('an archive date that is not a real past instant falls back to now', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wb-gaps-arch-'));
+    cleanup.push(dir);
+    const kept = '2025-03-04T05:06:07.000Z';
+    writeFileSync(join(dir, 'a.json'), JSON.stringify({ project: { name: 'Kept', slug: 'kept', archivedAt: kept }, items: [] }));
+    writeFileSync(join(dir, 'b.json'), JSON.stringify({ project: { name: 'Future', slug: 'future', archivedAt: '3000-01-01T00:00:00Z' }, items: [] }));
+    writeFileSync(join(dir, 'c.json'), JSON.stringify({ project: { name: 'Junk', slug: 'junk', archivedAt: 'yesterday-ish' }, items: [] }));
+    const before = Date.now();
+    const target = freshStore();
+    importAll(target, dir, () => {});
+    expect(target.getProject('kept')!.archivedAt).toBe(kept);
+    for (const slug of ['future', 'junk']) {
+      const at = Date.parse(target.getProject(slug)!.archivedAt!);
+      expect(at).toBeGreaterThanOrEqual(before - 1000);
+      expect(at).toBeLessThanOrEqual(Date.now());
+    }
   });
 
   test('a bad value in the file is skipped and logged, and the rest still restores', () => {

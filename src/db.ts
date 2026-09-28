@@ -1188,10 +1188,15 @@ export class Store {
     return restore.immediate();
   }
 
-  archiveProject(slug: string, archived: boolean): Project | null {
+  // `at` is for a restore: the date a project was retired is history, like an
+  // item's createdAt, so an import passes the exported archivedAt through. It
+  // gets the same check (a real instant, not in the future); anything else, or
+  // no `at` at all, means now.
+  archiveProject(slug: string, archived: boolean, at?: unknown): Project | null {
     const project = this.getProject(slug);
     if (!project) return null;
-    this.db.query('UPDATE projects SET archived_at = ? WHERE id = ?').run(archived ? now() : null, project.id);
+    const archivedAt = archived ? asHistoricInstant(at) || now() : null;
+    this.db.query('UPDATE projects SET archived_at = ? WHERE id = ?').run(archivedAt, project.id);
     // Archiving releases this project's colour for a new project to claim;
     // restoring tries to reclaim the same one, but only if nothing else took
     // it in the meantime — otherwise it is treated like a brand new project

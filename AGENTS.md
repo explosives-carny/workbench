@@ -459,7 +459,7 @@ Export and import round-trip `key`, the retained former keys, each item's
 `seq`, and the project's next-sequence counter, so a restored board's
 references match the ones already quoted against it. They also round-trip the
 project's `groupBy`, `sortBy`, `sectionMode`, `sections`, `color` and archived
-state; a value in the file that the PATCH route would refuse is logged and
+state with its original date; a value in the file that the PATCH route would refuse is logged and
 skipped, and the rest still restores (v15).
 
 ### Sections, labels, grouping
