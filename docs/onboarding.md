@@ -27,7 +27,7 @@ POST /api/projects/<slug>/items
   "options":["Put them on the board","Tell me in chat"],"recommended":["Put them on the board"]},
  {"labels":["Setup"],"clientId":"setup-4","title":"Should I post a summary before I finish a session?",
   "context":"Useful if somebody else picks the work up; noise if it is only you.",
-  "options":["Yes","No"],"recommended":["No"]},
+  "options":["Yes","No"],"recommended":["Yes","No"]},
  {"labels":["Setup"],"clientId":"setup-5","title":"Where should the database be backed up?",
   "context":"It is one file on one machine. The server exports every project as JSON to ~/workbench-content after each change and commits if that directory is a git repository; nothing pushes it anywhere. Point WORKBENCH_CONTENT at a private repository you push, or somewhere you already back up. Declining is a legitimate answer and I will not ask again.",
   "options":["A private git repo","Somewhere else I already back up","Accept the risk, no backup"],"recommended":["A private git repo"]},

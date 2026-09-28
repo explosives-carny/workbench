@@ -343,8 +343,16 @@ const MISSING_RECOMMENDATION =
 // ending "(Recommended)" and no `recommended` sent becomes that option, with
 // the suffix taken off the text. Two or more such options, or a stripped text
 // that collides with another option, is left alone and warned about.
+//
+// An answer already given follows the rename: an item answered "B
+// (Recommended)" whose option becomes "B" would otherwise show no button
+// pressed. `currentChoice` is the stored answer on a PATCH; a choice sent in
+// the same write is the caller's and is renamed only if it names the old text.
 const RECOMMENDED_SUFFIX = /\s*\(recommended\)\s*$/i;
-function convertRecommendedSuffix(input: { options?: string[]; recommended?: string[] }): string | undefined {
+function convertRecommendedSuffix(
+  input: { options?: string[]; recommended?: string[]; choice?: string },
+  currentChoice?: string
+): string | undefined {
   if (!input.options || input.recommended !== undefined) return undefined;
   const marked = input.options.filter((o) => RECOMMENDED_SUFFIX.test(o));
   if (marked.length !== 1) return undefined;
@@ -352,6 +360,7 @@ function convertRecommendedSuffix(input: { options?: string[]; recommended?: str
   if (!plain.trim() || input.options.includes(plain)) return undefined;
   input.options = input.options.map((o) => (o === marked[0] ? plain : o));
   input.recommended = [plain];
+  if ((input.choice ?? currentChoice) === marked[0]) input.choice = plain;
   return `option "${marked[0]}" was stored as "${plain}" with "recommended":["${plain}"] — send the field instead of the suffix`;
 }
 
@@ -725,7 +734,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         // naming the status, so it counts as a move in.
         const movesIntoDecision = landsAt === 'needs-decision' && (item.status !== 'needs-decision' || kind !== item.kind);
         if (patch.options !== undefined || patch.recommended !== undefined || movesIntoDecision) {
-          const converted = patch.options !== undefined ? convertRecommendedSuffix(patch) : undefined;
+          const converted = patch.options !== undefined ? convertRecommendedSuffix(patch, item.choice) : undefined;
           if (converted) warnings.push(converted);
           const options = patch.options ?? item.options;
           const refusal = recommendationRefusal(options, patch.recommended);

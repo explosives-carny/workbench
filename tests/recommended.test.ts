@@ -175,6 +175,27 @@ describe('changing an item', () => {
     expect(res.json.item.recommended).toEqual(['A']);
   });
 
+  test('an answer given before a suffix conversion follows the renamed option', async () => {
+    const project = store.getProject('demo')!;
+    const old = store.createItem(project.id, { title: 'Old', options: ['A', 'B (Recommended)'], choice: 'B (Recommended)', status: 'received' });
+    const res = await api('PATCH', `/api/items/${old.id}`, { options: ['A', 'B (Recommended)'] });
+    expect(res.status).toBe(200);
+    expect(res.json.item.options).toEqual(['A', 'B']);
+    expect(res.json.item.choice).toBe('B');
+  });
+
+  test('an answer that is not the converted option is left alone', async () => {
+    const project = store.getProject('demo')!;
+    const old = store.createItem(project.id, { title: 'Old', options: ['A', 'B (Recommended)'], choice: 'A', status: 'received' });
+    const res = await api('PATCH', `/api/items/${old.id}`, { options: ['A', 'B (Recommended)'] });
+    expect(res.json.item.choice).toBe('A');
+  });
+
+  test('a create that sends the suffixed text as its choice stores the plain text', async () => {
+    const res = await ask({ status: 'received', options: ['A', 'B (Recommended)'], choice: 'B (Recommended)' });
+    expect(res.json.items[0].choice).toBe('B');
+  });
+
   test('turning a document with options into an issue is checked like a move into needs-decision', async () => {
     const project = store.getProject('demo')!;
     const doc = store.createItem(project.id, { title: 'Spec', kind: 'document', options: ['A', 'B'] });
