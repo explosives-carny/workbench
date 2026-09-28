@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v14.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `14`,
+**Contract v15.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `15`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -457,7 +457,10 @@ instead — there is no state for "used to have references, now has none".
 
 Export and import round-trip `key`, the retained former keys, each item's
 `seq`, and the project's next-sequence counter, so a restored board's
-references match the ones already quoted against it.
+references match the ones already quoted against it. They also round-trip the
+project's `groupBy`, `sortBy`, `sectionMode`, `sections`, `color` and archived
+state; a value in the file that the PATCH route would refuse is logged and
+skipped, and the rest still restores (v15).
 
 ### Sections, labels, grouping
 
@@ -549,6 +552,13 @@ come back, close the items, and honour them — including `"none"` for
 `backupPlan`, which is a real answer never to be raised again. The questions,
 the settings they map to and the three board layouts: `docs/onboarding.md`.
 `onboardedAt` present → say nothing about setup.
+
+`PATCH /api/settings` takes only the known keys: `onboardedAt` (ISO date-time),
+`defaultProject` (an existing slug), `backupPlan` (string), `agentNames`
+(`{tool: name}`), and the booleans `autoCapture`, `checkInOnStart`,
+`postFindings` and `summariseOnExit`. A wrong type is a `400` naming the key;
+`null` clears a string setting. Any other key is not stored and comes back in
+`ignored`. `actor` and `session` are the signature, never settings (v15).
 
 ### Backup
 

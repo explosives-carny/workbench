@@ -22,7 +22,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '14';
+export const CONTRACT_VERSION = '15';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -113,6 +113,48 @@ const CHECK_FIELDS = new Set(['result', 'note', 'actor', 'by', 'session']);
 function ignoredKeys(body: any, known: Set<string>): string[] {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return [];
   return Object.keys(body).filter((k) => !known.has(k));
+}
+
+// Board settings: the onboarding answers and the few board-wide choices. This
+// used to store any key with any value, so a typo (`autoCaptue`) or a wrong type
+// (`agentNames: "Spike"`) was saved silently and the settings panel then read it
+// back broken. Known keys are now type-checked and refused with the reason;
+// unknown keys are not stored and come back in `ignored`, like item fields.
+// `actor` and `session` are the write signature every client sends, never
+// settings. `autoMode` is deliberately not a key: auto is a session order.
+const SETTINGS_BOOLEANS = ['autoCapture', 'checkInOnStart', 'postFindings', 'summariseOnExit'];
+const SETTINGS_SIGNATURE = new Set(['actor', 'session']);
+export function checkSettingsPatch(
+  body: Record<string, unknown>,
+  projectExists: (slug: string) => boolean
+): { patch: Record<string, unknown>; ignored: string[]; error?: string } {
+  const patch: Record<string, unknown> = {};
+  const ignored: string[] = [];
+  for (const [key, value] of Object.entries(body)) {
+    if (SETTINGS_SIGNATURE.has(key)) continue;
+    if (SETTINGS_BOOLEANS.includes(key)) {
+      if (typeof value !== 'boolean') return { patch, ignored, error: `${key} must be true or false` };
+    } else if (key === 'defaultProject') {
+      if (value !== null && typeof value !== 'string') return { patch, ignored, error: 'defaultProject must be a project slug, or null to clear it' };
+      if (typeof value === 'string' && value && !projectExists(value)) return { patch, ignored, error: `defaultProject: no project "${value}"` };
+    } else if (key === 'backupPlan') {
+      if (value !== null && typeof value !== 'string') return { patch, ignored, error: 'backupPlan must be a string, or null to clear it' };
+    } else if (key === 'onboardedAt') {
+      if (value !== null && (typeof value !== 'string' || Number.isNaN(Date.parse(value)))) {
+        return { patch, ignored, error: 'onboardedAt must be an ISO date-time, or null' };
+      }
+    } else if (key === 'agentNames') {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return { patch, ignored, error: 'agentNames must be an object of tool: name' };
+      for (const [tool, name] of Object.entries(value as Record<string, unknown>)) {
+        if (!tool.trim() || typeof name !== 'string') return { patch, ignored, error: `agentNames.${tool || "(empty)"} must be a name string` };
+      }
+    } else {
+      ignored.push(key);
+      continue;
+    }
+    patch[key] = value;
+  }
+  return { patch, ignored };
 }
 
 function withIgnored<T extends object>(data: T, ignored: string[]): T & { ignored?: string[] } {
@@ -339,8 +381,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
     if (method === 'PATCH') {
       const body = await readJson(req);
       if (!body || typeof body !== 'object' || Array.isArray(body)) return badRequest(ctx, 'body must be a JSON object');
-      ctx.wrote = true;
-      return json(ctx, { ok: true, settings: store.setSettings(body) });
+      const checked = checkSettingsPatch(body, (slug) => Boolean(store.getProject(slug)));
+      if (checked.error) return badRequest(ctx, checked.error);
+      if (Object.keys(checked.patch).length) ctx.wrote = true;
+      const settings = Object.keys(checked.patch).length ? store.setSettings(checked.patch) : store.getSettings();
+      return json(ctx, withIgnored({ ok: true, settings }, checked.ignored));
     }
     return badRequest(ctx, `${method} not supported here`);
   }

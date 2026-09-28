@@ -164,7 +164,7 @@ describe('public item references', () => {
   test('advertises the current contract version', async () => {
     const response = await api('GET', '/api');
     expect(response.status).toBe(200);
-    expect(response.json.contractVersion).toBe('14');
+    expect(response.json.contractVersion).toBe('15');
   });
 
   test('round-trips current and former keys, sequence state, and references', async () => {

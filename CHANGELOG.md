@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Board settings now check what they are given: a setting with the wrong kind
+  of value is refused with a message saying which one, and an unknown setting
+  name is not saved and is reported back, instead of either being stored and
+  breaking the settings panel (contract v15).
+- Restoring a board from its backup now brings back each project's layout,
+  sections, colour and archived state, not just its items and name.
 - A document or item body sent without saying its format is now shown the right
   way: a whole web page renders as a page, and Markdown renders formatted,
   instead of either showing up as raw source. A format the writer names is

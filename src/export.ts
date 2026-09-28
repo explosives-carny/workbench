@@ -2,7 +2,7 @@
 // own repository with a real history while the app repository stays free of
 // anybody's decisions. Shared by the `bun run export` command and by the
 // server's automatic export, so the two can never write different shapes.
-import { ProjectKeyTaken, Store, type Item } from './db.ts';
+import { PROJECT_COLORS, ProjectKeyTaken, Store, type Item } from './db.ts';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
@@ -108,6 +108,28 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
           nextSeq: raw.project.nextSeq ?? 1,
         });
       }
+      // How the project was laid out, its colour and whether it was archived.
+      // The export has always carried these and the import used to drop them,
+      // so a board restored from its content repository came back with every
+      // project on the default layout, fresh colours, and retired projects
+      // live again. Only values that would pass the PATCH route are applied; a
+      // bad one is logged and skipped rather than failing the whole restore.
+      const layout: Record<string, unknown> = {};
+      const rp = raw.project;
+      const take = (field: string, ok: boolean) => {
+        if (rp[field] === undefined) return;
+        if (ok) layout[field] = rp[field];
+        else log(`${file}: skipped ${field} (${JSON.stringify(rp[field])} is not a valid value)`);
+      };
+      const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string');
+      take('sectionMode', ['adhoc', 'declared'].includes(rp.sectionMode));
+      take('sections', strings(rp.sections));
+      take('groupBy', ['section', 'status', 'move'].includes(rp.groupBy));
+      take('sortBy', ['activity', 'ref'].includes(rp.sortBy));
+      take('color', (PROJECT_COLORS as readonly string[]).includes(rp.color));
+      if (Object.keys(layout).length) store.setProjectSections(project.slug, layout as any);
+      // Archived last, so the colour above is set before archiving frees it.
+      if (rp.archivedAt && !store.getProject(project.slug)?.archivedAt) store.archiveProject(project.slug, true);
       log(`imported ${added} new item(s) into "${project.name}"`);
       projects += 1;
       items += added;
