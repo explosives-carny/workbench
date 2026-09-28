@@ -128,8 +128,9 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
       take('sortBy', ['activity', 'ref'].includes(rp.sortBy));
       take('color', (PROJECT_COLORS as readonly string[]).includes(rp.color));
       if (Object.keys(layout).length) store.setProjectSections(project.slug, layout as any);
-      // Archived last, so the colour above is set before archiving frees it.
-      if (rp.archivedAt && !store.getProject(project.slug)?.archivedAt) store.archiveProject(project.slug, true);
+      // Archived last, so the colour above is set before archiving frees it,
+      // and with the exported date, so a restore keeps when it was retired.
+      if (rp.archivedAt && !store.getProject(project.slug)?.archivedAt) store.archiveProject(project.slug, true, rp.archivedAt);
       log(`imported ${added} new item(s) into "${project.name}"`);
       projects += 1;
       items += added;
