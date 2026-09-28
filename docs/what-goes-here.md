@@ -195,7 +195,13 @@ other off the screen before this was named a rule.
 ### 1. A decision — the core case
 
 Something you cannot proceed on without a person choosing. Give it `options`
-when the choice is genuinely closed, and leave them off when it is open.
+when the choice is genuinely closed, and leave them off when it is open. With
+options, list the one you would pick in `recommended` (`"recommended":["B"]`,
+the exact option text; more than one if they are equally good) — the board
+marks that button, and a decision with options and no recommendation is
+refused. The option text stays the answer itself: "B (Recommended)" is what the
+field replaced, because it could not be styled or checked and it came back as
+the person's `choice` when they clicked it.
 
 Create one the moment you know you need it, not when you reach it. A decision
 posted early can be answered while you work on something else; a decision posted
@@ -555,7 +561,7 @@ They may open this hours later, on a phone, having forgotten the conversation.
   "Deployment".
 - Recommend something. "Here are four options" moves the work to them; "B,
   because X, unless you care about Y" leaves them a decision rather than a
-  research task.
+  research task. Put B in `recommended` and the because in the context.
 - Say what it costs to be wrong. That is usually the only thing that determines
   how long they think about it.
 - Do not write "let me know if you have questions." They know.

@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v15.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `15`,
+**Contract v16.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `16`,
 re-read this file.
 
 Read this file once per session, then use the board — never the web UI, which is
@@ -44,7 +44,7 @@ for everything else.
 ```bash
 wb board <slug>                                    GET  /api/projects/<slug>?status=received,in-progress&messages=last
 wb show <id|ref>                                   GET  /api/items/<id-or-ref>   — a ref (WB-DEMO-14) works anywhere an id does
-wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"labels":["…"],"clientId":"…"}]'
+wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"recommended":["B"],"labels":["…"],"clientId":"…"}]'
                                                    POST /api/projects/<slug>/items     — an array files a set; clientId makes a retry safe
 wb claim <id> "what I am about to do"              PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","session":"<id>","ifVersion":N} + a message
 wb reply <id> "…"                                  POST /api/items/<id>/messages {"who":"agent","actor":"<you>","session":"<id>","text":"…"}
@@ -88,8 +88,13 @@ understood — usually a typo).
    `409`: re-apply only the fields you meant to change onto the returned item,
    resend with its `version`, and after a second `409` stop and post a message.
 6. **One item per question**, context answerable without you in the room:
-   tradeoff, recommendation, cost of being wrong. Documents are `kind:
-   "document"`; a document that asks for something is two items.
+   tradeoff, recommendation, cost of being wrong. **A decision with `options`
+   names at least one in `recommended`** — the exact option text, e.g.
+   `"options":["A","B"],"recommended":["B"]`; the board marks it. Never write
+   "(Recommended)" into an option or the context: the server refuses a
+   decision whose options carry no `recommended`, and warns on an option
+   whose text says it. Documents are `kind: "document"`; a document that asks
+   for something is two items.
 7. **A title is a headline, not the body.** A few words that name the thing,
    at most about 100 characters; the explanation, the quote, the evidence go
    in `context` (or a document's `body`), never in the title. A title that has
@@ -355,7 +360,8 @@ environment is current. The full rule set and the failures each came from:
 
 ### Where the answer is
 
-`choice` holds the button they clicked, if you offered `options`. Their words
+`choice` holds the button they clicked, if you offered `options`; it may or
+may not be one you listed in `recommended`. Their words
 are messages with `who:"you"`. The answer is **both**, from your last reply
 onward, and the newest wins — a person who clicks a button and then types a
 correction underneath meant the correction. `wb board` shows the last message;

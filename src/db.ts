@@ -444,6 +444,15 @@ export type Item = {
   title: string;
   context: string;
   options: string[];
+  /**
+   * The options the agent recommends, each one exactly an entry of `options`.
+   *
+   * A field rather than "(Recommended)" in the option text: text can't be
+   * styled, shown by the CLI or checked by the server, and it ends up in
+   * `choice` when the person clicks. The API requires at least one on a
+   * decision that offers options; see decisionPolicy in app.ts.
+   */
+  recommended: string[];
   choice: string;
   status: Status;
   /** What this item is, which decides which statuses it may hold. */
@@ -489,6 +498,8 @@ export type ItemInput = {
   title: string;
   context?: string;
   options?: string[];
+  /** See Item.recommended. Entries not among the item's options are dropped on write. */
+  recommended?: string[];
   choice?: string;
   status?: Status;
   kind?: Kind;
@@ -644,6 +655,7 @@ export function openDb(path: string): Database {
       title      TEXT NOT NULL,
       context    TEXT NOT NULL DEFAULT '',
       options    TEXT NOT NULL DEFAULT '[]',
+      recommended TEXT NOT NULL DEFAULT '[]',
       choice     TEXT NOT NULL DEFAULT '',
       status     TEXT NOT NULL DEFAULT 'needs-decision',
       section    TEXT NOT NULL DEFAULT '',
@@ -769,6 +781,7 @@ export function openDb(path: string): Database {
   if (!columns.has('checks')) db.exec("ALTER TABLE items ADD COLUMN checks TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('labels')) db.exec("ALTER TABLE items ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('blocked_by')) db.exec("ALTER TABLE items ADD COLUMN blocked_by TEXT NOT NULL DEFAULT ''");
+  if (!columns.has('recommended')) db.exec("ALTER TABLE items ADD COLUMN recommended TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('kind')) {
     db.exec("ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'issue'");
     // Backfill: anything carrying long-form content is a document. That is the
@@ -890,6 +903,13 @@ function rowToProject(r: any): Project {
   };
 }
 
+// Recommendations are option strings, so only ones the item actually offers
+// survive; duplicates collapse. Shared by create and update so both agree.
+export function normaliseRecommended(recommended: string[] | undefined, options: string[]): string[] {
+  if (!Array.isArray(recommended)) return [];
+  return [...new Set(recommended.filter((o) => typeof o === 'string' && options.includes(o)))];
+}
+
 function rowToItem(r: any): Item {
   let options: string[] = [];
   try {
@@ -900,6 +920,13 @@ function rowToItem(r: any): Item {
     // item with no buttons is still readable and still answerable in the thread.
     options = [];
   }
+  let recommended: string[] = [];
+  try {
+    const parsed = JSON.parse(r.recommended ?? '[]');
+    if (Array.isArray(parsed)) recommended = parsed.filter((o) => typeof o === 'string' && options.includes(o));
+  } catch {
+    recommended = [];
+  }
   return {
     id: r.id,
     projectId: r.project_id,
@@ -908,6 +935,7 @@ function rowToItem(r: any): Item {
     title: r.title,
     context: r.context,
     options,
+    recommended,
     choice: r.choice,
     status: r.status as Status,
     section: r.section,
@@ -1307,8 +1335,8 @@ export class Store {
       const id = randomUUID();
       this.db
         .query(
-          `INSERT INTO items (id, project_id, title, context, options, choice, status, section, blocked_by, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO items (id, project_id, title, context, options, recommended, choice, status, section, blocked_by, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -1316,6 +1344,7 @@ export class Store {
           input.title,
           input.context || '',
           JSON.stringify(input.options || []),
+          JSON.stringify(normaliseRecommended(input.recommended, input.options || [])),
           input.choice || '',
           status,
           input.section || '',
@@ -1360,10 +1389,14 @@ export class Store {
     const kind: Kind = patch.kind === undefined ? current.kind : (patch.kind === 'document' ? 'document' : 'issue');
     const wanted = patch.status ?? current.status;
     const status = isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind);
+    const options = patch.options ?? current.options;
     const next = {
       title: patch.title ?? current.title,
       context: patch.context ?? current.context,
-      options: JSON.stringify(patch.options ?? current.options),
+      options: JSON.stringify(options),
+      // New options without a new recommendation keep whichever of the old
+      // recommendations are still offered, and drop the rest.
+      recommended: JSON.stringify(normaliseRecommended(patch.recommended ?? current.recommended, options)),
       choice: patch.choice ?? current.choice,
       status,
       kind,
@@ -1382,13 +1415,13 @@ export class Store {
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
-      next.title, next.context, next.options, next.choice, next.status, next.kind, next.section, next.blockedBy, next.position,
+      next.title, next.context, next.options, next.recommended, next.choice, next.status, next.kind, next.section, next.blockedBy, next.position,
       next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', opts.session || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
-        `UPDATE items SET title = ?, context = ?, options = ?, choice = ?, status = ?, kind = ?, section = ?, blocked_by = ?, position = ?,
+        `UPDATE items SET title = ?, context = ?, options = ?, recommended = ?, choice = ?, status = ?, kind = ?, section = ?, blocked_by = ?, position = ?,
            body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1
          WHERE id = ?${guard}`
       )

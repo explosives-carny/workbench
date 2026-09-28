@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A decision now shows which answer the agent recommends: that button carries
+  a "Recommended" tag and a heavier border, instead of the agent writing
+  "(Recommended)" into the answer text. Agents must name at least one
+  recommendation on any decision that offers buttons, or the board refuses it
+  and says what to add. Items filed before this change still work as before
+  (contract v16).
 - Board settings now check what they are given: a setting with the wrong kind
   of value is refused with a message saying which one, and an unknown setting
   name is not saved and is reported back, instead of either being stored and
