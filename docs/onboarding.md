@@ -17,26 +17,26 @@ section would file them where nothing displays.
 POST /api/projects/<slug>/items
 [
  {"labels":["Setup"],"clientId":"setup-1","title":"Should I put decisions on the board automatically?",
-  "context":"Automatic means anything needing your call becomes an item without you asking. Recommended.",
-  "options":["Automatic","Only when I ask"]},
+  "context":"Automatic means anything needing your call becomes an item without you asking.",
+  "options":["Automatic","Only when I ask"],"recommended":["Automatic"]},
  {"labels":["Setup"],"clientId":"setup-2","title":"Should I read the board at the start of every session?",
-  "context":"So a decision you make today is acted on tomorrow without you re-raising it. Recommended.",
-  "options":["Yes","Only when I say so"]},
+  "context":"So a decision you make today is acted on tomorrow without you re-raising it.",
+  "options":["Yes","Only when I say so"],"recommended":["Yes"]},
  {"labels":["Setup"],"clientId":"setup-3","title":"Should defects and risks I find go on the board?",
-  "context":"Otherwise they live in the transcript and disappear with it. Recommended.",
-  "options":["Put them on the board","Tell me in chat"]},
+  "context":"Otherwise they live in the transcript and disappear with it.",
+  "options":["Put them on the board","Tell me in chat"],"recommended":["Put them on the board"]},
  {"labels":["Setup"],"clientId":"setup-4","title":"Should I post a summary before I finish a session?",
   "context":"Useful if somebody else picks the work up; noise if it is only you.",
-  "options":["Yes","No"]},
+  "options":["Yes","No"],"recommended":["No"]},
  {"labels":["Setup"],"clientId":"setup-5","title":"Where should the database be backed up?",
   "context":"It is one file on one machine. The server exports every project as JSON to ~/workbench-content after each change and commits if that directory is a git repository; nothing pushes it anywhere. Point WORKBENCH_CONTENT at a private repository you push, or somewhere you already back up. Declining is a legitimate answer and I will not ask again.",
-  "options":["A private git repo","Somewhere else I already back up","Accept the risk, no backup"]},
+  "options":["A private git repo","Somewhere else I already back up","Accept the risk, no backup"],"recommended":["A private git repo"]},
  {"labels":["Setup"],"clientId":"setup-6","title":"Which repositories is this project about?",
   "context":"So a session finds this board from the repository it is standing in. Remotes (owner/name or a git URL) and directory paths; a trailing * covers every worktree under a path. If you work across several projects, also name the one that should catch anything I do not place explicitly.",
-  "options":["This repository only","Several — I will list them","I will say each time"]},
+  "options":["This repository only","Several — I will list them","I will say each time"],"recommended":["This repository only"]},
  {"labels":["Setup"],"clientId":"setup-7","title":"How should the board be organised?",
-  "context":"THE STANDARD FRAMEWORK, recommended, and already the default: rows group by Open / Deferred / Documents / Archived, and labels carry how items relate to each other — a release, a person they are blocked on, a subsystem. It answers the question a board is for, 'what is waiting on me', without you deciding a taxonomy on day one. BY AREA OF WORK: rows group by section instead — Ship it, Design, Infrastructure — one per item, and we agree either to let the list emerge or to fix it now. SOMETHING ELSE: tell me how you want to work and I will propose a configuration; the statuses themselves are fixed, but grouping, labels and sections are all yours to arrange.",
-  "options":["The standard framework","By area of work","Something else — let's talk"]}
+  "context":"THE STANDARD FRAMEWORK, already the default: rows group by Open / Deferred / Documents / Archived, and labels carry how items relate to each other — a release, a person they are blocked on, a subsystem. It answers the question a board is for, 'what is waiting on me', without you deciding a taxonomy on day one. BY AREA OF WORK: rows group by section instead — Ship it, Design, Infrastructure — one per item, and we agree either to let the list emerge or to fix it now. SOMETHING ELSE: tell me how you want to work and I will propose a configuration; the statuses themselves are fixed, but grouping, labels and sections are all yours to arrange.",
+  "options":["The standard framework","By area of work","Something else — let's talk"],"recommended":["The standard framework"]}
 ]
 ```
 

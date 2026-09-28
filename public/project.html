@@ -644,6 +644,15 @@
         const b = document.createElement('button');
         b.type = 'button';
         b.textContent = o;
+        // The agent's recommendation, marked by the board rather than written
+        // into the option text (which would end up in `choice` when clicked).
+        if ((item.recommended || []).includes(o)) {
+          b.classList.add('rec');
+          const tag = document.createElement('span');
+          tag.className = 'rec-tag';
+          tag.textContent = 'Recommended';
+          b.append(' ', tag);
+        }
         b.setAttribute('aria-pressed', item.choice === o ? 'true' : 'false');
         b.addEventListener('click', () => choose(item.id, o));
         opts.appendChild(b);

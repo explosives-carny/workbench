@@ -10,7 +10,7 @@
 import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
   ProjectKeyTaken, PROJECT_COLORS,
-  isStatusAllowed, statusesFor, KINDS,
+  isStatusAllowed, statusesFor, KINDS, defaultStatusFor, normaliseRecommended,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
 import { join } from 'path';
@@ -22,7 +22,7 @@ import { join } from 'path';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '15';
+export const CONTRACT_VERSION = '16';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -106,7 +106,7 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // caller believed the label had landed until the board looked wrong. Refusing
 // would break older writers sending fields since retired; naming the drop is
 // enough for a writer to notice and fix itself.
-const ITEM_FIELDS = new Set(['title', 'context', 'options', 'choice', 'status', 'section', 'blockedBy', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
+const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
 const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
 const CHECK_FIELDS = new Set(['result', 'note', 'actor', 'by', 'session']);
 
@@ -171,6 +171,11 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
       throw new Error('options must be an array of strings');
     }
   }
+  if (body.recommended !== undefined) {
+    if (!Array.isArray(body.recommended) || body.recommended.some((o: unknown) => typeof o !== 'string')) {
+      throw new Error('recommended must be an array of option strings, e.g. "recommended":["B"]');
+    }
+  }
   if (body.bodyFormat !== undefined && !['text', 'markdown', 'html'].includes(body.bodyFormat)) {
     throw new Error('bodyFormat must be text, markdown or html');
   }
@@ -191,6 +196,7 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     title: typeof body.title === 'string' ? body.title.trim() : undefined!,
     context: typeof body.context === 'string' ? body.context : undefined,
     options: body.options,
+    recommended: body.recommended,
     choice: typeof body.choice === 'string' ? body.choice : undefined,
     status: asStatus(body.status),
     section: typeof body.section === 'string' ? body.section : undefined,
@@ -302,6 +308,66 @@ function titleWarning(item: { title: string; context: string; body: string }): s
     return `title reads like a body and the item has no context — move the explanation into context`;
   }
   return undefined;
+}
+
+// A decision says which option the agent would pick (AGENTS.md rule 6). The
+// person is paying for the recommendation; "here are four options" hands the
+// thinking back to them. It used to live as "Recommended." in the context or
+// "(Recommended)" in an option's text, which nothing could display, check or
+// keep out of `choice` once clicked. Now it is the `recommended` field.
+//
+// A recommendation that names no option is refused: only a writer that knows
+// the field sends it, so refusing breaks nobody. A MISSING one is warned in
+// contract v16 and refused from v17 on a write that sets options — the same
+// warn-then-refuse the ifVersion rule took, so a writer still on v15 is told
+// before it is turned away. A status change alone (the board's status select
+// reopening an older decision) is only ever warned: it cannot add a
+// recommendation, and refusing it would strand the item. The store's own
+// status moves and import never pass through here.
+function recommendationRefusal(options: string[], recommended: string[] | undefined): string | undefined {
+  const bad = (recommended || []).find((o) => !o.trim() || !options.includes(o));
+  if (bad === undefined) return undefined;
+  if (!bad.trim()) return 'recommended entries must be non-empty option text';
+  return `recommended "${bad}" is not one of the options — use the exact option text`;
+}
+
+type DecisionShape = { kind: Kind; status: Status; options: string[]; recommended?: string[] };
+function lacksRecommendation(next: DecisionShape): boolean {
+  if (next.kind !== 'issue' || next.status !== 'needs-decision' || !next.options.length) return false;
+  return normaliseRecommended(next.recommended, next.options).length === 0;
+}
+const MISSING_RECOMMENDATION =
+  'a decision with options has no recommended — add "recommended":["<one of the options>"]; contract v17 refuses this';
+
+// The old convention, accepted for one contract version: exactly one option
+// ending "(Recommended)" and no `recommended` sent becomes that option, with
+// the suffix taken off the text. Two or more such options, or a stripped text
+// that collides with another option, is left alone and warned about.
+const RECOMMENDED_SUFFIX = /\s*\(recommended\)\s*$/i;
+function convertRecommendedSuffix(input: { options?: string[]; recommended?: string[] }): string | undefined {
+  if (!input.options || input.recommended !== undefined) return undefined;
+  const marked = input.options.filter((o) => RECOMMENDED_SUFFIX.test(o));
+  if (marked.length !== 1) return undefined;
+  const plain = marked[0].replace(RECOMMENDED_SUFFIX, '');
+  if (!plain.trim() || input.options.includes(plain)) return undefined;
+  input.options = input.options.map((o) => (o === marked[0] ? plain : o));
+  input.recommended = [plain];
+  return `option "${marked[0]}" was stored as "${plain}" with "recommended":["${plain}"] — send the field instead of the suffix`;
+}
+
+// Warned, not refused: default status for an issue is needs-decision, so
+// refusing an option-less one would refuse every plain create. Only on a write
+// that named needs-decision explicitly, or emptied a decision's options.
+function noOptionsWarning(item: { kind: Kind; status: Status; options: string[] }): string | undefined {
+  if (item.kind !== 'issue' || item.status !== 'needs-decision' || item.options.length) return undefined;
+  return 'a decision with no options gives nothing to click — add "options" and mark at least one in "recommended"';
+}
+
+// Whatever the suffix conversion did not take, caught so it does not linger.
+function recommendedInTextWarning(options: string[] | undefined): string | undefined {
+  const marked = (options || []).find((o) => /recommend/i.test(o));
+  if (!marked) return undefined;
+  return `option "${marked}" says recommended in its text — take it out and list the option in "recommended" instead`;
 }
 
 // An archived project is "kept as a record", not actively worked — but
@@ -583,9 +649,25 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         const archivedWarn = archivedProjectWarning(project);
         if (archivedWarn) warnings.push(archivedWarn);
         for (const input of parsed) {
+          const named = (text: string) => (parsed.length > 1 ? `"${input.title}": ${text}` : text);
+          // A retry of something already filed returns the existing item
+          // untouched, so the rule is not applied to it a second time.
+          if (!store.hasClientId(project.id, input.clientId)) {
+            const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
+            const converted = convertRecommendedSuffix(input);
+            if (converted) warnings.push(named(converted));
+            const refusal = recommendationRefusal(input.options || [], input.recommended);
+            if (refusal) return badRequest(ctx, named(refusal));
+            const status = input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind);
+            if (lacksRecommendation({ kind, status, options: input.options || [], recommended: input.recommended })) {
+              warnings.push(named(MISSING_RECOMMENDATION));
+            }
+          }
           const { warning } = sectionPolicy(store, project, input.section);
           if (warning) warnings.push(warning);
           warnings.push(...labelPolicy(store, project, input.labels));
+          const textWarn = recommendedInTextWarning(input.options);
+          if (textWarn) warnings.push(textWarn);
         }
         ctx.wrote = true;
         const created = parsed.map((input) => store.createItem(project.id, input));
@@ -594,6 +676,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (warning) warnings.push(warning);
           const titleWarn = titleWarning(item);
           if (titleWarn) warnings.push(titleWarn);
+          // Only when the caller asked for a decision by name: an issue filed
+          // with no status also lands at needs-decision, and warning on every
+          // one of those would teach callers to ignore warnings.
+          const askedForDecision = parsed[created.indexOf(item)]?.status === 'needs-decision';
+          const optionsWarn = askedForDecision ? noOptionsWarning(item) : undefined;
+          if (optionsWarn) warnings.push(parsed.length > 1 ? `"${item.title}": ${optionsWarn}` : optionsWarn);
         }
         return json(ctx, withIgnored({ ok: true, items: created, ...(warnings.length ? { warnings } : {}) }, ignored), 201);
       }
@@ -629,6 +717,25 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           const added = (patch.labels || []).filter((l) => !item.labels.some((x) => x.toLowerCase() === String(l).toLowerCase()));
           warnings.push(...labelPolicy(store, owner, added));
         }
+        // Same arithmetic as the store's updateItem: where the item lands.
+        const kind: Kind = patch.kind === undefined ? item.kind : (patch.kind === 'document' ? 'document' : 'issue');
+        const wanted = patch.status ?? item.status;
+        const landsAt = isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind);
+        // A document turned into an issue lands at needs-decision without
+        // naming the status, so it counts as a move in.
+        const movesIntoDecision = landsAt === 'needs-decision' && (item.status !== 'needs-decision' || kind !== item.kind);
+        if (patch.options !== undefined || patch.recommended !== undefined || movesIntoDecision) {
+          const converted = patch.options !== undefined ? convertRecommendedSuffix(patch) : undefined;
+          if (converted) warnings.push(converted);
+          const options = patch.options ?? item.options;
+          const refusal = recommendationRefusal(options, patch.recommended);
+          if (refusal) return badRequest(ctx, refusal);
+          // Sent → checked as sent; not sent → what the store will keep.
+          const recommended = patch.recommended ?? normaliseRecommended(item.recommended, options);
+          if (lacksRecommendation({ kind, status: landsAt, options, recommended })) warnings.push(MISSING_RECOMMENDATION);
+          const textWarn = recommendedInTextWarning(patch.options);
+          if (textWarn) warnings.push(textWarn);
+        }
         const ifVersion = typeof body.ifVersion === 'number' ? body.ifVersion : undefined;
         // A status change without the version you read is a blind write in a
         // tool whose premise is several sessions on one board: the careless
@@ -647,6 +754,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (blockedWarning) warnings.push(blockedWarning);
           const titleWarn = updated ? titleWarning(updated) : undefined;
           if (titleWarn) warnings.push(titleWarn);
+          const optionsWarn = updated && (movesIntoDecision || patch.options !== undefined) ? noOptionsWarning(updated) : undefined;
+          if (optionsWarn) warnings.push(optionsWarn);
           return json(ctx, withIgnored({ ok: true, item: updated, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignored));
         } catch (error) {
           if (error instanceof VersionConflict) {
@@ -729,6 +838,10 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (typeof body.text !== 'string' || !body.text.trim()) return badRequest(ctx, 'text is required');
         const who = body.who === 'you' ? 'you' : 'agent';
         const status = asStatus(body.status);
+        // A message cannot carry a recommendation, so the action it names is
+        // the PATCH that can.
+        const reopensWithout = status === 'needs-decision' && item.status !== 'needs-decision'
+          && lacksRecommendation({ kind: item.kind, status, options: item.options, recommended: item.recommended });
         ctx.wrote = true;
         const message = store.addMessage(item.id, {
           who,
@@ -738,7 +851,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           status,
         });
         const after = store.getItem(item.id)!;
-        const warnings = [finishedWithoutStatus(who, body.text, status, after.status), archivedProjectWarning(owner)].filter(Boolean) as string[];
+        const warnings = [
+          finishedWithoutStatus(who, body.text, status, after.status),
+          archivedProjectWarning(owner),
+          reopensWithout ? `this decision has options and no recommended — PATCH /api/items/${item.id} {"recommended":["<one of the options>"]}` : undefined,
+        ].filter(Boolean) as string[];
         return json(ctx, withIgnored({ ok: true, message, item: after, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignoredKeys(body, MESSAGE_FIELDS)), 201);
       }
       return badRequest(ctx, `${method} not supported here`);

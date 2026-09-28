@@ -77,6 +77,7 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
           title: item.title,
           context: item.context,
           options: item.options,
+          recommended: item.recommended,
           choice: item.choice,
           status: item.status,
           kind: item.kind,

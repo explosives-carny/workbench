@@ -267,6 +267,7 @@ async function main() {
       `title:   ${i.title}`,
       i.labels?.length ? `labels:  ${i.labels.join(', ')}` : null,
       i.options?.length ? `options: ${i.options.join(' | ')}` : null,
+      i.recommended?.length ? `recommended: ${i.recommended.join(' | ')}` : null,
       i.choice ? `choice:  ${i.choice}` : null,
       `context: ${i.context}`,
       checks ? `checks:\n${checks}` : null,

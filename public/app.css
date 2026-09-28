@@ -389,6 +389,16 @@ button:hover { border-color: var(--accent); }
 button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.send { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.ghost { color: var(--soft); }
+/* The agent's recommended option: a heavier border plus a tag that says so,
+   so it does not rely on colour alone. The tag is part of the button's
+   accessible name ("B Recommended"). */
+button.rec { border-color: var(--accent); border-width: 2px; padding: 6px 12px; }
+.rec-tag {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  margin-left: 4px; padding: 1px 5px; border-radius: 3px; vertical-align: 1px;
+  background: var(--accent-soft); color: var(--accent);
+}
+button[aria-pressed="true"] .rec-tag { background: rgba(255, 255, 255, .22); color: #fff; }
 
 /* The focus ring is drawn OUTSIDE the box, so the row below has to leave room
    for it. Without this the outline ran underneath the status control and looked
