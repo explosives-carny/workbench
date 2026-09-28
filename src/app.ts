@@ -14,6 +14,10 @@ import {
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
 import { join } from 'path';
+import {
+  blockedWithoutReason, titleWarning, recommendationRefusal, lacksRecommendation, MISSING_RECOMMENDATION,
+  convertRecommendedSuffix, noOptionsWarning, recommendedInTextWarning, unownedStepsWarning, auditItems,
+} from './rules.ts';
 
 /**
  * The contract version. Bumped in the same pull request as any change to a
@@ -285,115 +289,6 @@ function labelPolicy(store: Store, project: Project, labels: string[] | undefine
   return warnings;
 }
 
-// A blocked item with nothing named reads exactly like the failure blocked
-// exists to fix: work that looks abandoned. Warned, not refused — refusing the
-// status over a missing reason would lose the more important fact, that the
-// item is blocked at all, and the caller may be about to say what in the next
-// message. Checked against the item as it actually landed, not the patch alone,
-// so an item that already carries a blockedBy from an earlier block does not
-// warn on a status-only PATCH that leaves it unset.
-function blockedWithoutReason(item: { status: Status; blockedBy: string }): string | undefined {
-  if (item.status !== 'blocked' || item.blockedBy.trim()) return undefined;
-  return 'status is "blocked" with no blockedBy — say what it is waiting on (an item ref, a PR, or "deploy of X") with {"blockedBy":"..."}.';
-}
-
-// A title is a headline, not the body (AGENTS.md rule 7). Warned, not refused
-// — refusing would lose the item entirely over a formatting mistake, and the
-// caller may fix it or may not care. The failure this answers (2026-09-25): a
-// real board had 25 of ~350 items with titles over 100 characters, five of
-// those with no context and no body at all — the whole message pasted into
-// the one field POST requires.
-function titleWarning(item: { title: string; context: string; body: string }): string | undefined {
-  const len = item.title.length;
-  if (len > 120) {
-    return `title is ${len} characters — keep it to a short headline and move the rest into context`;
-  }
-  if (len > 100 && !item.context.trim() && !item.body.length) {
-    return `title reads like a body and the item has no context — move the explanation into context`;
-  }
-  return undefined;
-}
-
-// A decision says which option the agent would pick (AGENTS.md rule 6). The
-// person is paying for the recommendation; "here are four options" hands the
-// thinking back to them. It used to live as "Recommended." in the context or
-// "(Recommended)" in an option's text, which nothing could display, check or
-// keep out of `choice` once clicked. Now it is the `recommended` field.
-//
-// A recommendation that names no option is refused: only a writer that knows
-// the field sends it, so refusing breaks nobody. A MISSING one is warned in
-// contract v16 and refused by a later version on a write that sets options — the same
-// warn-then-refuse the ifVersion rule took, so a writer still on v15 is told
-// before it is turned away. A status change alone (the board's status select
-// reopening an older decision) is only ever warned: it cannot add a
-// recommendation, and refusing it would strand the item. The store's own
-// status moves and import never pass through here.
-function recommendationRefusal(options: string[], recommended: string[] | undefined): string | undefined {
-  const bad = (recommended || []).find((o) => !o.trim() || !options.includes(o));
-  if (bad === undefined) return undefined;
-  if (!bad.trim()) return 'recommended entries must be non-empty option text';
-  return `recommended "${bad}" is not one of the options — use the exact option text`;
-}
-
-type DecisionShape = { kind: Kind; status: Status; options: string[]; recommended?: string[] };
-function lacksRecommendation(next: DecisionShape): boolean {
-  if (next.kind !== 'issue' || next.status !== 'needs-decision' || !next.options.length) return false;
-  return normaliseRecommended(next.recommended, next.options).length === 0;
-}
-const MISSING_RECOMMENDATION =
-  'a decision with options has no recommended — add "recommended":["<one of the options>"]; a later contract version refuses this';
-
-// The old convention, accepted for one contract version: exactly one option
-// ending "(Recommended)" and no `recommended` sent becomes that option, with
-// the suffix taken off the text. Two or more such options, or a stripped text
-// that collides with another option, is left alone and warned about.
-//
-// An answer already given follows the rename: an item answered "B
-// (Recommended)" whose option becomes "B" would otherwise show no button
-// pressed. `currentChoice` is the stored answer on a PATCH; a choice sent in
-// the same write is the caller's and is renamed only if it names the old text.
-const RECOMMENDED_SUFFIX = /\s*\(recommended\)\s*$/i;
-function convertRecommendedSuffix(
-  input: { options?: string[]; recommended?: string[]; choice?: string },
-  currentChoice?: string
-): string | undefined {
-  if (!input.options || input.recommended !== undefined) return undefined;
-  const marked = input.options.filter((o) => RECOMMENDED_SUFFIX.test(o));
-  if (marked.length !== 1) return undefined;
-  const plain = marked[0].replace(RECOMMENDED_SUFFIX, '');
-  if (!plain.trim() || input.options.includes(plain)) return undefined;
-  input.options = input.options.map((o) => (o === marked[0] ? plain : o));
-  input.recommended = [plain];
-  if ((input.choice ?? currentChoice) === marked[0]) input.choice = plain;
-  return `option "${marked[0]}" was stored as "${plain}" with "recommended":["${plain}"] — send the field instead of the suffix`;
-}
-
-// Warned, not refused: default status for an issue is needs-decision, so
-// refusing an option-less one would refuse every plain create. Only on a write
-// that named needs-decision explicitly, or emptied a decision's options.
-function noOptionsWarning(item: { kind: Kind; status: Status; options: string[] }): string | undefined {
-  if (item.kind !== 'issue' || item.status !== 'needs-decision' || item.options.length) return undefined;
-  return 'a decision with no options gives nothing to click — add "options" and mark at least one in "recommended"';
-}
-
-// Whatever the suffix conversion did not take, caught so it does not linger.
-function recommendedInTextWarning(options: string[] | undefined): string | undefined {
-  const marked = (options || []).find((o) => /recommend/i.test(o));
-  if (!marked) return undefined;
-  return `option "${marked}" says recommended in its text — take it out and list the option in "recommended" instead`;
-}
-
-// A QA step says who runs it (AGENTS.md rule 8). Warned, not refused: a step
-// without one still reads as the person's, which is what needs-qa meant before
-// owners existed, so nothing is lost — but the board cannot tell the person
-// which QA is theirs until every step says.
-function unownedStepsWarning(item: { kind: Kind; status: Status; checks: { owner: string }[] }): string | undefined {
-  if (item.kind !== 'issue' || item.status !== 'needs-qa') return undefined;
-  const unowned = item.checks.filter((c) => !c.owner).length;
-  if (!unowned) return undefined;
-  return `${unowned} of ${item.checks.length} steps have no owner and count as human QA — set "owner":"human" or "agent" on each`;
-}
-
 // An archived project is "kept as a record", not actively worked — but
 // nothing here refuses a write into one; the human archived the project, not
 // its history, and a late reply or a stray automation should still land
@@ -443,6 +338,8 @@ const ROUTES = [
   'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|sortBy?|repos?|key?|color?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
   'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
+  'GET    /api/projects/<slug>/audit           live items out of spec with the current contract, each with the rule and the fix',
+  'GET    /api/audit                           the same, for every project not archived',
   'PATCH  /api/projects/<slug>/labels          {from,to,actor}',
   'PATCH  /api/projects/<slug>/authors         {from,to,actor}',
   'POST   /api/projects/<slug>/items           item | [item, ...]   (item.clientId for idempotent retries)',
@@ -478,6 +375,14 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
       return json(ctx, withIgnored({ ok: true, settings }, checked.ignored));
     }
     return badRequest(ctx, `${method} not supported here`);
+  }
+
+  // What on the board is out of spec with the contract this server speaks.
+  // Read-only: it names the rule and the fix, and the agent that owns each
+  // project makes the change (AGENTS.md, "When the contract version moves").
+  if (parts[0] === 'audit' && parts.length === 1 && method === 'GET') {
+    const projects = store.listProjects(false).map((p) => ({ slug: p.slug, name: p.name, items: auditItems(store.listItems(p.id, 'none')) }));
+    return json(ctx, { ok: true, contractVersion: CONTRACT_VERSION, total: projects.reduce((n, p) => n + p.items.length, 0), projects });
   }
 
   if (parts[0] === 'projects' && parts.length === 1) {
@@ -638,6 +543,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
     // downloading the board — the item page, a CLI completing a flag.
     if (parts[2] === 'labels' && parts.length === 3 && method === 'GET') {
       return json(ctx, { ok: true, labels: store.labelsInUse(project.id) });
+    }
+
+    if (parts[2] === 'audit' && parts.length === 3 && method === 'GET') {
+      const items = auditItems(store.listItems(project.id, 'none'));
+      return json(ctx, { ok: true, contractVersion: CONTRACT_VERSION, total: items.length, items });
     }
 
     // Rename an author across the whole project — every message they signed and

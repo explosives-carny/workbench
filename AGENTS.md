@@ -2,7 +2,9 @@
 
 **Contract v17.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
 overrides). `GET /api` returns the version the server speaks; if it is not `17`,
-re-read this file.
+re-read this file — and if it is newer than the one your project was last
+worked under, run `wb audit <slug>` and bring your items into spec (see *When
+the contract version moves*).
 
 Read this file once per session, then use the board — never the web UI, which is
 slower for you and invisible to the next session. The first screen is the whole
@@ -44,6 +46,7 @@ for everything else.
 ```bash
 wb board <slug>                                    GET  /api/projects/<slug>?status=received,in-progress&messages=last
 wb show <id|ref>                                   GET  /api/items/<id-or-ref>   — a ref (WB-DEMO-14) works anywhere an id does
+wb audit [slug]                                    GET  /api/projects/<slug>/audit (no slug: GET /api/audit) — live items out of spec, rule + fix each
 wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"recommended":["B"],"labels":["…"],"clientId":"…"}]'
                                                    POST /api/projects/<slug>/items     — an array files a set; clientId makes a retry safe
 wb claim <id> "what I am about to do"              PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","session":"<id>","ifVersion":N} + a message
@@ -623,6 +626,34 @@ Neither replaces the other. The contract corrects every agent from now on; your
 memory corrects you today, before the contract is merged, and for the part of
 the correction that was about how *you* miss things rather than what the rule
 says.
+
+### When the contract version moves
+
+A new version can put items already on the board out of spec: a decision
+filed before `recommended`, QA steps filed before owners. Writes under the old
+rules were accepted, so nothing forces them into line. **On the first session
+after the version moves, audit your project and conform it** — before the
+round, as part of session start.
+
+`wb audit <slug>` (`GET /api/projects/<slug>/audit`) lists every live item
+out of spec, each with the rule it breaks and the fix. It reads; it never
+writes. Finished work — complete, cancelled, archived — is not audited: it was
+right under the contract it was filed under, and changing it would falsify the
+record.
+
+- **Fix what you can decide.** A recommendation on a decision you raised, an
+  owner on a QA step you wrote, a `blockedBy` you know, a title you can
+  shorten. One PATCH per item, signed and with `ifVersion`, and no message
+  needed unless the change is not obvious from the item.
+- **Leave what you cannot**, and say so on the item: a decision someone else
+  raised whose recommendation you would be guessing, a step whose owner
+  depends on how the person works. The audit will keep listing it; that is
+  the point.
+- **Your project only.** `GET /api/audit` shows every project, but each one is
+  conformed by the session that works it, at its own next session start — the
+  same scope rule as a round. An audit of someone else's project is
+  information, never a reason to edit it.
+- Say it in the round report as one line: `audit: N fixed, M left (refs)`.
 
 ### Versioning
 

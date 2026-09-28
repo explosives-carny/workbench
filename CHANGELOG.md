@@ -7,6 +7,10 @@
   with each step tagged. The QA filter counts each kind, and the "whose move"
   layout puts QA the agent is running with the agent's work instead of yours.
   Steps without a mark count as yours (contract v17).
+- A board can now list what is out of line with the current rules — decisions
+  with no recommendation, QA with no steps or unmarked steps, blocked items that
+  do not say why — so each project's agent can tidy its own items after an
+  update (`wb audit`, contract v17).
 - A decision now shows which answer the agent recommends: that button carries
   a "Recommended" tag and a heavier border, instead of the agent writing
   "(Recommended)" into the answer text. Agents are expected to name at least one
