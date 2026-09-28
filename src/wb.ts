@@ -178,6 +178,7 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb key <slug> <KEY>                      set a project's display key
   wb resolve <repo-or-path>                the project for a repository (or exit 1)
   wb board <slug> [--all] [--status a,b]   the actionable set: received + in-progress (--all: everything)
+  wb audit [slug]                          live items out of spec with the current contract (no slug: every project)
   wb show <id|ref>                         one item, full thread and body
   wb ask <slug> <json|file|->              create items; an array files a whole set; give each a clientId to make retries safe
   wb reply <id|ref> <text> [--status s]    post a reply; a finishing reply MUST carry --status
@@ -254,13 +255,26 @@ async function main() {
     return;
   }
 
+  if (cmd === 'audit') {
+    const slug = args[0];
+    const { json } = await call('GET', slug ? `/api/projects/${slug}/audit` : '/api/audit');
+    if (!json.ok) fail(json.error);
+    const block = (items: any[]) => items.map((i: any) =>
+      `${i.ref || String(i.id).slice(0, 8)}  ${i.status}  ${i.title}\n` + i.findings.map((f: any) => `  - ${f.rule}: ${f.message}`).join('\n')).join('\n');
+    const human = slug
+      ? (json.items.length ? block(json.items) : `${slug}: in spec with contract v${json.contractVersion}`)
+      : json.projects.map((p: any) => p.items.length ? `## ${p.slug} (${p.items.length})\n${block(p.items)}` : `## ${p.slug}: in spec`).join('\n\n');
+    out(flags, `contract v${json.contractVersion} · ${json.total} out of spec\n\n${human}`, json);
+    return;
+  }
+
   if (cmd === 'show') {
     const id = args[0] || fail('usage: wb show <id>');
     const { json } = await call('GET', `/api/items/${encodeURIComponent(id)}`);
     if (!json.ok) fail(json.error);
     const i = json.item;
     const thread = (i.messages || []).map((m: any) => `  [${m.createdAt}] ${m.who === 'you' ? 'YOU' : m.author}${m.session ? '·' + m.session : ''}: ${m.text}`).join('\n');
-    const checks = (i.checks || []).map((c: any) => `  [${(c.result || ' ').padEnd(4)}] ${c.id}: ${c.label}${c.note ? ` — ${c.note}` : ''}${c.by ? ` (${c.by})` : ''}`).join('\n');
+    const checks = (i.checks || []).map((c: any) => `  [${(c.result || ' ').padEnd(4)}] ${c.id} ${c.owner === 'agent' ? 'agent' : 'human'}: ${c.label}${c.note ? ` — ${c.note}` : ''}${c.by ? ` (${c.by})` : ''}`).join('\n');
     out(flags, [
       `${label(i)}  ${i.kind} ${i.status} v${i.version} by ${i.updatedBy || '-'} ${i.updatedAt}`,
       `id:      ${i.id}`,
@@ -270,6 +284,7 @@ async function main() {
       i.recommended?.length ? `recommended: ${i.recommended.join(' | ')}` : null,
       i.choice ? `choice:  ${i.choice}` : null,
       `context: ${i.context}`,
+      i.qa ? `qa:      ${i.qa}${i.qaWaitingOn ? ` (open steps: ${i.qaWaitingOn})` : ''}` : null,
       checks ? `checks:\n${checks}` : null,
       i.body ? `body (${i.bodyFormat}, ${i.body.length} chars):\n${i.body}` : null,
       `thread:\n${thread || '  (none)'}`,

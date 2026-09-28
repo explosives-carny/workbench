@@ -209,7 +209,7 @@
   }
 
   function card(p) {
-    const waiting = WB.WAITING_ON_YOU.reduce((n, k) => n + (p.counts[k] || 0), 0);
+    const waiting = WB.waitingOnYou(p.counts, p.qaCounts);
     const a = document.createElement('a');
     // "Waiting on you" is the badge below, not a border colour any more — the
     // project's own colour has that border now.

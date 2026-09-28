@@ -57,12 +57,12 @@ function legacyDecision(): string {
 }
 
 describe('creating a decision', () => {
-  test('options without recommended land with a warning that names the field and v17', async () => {
+  test('options without recommended land with a warning that names the field and a later version', async () => {
     const res = await ask({ options: ['A', 'B'] });
     expect(res.status).toBe(201);
     const warned = res.json.warnings.join(' ');
     expect(warned).toContain('"recommended"');
-    expect(warned).toContain('v17');
+    expect(warned).toContain('a later contract version');
   });
 
   test('a decision with a recommendation carries no recommendation warning', async () => {

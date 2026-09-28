@@ -644,3 +644,23 @@ button.labeledit:focus-visible { outline: 2px solid var(--accent); outline-offse
 .checklist .checkrow {
   background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px;
 }
+
+/* Who runs a QA item's steps. Outlined rather than filled so it reads as a
+   qualifier of the QA status chip beside it, not a second status. Colours
+   borrow the status vocabulary: rust = the person's move, blue = the agent's,
+   violet = QA itself for a split. Always carries its words, never colour
+   alone. */
+.qa-chip {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 3px; white-space: nowrap; border: 1px solid currentColor;
+  background: transparent;
+}
+.qa-chip.qa-human { color: var(--you); }
+.qa-chip.qa-agent { color: var(--busy); }
+.qa-chip.qa-mixed { color: var(--qa); }
+.ck-owner {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 3px; border: 1px solid currentColor; flex: none;
+}
+.ck-owner.qa-human { color: var(--you); }
+.ck-owner.qa-agent { color: var(--busy); }

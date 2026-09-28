@@ -237,6 +237,10 @@ export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] 
  * so there is one place to change if that vocabulary moves. Everything below
  * Open is identical to STATUS_GROUPS, deliberately: only the live work has a
  * "whose move" to answer.
+ *
+ * One refinement lives with the rows rather than here, because it depends on
+ * the steps and not the status: a needs-qa item whose open steps are all the
+ * agent's (Item.qaWaitingOn === 'agent') is shown with the agent's work.
  */
 export const MOVE_GROUPS: { id: string; label: string; statuses: Status[] }[] = [
   { id: 'yours', label: 'Your move', statuses: ['needs-decision', 'needs-qa'] },
@@ -432,7 +436,37 @@ export type Check = {
   note: string;
   by: string;
   at: string;
+  /**
+   * Who runs this step: the person, or an agent. '' when the writer did not
+   * say, which reads as human — needs-qa has always meant "theirs", and a step
+   * filed before owners existed keeps that meaning. See qaOf.
+   */
+  owner: CheckOwner;
 };
+
+export type CheckOwner = '' | 'human' | 'agent';
+export const CHECK_OWNERS = ['human', 'agent'] as const;
+
+/**
+ * What kind of QA an item is, and whose steps are still open.
+ *
+ * `qa` is the make-up of the steps — all human, all agent, or both — and is
+ * what the board's chip says. `qaWaitingOn` is who has an unanswered step: a
+ * mixed item whose agent steps are done is waiting on the person, and one
+ * whose human steps are done is waiting on the agent. Human first, because a
+ * person with open steps is the thing a board is opened to find. One function
+ * so the chip, the filter counts and the grouping cannot disagree.
+ */
+export type QaKind = '' | 'human' | 'agent' | 'mixed';
+export function qaOf(checks: { owner?: string; result?: string }[]): { qa: QaKind; qaWaitingOn: '' | 'human' | 'agent' } {
+  if (!checks.length) return { qa: '', qaWaitingOn: '' };
+  const ownerOf = (c: { owner?: string }) => (c.owner === 'agent' ? 'agent' : 'human');
+  const owners = new Set(checks.map(ownerOf));
+  const qa: QaKind = owners.size > 1 ? 'mixed' : owners.has('agent') ? 'agent' : 'human';
+  const open = new Set(checks.filter((c) => !c.result).map(ownerOf));
+  const qaWaitingOn = open.has('human') ? 'human' : open.has('agent') ? 'agent' : '';
+  return { qa, qaWaitingOn };
+}
 
 export type Item = {
   id: string;
@@ -485,6 +519,10 @@ export type Item = {
   body: string;
   bodyFormat: 'text' | 'markdown' | 'html';
   checks: Check[];
+  /** Derived from `checks` on every read; see qaOf. Never written. */
+  qa: QaKind;
+  /** Derived: who has an unanswered step, '' when none. See qaOf. */
+  qaWaitingOn: '' | 'human' | 'agent';
   /** Caller-chosen id for idempotent creates; '' when none was given. */
   clientId: string;
   createdAt: string;
@@ -920,6 +958,13 @@ function rowToItem(r: any): Item {
     // item with no buttons is still readable and still answerable in the thread.
     options = [];
   }
+  let checks: Check[] = [];
+  try {
+    const parsed = JSON.parse(r.checks ?? '[]');
+    // Older rows have no owner on their steps; read them as unset rather than
+    // leaving the field missing, so every reader sees the same shape.
+    if (Array.isArray(parsed)) checks = parsed.map((c: any) => ({ ...c, owner: c?.owner === 'human' || c?.owner === 'agent' ? c.owner : '' }));
+  } catch { checks = []; }
   let recommended: string[] = [];
   try {
     const parsed = JSON.parse(r.recommended ?? '[]');
@@ -944,12 +989,8 @@ function rowToItem(r: any): Item {
     version: r.version ?? 1,
     updatedBy: r.updated_by ?? '',
     updatedSession: r.updated_session ?? '',
-    checks: (() => {
-      try {
-        const parsed = JSON.parse(r.checks ?? '[]');
-        return Array.isArray(parsed) ? parsed : [];
-      } catch { return []; }
-    })(),
+    checks,
+    ...qaOf(checks),
     labels: parseLabels(r.labels),
     kind: (r.kind === 'document' ? 'document' : 'issue') as Kind,
     clientId: r.client_id ?? '',
@@ -1443,22 +1484,34 @@ export class Store {
   setCheck(
     itemId: string,
     checkId: string,
-    patch: { result?: Check['result']; note?: string; by?: string; session?: string }
+    patch: { result?: Check['result']; note?: string; by?: string; session?: string; owner?: CheckOwner }
   ): Item | null {
     const current = this.getItem(itemId);
     if (!current) return null;
+    const before = current.checks.find((c) => c.id === checkId);
+    if (!before) return current;
+    // Who runs a step can be settled until somebody has run it. After that the
+    // owner is part of the record of who did the QA, like `by`.
+    if (patch.owner !== undefined && patch.owner !== before.owner && before.result) {
+      const error: any = new Error(`step "${before.label}" already has a result — its owner cannot change`);
+      error.statusCode = 400;
+      throw error;
+    }
+    // An owner change alone records nothing, so it leaves `by` and `at` alone
+    // and cannot finish the round below.
+    const recording = patch.result !== undefined || patch.note !== undefined;
     const checks = current.checks.map((c) =>
       c.id === checkId
         ? {
             ...c,
             result: patch.result ?? c.result,
             note: patch.note ?? c.note,
-            by: patch.by ?? c.by,
-            at: now(),
+            by: recording ? (patch.by ?? c.by) : c.by,
+            at: recording ? now() : c.at,
+            owner: patch.owner ?? c.owner,
           }
         : c
     );
-    if (!checks.some((c) => c.id === checkId)) return current;
     // A pass needs no explanation; anything else does. "Failed" with no note is
     // the least useful record a checklist can produce — somebody reading the
     // sign-off later cannot tell what went wrong, and the person who knew has
@@ -1487,7 +1540,7 @@ export class Store {
     // back. The builder reviews the results at `received`; nothing is signed off
     // unless every step passed, and the notes stay on the steps.
     const finished = checks.length > 0 && checks.every((c) => c.result);
-    if (finished && current.kind === 'issue' && current.status === 'needs-qa') {
+    if (recording && finished && current.kind === 'issue' && current.status === 'needs-qa') {
       const by = patch.by || 'you';
       const count = (r: string) => checks.filter((c) => c.result === r).length;
       const allPass = count('pass') === checks.length;
@@ -1729,6 +1782,25 @@ export class Store {
     const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'blocked': 0, 'deferred': 0, active: 0, archived: 0, complete: 0, cancelled: 0 };
     const rows: any[] = this.db.query('SELECT status, COUNT(*) AS n FROM items WHERE project_id = ? GROUP BY status').all(projectId);
     for (const row of rows) if (row.status in out) out[row.status as Status] = row.n;
+    return out;
+  }
+
+  /**
+   * The QA items by kind, and how many are waiting only on an agent. Beside
+   * counts() rather than inside it: counts is keyed by status and every reader
+   * sums it that way; this is what lets "waiting on you" leave out QA the
+   * agent is running. Derived with qaOf, the same function the rows use.
+   */
+  qaCounts(projectId: string): { human: number; agent: number; mixed: number; waitingOnAgent: number } {
+    const out = { human: 0, agent: 0, mixed: 0, waitingOnAgent: 0 };
+    const rows: any[] = this.db.query("SELECT checks FROM items WHERE project_id = ? AND kind = 'issue' AND status = 'needs-qa'").all(projectId);
+    for (const row of rows) {
+      let checks: any[] = [];
+      try { const parsed = JSON.parse(row.checks ?? '[]'); if (Array.isArray(parsed)) checks = parsed; } catch {}
+      const { qa, qaWaitingOn } = qaOf(checks);
+      if (qa) out[qa] += 1;
+      if (qaWaitingOn === 'agent') out.waitingOnAgent += 1;
+    }
     return out;
   }
 }

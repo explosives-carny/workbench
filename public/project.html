@@ -306,6 +306,13 @@
       // already on screen, and a screen reader should hear the state change.
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
       b.textContent = WB.STATUS_LABELS[s] + ' ' + (counts[s] || 0);
+      // QA says what kind, so the count answers "how much of this is mine".
+      if (s === 'needs-qa' && counts[s]) {
+        const kinds = { human: 0, agent: 0, mixed: 0 };
+        for (const i of items) if (i.status === 'needs-qa' && kinds[i.qa] !== undefined) kinds[i.qa] += 1;
+        const parts = Object.keys(kinds).filter((k) => kinds[k]).map((k) => k + ' ' + kinds[k]);
+        if (parts.length) b.textContent += ' · ' + parts.join(' · ');
+      }
       b.addEventListener('click', () => {
         if (hidden.has(s)) hidden.delete(s); else hidden.add(s);
         saveHidden();
@@ -442,8 +449,10 @@
   // find out what is waiting on YOU, and a single Open group mixing your
   // decisions with the agent's in-flight work does not answer that.
   const MOVE_GROUPS = [
-    { label: 'Your move', statuses: ['needs-decision', 'needs-qa'] },
-    { label: 'With your agent', statuses: ['received', 'in-progress'] },
+    // QA whose open steps are all the agent's is the agent's move, not yours;
+    // a mixed item comes back to you as soon as a step of yours is open.
+    { label: 'Your move', statuses: ['needs-decision', 'needs-qa'], unless: (i) => i.status === 'needs-qa' && i.qaWaitingOn === 'agent' },
+    { label: 'With your agent', statuses: ['received', 'in-progress'], also: (i) => i.status === 'needs-qa' && i.qaWaitingOn === 'agent' },
     { label: 'Waiting on something', statuses: ['blocked'] },
     { label: 'Deferred', statuses: ['deferred'] },
     { label: 'Documents', statuses: ['active'] },
@@ -569,6 +578,8 @@
     chip.className = 'chip s-' + item.status;
     chip.textContent = WB.STATUS_LABELS[item.status];
     meta.appendChild(chip);
+    const qaChip = WB.qaChip(item);
+    if (qaChip) meta.appendChild(qaChip);
 
     a.appendChild(meta);
     wrap.appendChild(a);
@@ -738,7 +749,7 @@
       : null;
     if (statusGroups) {
       return statusGroups
-        .map((g) => ({ label: g.label, items: shown.filter((i) => g.statuses.includes(i.status)).sort(rowOrder) }))
+        .map((g) => ({ label: g.label, items: shown.filter((i) => (g.statuses.includes(i.status) && !(g.unless && g.unless(i))) || (g.also && g.also(i))).sort(rowOrder) }))
         .filter((g) => g.items.length);
     }
     // Section grouping keeps its original order — first appearance in the
@@ -872,7 +883,7 @@
     document.getElementById('addsection').hidden = !!project.archivedAt;
     items = data.items;
     document.getElementById('eyebrow').textContent =
-      WB.WAITING_ON_YOU.reduce((n, k) => n + (data.counts[k] || 0), 0) + ' waiting on you · ' + items.length + ' items';
+      WB.waitingOnYou(data.counts, data.qaCounts) + ' waiting on you · ' + items.length + ' items';
     WB.labelChoices(data.labels || [], document.getElementById('labellist'), document.getElementById('labelpicks'), document.getElementById('ilabels'));
     loadColorPicker(project.color);
     if (redraw !== false) safeRender();

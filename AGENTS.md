@@ -1,8 +1,10 @@
 # Workbench — agent contract
 
-**Contract v16.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `16`,
-re-read this file.
+**Contract v17.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `17`,
+re-read this file — and if it is newer than the one your project was last
+worked under, run `wb audit <slug>` and bring your items into spec (see *When
+the contract version moves*).
 
 Read this file once per session, then use the board — never the web UI, which is
 slower for you and invisible to the next session. The first screen is the whole
@@ -44,6 +46,7 @@ for everything else.
 ```bash
 wb board <slug>                                    GET  /api/projects/<slug>?status=received,in-progress&messages=last
 wb show <id|ref>                                   GET  /api/items/<id-or-ref>   — a ref (WB-DEMO-14) works anywhere an id does
+wb audit [slug]                                    GET  /api/projects/<slug>/audit (no slug: GET /api/audit) — live items out of spec, rule + fix each
 wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"recommended":["B"],"labels":["…"],"clientId":"…"}]'
                                                    POST /api/projects/<slug>/items     — an array files a set; clientId makes a retry safe
 wb claim <id> "what I am about to do"              PATCH /api/items/<id> {"status":"in-progress","actor":"<you>","session":"<id>","ifVersion":N} + a message
@@ -52,6 +55,7 @@ wb reply <id> "Landed: …" --status complete        …same, with "status" — 
 wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
 wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
+                                                   — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
 wb export                                          bun run export — the server also exports on its own after every change
 wb archive <slug>                                  PATCH /api/projects/<slug> {"archived":true,"actor":"<you>"}
 wb restore <slug>                                  PATCH /api/projects/<slug> {"archived":false,"actor":"<you>"} — reclaims its colour if still free
@@ -94,8 +98,8 @@ understood — usually a typo).
    preference is a recommendation too: list every option. Never write
    "(Recommended)" into an option or the context. Today a decision with
    options and no `recommended` lands with a warning, and a single option
-   ending "(Recommended)" is converted into the field; **contract v17 refuses
-   a write that sets options without one.** A `recommended` entry that is not
+   ending "(Recommended)" is converted into the field; **a later contract
+   version refuses a write that sets options without one.** A `recommended` entry that is not
    one of the options is refused now. Documents are `kind: "document"`; a document that asks
    for something is two items.
 7. **A title is a headline, not the body.** A few words that name the thing,
@@ -104,8 +108,12 @@ understood — usually a typo).
    to be read in full to know what the item is, is a body in the wrong field.
    The server warns rather than refuses — a long title, or a long one with no
    context and no body, comes back with a `warning` naming what to move.
-8. **`needs-qa` means steps attached.** Define steps with `checks:[…]` on the
-   item; record results one step at a time. When every step has a result the
+8. **`needs-qa` means steps attached, each with an owner.** Define steps with
+   `checks:[…]` on the item, each `"owner":"human"` or `"agent"` — who runs
+   it. The board shows the item as Human QA, Agent QA or Mixed QA from them. A
+   step whose setup or result a later human step depends on is `human`, even if
+   an agent could run it, so the sequence stays in one pair of hands. Record
+   results one step at a time. When every step has a result the
    round is finished and the item goes back at `received`: signed off if all
    passed, otherwise for the builder to review the notes.
 9. **Change this application by pull request — never by editing the running copy.**
@@ -326,6 +334,18 @@ item — the whole list, only while no results are recorded. **Record** a result
 with `PATCH /api/items/<id>/checks/<step>`, one step per call, never by
 re-sending the array, which would overwrite a result somebody else just typed.
 A `fail` or `skip` needs a `note`; `pass` does not.
+
+**Every step has an owner**: `"owner":"human"` for the person, `"agent"` for a
+model. A step with none counts as human (what `needs-qa` meant before owners)
+and the write comes back with a warning naming how many. The item reads back
+`qa` — `human`, `agent` or `mixed`, from the owners — and `qaWaitingOn`, the
+owner of the open steps (the person first), which the board uses to put Agent
+QA with the agent's work. An agent runs and records its own steps; the
+person's are left for them. Give a step to the agent only when nothing the
+person does later depends on how or when it ran: "restart the server, then
+sign in" is one human step, not an agent step followed by a human one. An
+owner changes with `PATCH /api/items/<id>/checks/<step> {"owner":"…"}` until
+the step has a result; after that it is part of the record.
 
 **The server enforces the first half.** Sending `checks` onto an item whose
 steps already carry results is a `409` with `conflict: "checks"` and the step
@@ -606,6 +626,34 @@ Neither replaces the other. The contract corrects every agent from now on; your
 memory corrects you today, before the contract is merged, and for the part of
 the correction that was about how *you* miss things rather than what the rule
 says.
+
+### When the contract version moves
+
+A new version can put items already on the board out of spec: a decision
+filed before `recommended`, QA steps filed before owners. Writes under the old
+rules were accepted, so nothing forces them into line. **On the first session
+after the version moves, audit your project and conform it** — before the
+round, as part of session start.
+
+`wb audit <slug>` (`GET /api/projects/<slug>/audit`) lists every live item
+out of spec, each with the rule it breaks and the fix. It reads; it never
+writes. Finished work — complete, cancelled, archived — is not audited: it was
+right under the contract it was filed under, and changing it would falsify the
+record.
+
+- **Fix what you can decide.** A recommendation on a decision you raised, an
+  owner on a QA step you wrote, a `blockedBy` you know, a title you can
+  shorten. One PATCH per item, signed and with `ifVersion`, and no message
+  needed unless the change is not obvious from the item.
+- **Leave what you cannot**, and say so on the item: a decision someone else
+  raised whose recommendation you would be guessing, a step whose owner
+  depends on how the person works. The audit will keep listing it; that is
+  the point.
+- **Your project only.** `GET /api/audit` shows every project, but each one is
+  conformed by the session that works it, at its own next session start — the
+  same scope rule as a round. An audit of someone else's project is
+  information, never a reason to edit it.
+- Say it in the round report as one line: `audit: N fixed, M left (refs)`.
 
 ### Versioning
 

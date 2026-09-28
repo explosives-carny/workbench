@@ -113,6 +113,8 @@
     prog.className = 'mono';
     prog.textContent = done + ' of ' + checks.length + ' recorded' + (failed ? ' · ' + failed + ' failed' : '');
     head.appendChild(prog);
+    const qaChip = WB.qaChip(item);
+    if (qaChip) head.appendChild(qaChip);
     const bar = document.createElement('div');
     bar.className = 'progress';
     const fill = document.createElement('div');
@@ -142,6 +144,12 @@
     {
       const row = document.createElement('div');
       row.className = 'checkrow r-' + (c.result || 'none') + (withLabel ? '' : ' inline');
+
+      // Whose step this is. Unset reads as the person's, as the board counts it.
+      const owner = document.createElement('span');
+      owner.className = 'ck-owner qa-' + (c.owner === 'agent' ? 'agent' : 'human');
+      owner.textContent = c.owner === 'agent' ? 'Agent' : 'Human';
+      row.appendChild(owner);
 
       if (withLabel) {
         const label = document.createElement('div');
