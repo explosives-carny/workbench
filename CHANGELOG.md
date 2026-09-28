@@ -10,6 +10,8 @@
   will turn it away. An answer written the old way, ending "(Recommended)", is
   converted into the tag automatically. Items filed before this change still
   work as before, including reopening them from the status menu (contract v16).
+- When an old-style "(Recommended)" answer is converted, a decision that was
+  already answered with it keeps showing that answer as chosen.
 - Board settings now check what they are given: a setting with the wrong kind
   of value is refused with a message saying which one, and an unknown setting
   name is not saved and is reported back, instead of either being stored and
