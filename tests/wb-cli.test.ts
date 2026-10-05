@@ -255,20 +255,30 @@ describe('wb due / wb priority', () => {
     expect(due.stdout).toContain('due: 2026-10-31');
     const prio = await wb('priority', 'wb-err-1', 'P1');
     expect(prio.code).toBe(0);
-    expect(prio.stdout).toContain('priority: p1');
+    expect(prio.stdout).toContain('priority: High');
     const item = store.resolveItem('WB-ERR-1')!;
     expect([item.dueAt, item.priority, item.status]).toEqual(['2026-10-31', 'p1', 'todo']);
 
     const shown = await wb('show', 'WB-ERR-1');
     expect(shown.stdout).toContain('due:     2026-10-31');
-    expect(shown.stdout).toContain('priority: p1');
+    expect(shown.stdout).toContain('priority: High');
     const board = await wb('board', 'errands', '--all');
-    expect(board.stdout).toContain('p1  due 2026-10-31');
+    expect(board.stdout).toContain('High  due 2026-10-31');
 
     expect((await wb('due', 'WB-ERR-1', 'none')).code).toBe(0);
     expect((await wb('priority', 'WB-ERR-1', 'none')).code).toBe(0);
     const cleared = store.resolveItem('WB-ERR-1')!;
     expect([cleared.dueAt, cleared.priority]).toEqual([null, null]);
+  });
+
+  test('priority takes the words a person reads: high, medium, low', async () => {
+    for (const [word, stored, shown] of [['medium', 'p2', 'Medium'], ['LOW', 'p3', 'Low'], ['High', 'p1', 'High']]) {
+      const res = await wb('priority', 'WB-ERR-1', word);
+      expect(res.code).toBe(0);
+      expect(res.stdout).toContain(`priority: ${shown}`);
+      expect(store.resolveItem('WB-ERR-1')!.priority).toBe(stored);
+    }
+    expect((await wb('priority', 'WB-ERR-1', 'none')).code).toBe(0);
   });
 
   test('a malformed date is refused with what to send, and nothing changes', async () => {

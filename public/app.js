@@ -265,7 +265,9 @@ window.WB = (function () {
   ];
 
   const PRIORITIES = ['p1', 'p2', 'p3'];
-  const PRIORITY_LABELS = { p1: 'P1', p2: 'P2', p3: 'P3' };
+  // Stored and sent as p1/p2/p3; shown as words. A person reads "High" at a
+  // glance, where "P1" has to be decoded (QA feedback on the first release).
+  const PRIORITY_LABELS = { p1: 'High', p2: 'Medium', p3: 'Low' };
 
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
@@ -341,7 +343,7 @@ window.WB = (function () {
     const chip = document.createElement('span');
     chip.className = 'prio mono p-' + priority;
     chip.textContent = PRIORITY_LABELS[priority];
-    chip.title = 'Priority ' + PRIORITY_LABELS[priority] + (priority === 'p1' ? ' (most urgent)' : '');
+    chip.title = PRIORITY_LABELS[priority] + ' priority';
     return chip;
   }
 
