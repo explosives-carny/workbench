@@ -151,6 +151,28 @@ describe('items in a to-do project', () => {
     expect(store.getItem(id)!.status).toBe('complete');
   });
 
+  // Review finding 4: a board status on a to-do's message was dropped with a
+  // 201 and no word, where the same status on PATCH is a 400.
+  test('a message carrying a board status lands, keeps the to-do where it is, and warns', async () => {
+    const id = (await todo()).json.items[0].id;
+    const res = await api('POST', `/api/items/${id}/messages`, { who: 'you', text: 'on it', status: 'received' });
+    expect(res.status).toBe(201);
+    expect(res.json.item.status).toBe('todo');
+    expect(res.json.warning).toContain('todo, deferred, complete, cancelled');
+    expect(res.json.warning).toContain('"received"');
+    // A status the to-do can hold carries no such warning.
+    const ok = await api('POST', `/api/items/${id}/messages`, { who: 'you', text: 'done', status: 'complete' });
+    expect(ok.json.warning).toBeUndefined();
+  });
+
+  test('a document gets the same warning for a status it cannot hold', async () => {
+    const id = (await todo({ title: 'Ref', kind: 'document', body: 'x' })).json.items[0].id;
+    const res = await api('POST', `/api/items/${id}/messages`, { who: 'agent', actor: 'bot', text: 'done', status: 'complete' });
+    expect(res.status).toBe(201);
+    expect(res.json.item.status).toBe('active');
+    expect(res.json.warning).toContain('active, archived');
+  });
+
   test('a decision cannot be filed on a to-do project, and a to-do cannot be filed on a board', async () => {
     const issue = await todo({ kind: 'issue' });
     expect(issue.status).toBe(400);

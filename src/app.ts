@@ -888,6 +888,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           finishedWithoutStatus(who, body.text, status, after.status),
           archivedProjectWarning(owner),
           reopensWithout ? `this decision has options and no recommended — PATCH /api/items/${item.id} {"recommended":["<one of the options>"]}` : undefined,
+          // The message lands (it never conflicts), but a status this kind of
+          // item cannot hold is not applied. Said rather than dropped, naming
+          // the set it can hold, the same set PATCH refuses with a 400.
+          status !== undefined && !isStatusAllowed(item.kind, status)
+            ? `the message landed but "${status}" was not applied: a ${item.kind === 'todo' ? 'to-do' : item.kind} holds ${statusesFor(item.kind).join(', ')}, so it stays "${after.status}"`
+            : undefined,
         ].filter(Boolean) as string[];
         return json(ctx, withIgnored({ ok: true, message, item: after, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignoredKeys(body, MESSAGE_FIELDS)), 201);
       }
