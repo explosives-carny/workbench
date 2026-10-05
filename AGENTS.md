@@ -532,7 +532,9 @@ above holds there unchanged.
   board is a `400`.
 - **A message never moves a to-do.** Nobody asked anybody anything, so a
   person's note does not make it `received` and an agent's reply claims
-  nothing. A message with an explicit `status` still moves it, within the set.
+  nothing. A message with an explicit `status` still moves it, within the set;
+  a status outside the set lands the message, leaves the status, and comes
+  back as a `warning` naming the set.
 - **`dueAt` and `priority` exist on to-dos only.** `dueAt` is a calendar day,
   `"YYYY-MM-DD"` (`"2026-10-31"`), never a timestamp; anything else — a
   date-time, `"10/31/2026"`, `"2026-02-30"` — is a `400` naming the shape.
@@ -547,7 +549,10 @@ above holds there unchanged.
   issue or a to-do, a switch is a `409` with `conflict: "mode"`: items are
   never converted, because a `received` decision has no to-do equivalent and a
   to-do has no whose-move answer. Start a new project instead. Leaving to-do
-  mode puts a `due`/`priority` layout back to the defaults.
+  mode puts a `due`/`priority` layout back to the defaults. A refused `PATCH`
+  applies none of its fields. Import never converts either: a file whose mode
+  differs from an existing project of the same slug restores nothing into it,
+  and the import log says so.
 
 Set a date or priority only when the person gave one; an invented deadline
 reads exactly like a real one. To-dos are theirs: do not file your own work as

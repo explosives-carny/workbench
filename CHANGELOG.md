@@ -19,7 +19,8 @@
   priority. Replying on a to-do never moves it, and a passing due date never
   changes its status. Every other project works exactly as before and shows
   none of this. A project's kind can change only while it holds no decisions
-  or to-dos (contract v18).
+  or to-dos, and restoring a backup never turns to-dos into decisions or the
+  other way round (contract v18).
 - A decision now shows which answer the agent recommends: that button carries
   a "Recommended" tag and a heavier border, instead of the agent writing
   "(Recommended)" into the answer text. Agents are expected to name at least one
