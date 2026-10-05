@@ -1025,7 +1025,8 @@
   async function setPlan(id, patch) {
     note(id, 'saving…');
     try {
-      await WB.patch('/api/items/' + id, patch);
+      // Queued per item, so a late response cannot overwrite a newer save.
+      await WB.serialPatch(id, '/api/items/' + id, patch);
       await load();
       note(id, 'saved');
     } catch (e) { note(id, e.message, true); }

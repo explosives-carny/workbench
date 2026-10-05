@@ -526,7 +526,8 @@
   }
   async function setPlan(patch) {
     note('saving…');
-    try { await WB.patch('/api/items/' + itemId, patch); await load(); note('saved'); }
+    // Queued per item, so a late response cannot overwrite a newer save.
+    try { await WB.serialPatch(itemId, '/api/items/' + itemId, patch); await load(); note('saved'); }
     catch (e) { note(e.message, true); }
   }
   async function send() {

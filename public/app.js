@@ -134,6 +134,17 @@ window.WB = (function () {
     }
   }
 
+  // PATCHes for one key (an item id) go one at a time, in the order asked, so
+  // a slow earlier response can never land after a later one. Different keys
+  // do not wait for each other. A failed save does not block the next.
+  const saveQueues = {};
+  function serialPatch(key, path, body) {
+    const prev = saveQueues[key] || Promise.resolve();
+    const next = prev.catch(() => {}).then(() => req('PATCH', path, body));
+    saveQueues[key] = next;
+    return next;
+  }
+
   // Copy `ref` onto the clipboard, with feedback either way. Wrapped so a
   // denied permission or an insecure context (clipboard APIs need HTTPS or
   // localhost) never throws out of a click handler — it falls back to
@@ -366,7 +377,18 @@ window.WB = (function () {
     date.id = 'due-' + item.id;
     date.className = 'plan-date';
     date.value = item.dueAt || '';
-    date.addEventListener('change', () => save({ dueAt: date.value || null }));
+    // Committed when the field is left (or on Enter), and only if the value
+    // moved. Saving on every `change` wrote each valid date a browser passes
+    // through while a year is typed (0002, 0020, 0202, 2026).
+    let committed = item.dueAt || '';
+    const commit = () => {
+      const value = date.value || '';
+      if (value === committed) return;
+      committed = value;
+      save({ dueAt: value || null });
+    };
+    date.addEventListener('blur', commit);
+    date.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(); });
 
     const pl = document.createElement('label');
     pl.className = 'lbl';
@@ -403,6 +425,7 @@ window.WB = (function () {
     byDue,
     byPriority,
     planControls,
+    serialPatch,
     STATUS_LABELS,
     WAITING_ON_YOU,
     QA_LABELS,

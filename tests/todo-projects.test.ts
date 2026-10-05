@@ -9,6 +9,7 @@ import { openDb, Store, isDueDate, normaliseDueAt, normalisePriority, statusesFo
 import { createHandler } from '../src/app.ts';
 import { exportAll, importAll } from '../src/export.ts';
 import { auditItems } from '../src/rules.ts';
+import { El } from './helpers/page.ts';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'fs';
@@ -501,3 +502,77 @@ describe('due bands and ordering on the page (public/app.js)', () => {
     }
   });
 });
+
+// Review finding 5: the date field saved on every `change`, and a browser
+// fires change for each valid date it passes through while a year is typed
+// (0002, 0020, 0202, 2026), with the saves unordered. It now commits on blur
+// or Enter, only when the value moved, and saves for one item go one at a time.
+describe('saving a due date from the page', () => {
+  const doc = { createElement: (t: string) => new El(t), createTextNode: (t: string) => { const n = new El('#text'); n.textContent = t; return n; } };
+  function load(fetchFn: any) {
+    const win: any = {};
+    new Function('window', 'document', 'fetch', readFileSync(new URL('../public/app.js', import.meta.url), 'utf8'))(win, doc, fetchFn);
+    return win.WB;
+  }
+
+  test('typing a year saves nothing until the field is left, then saves once', () => {
+    const WB = load(async () => new Response('{}'));
+    const saves: any[] = [];
+    const bar = WB.planControls({ id: 'x', dueAt: null, priority: null }, (patch: any) => saves.push(patch));
+    const date = bar.all().find((e: El) => e.type === 'date')!;
+    for (const v of ['0002-10-31', '0020-10-31', '0202-10-31', '2026-10-31']) {
+      date.value = v;
+      date.dispatchEvent({ type: 'change' });
+      date.dispatchEvent({ type: 'input' });
+    }
+    expect(saves).toEqual([]);
+    date.dispatchEvent({ type: 'blur' });
+    expect(saves).toEqual([{ dueAt: '2026-10-31' }]);
+    // Leaving it again unchanged is not another write; Enter commits too.
+    date.dispatchEvent({ type: 'blur' });
+    date.value = '';
+    date.dispatchEvent({ type: 'keydown', key: 'Enter' } as any);
+    expect(saves).toEqual([{ dueAt: '2026-10-31' }, { dueAt: null }]);
+  });
+
+  test('the priority select still saves on change', () => {
+    const WB = load(async () => new Response('{}'));
+    const saves: any[] = [];
+    const bar = WB.planControls({ id: 'x', dueAt: null, priority: null }, (patch: any) => saves.push(patch));
+    const sel = bar.all().find((e: El) => e.tagName === 'SELECT')!;
+    sel.value = 'p2';
+    sel.dispatchEvent({ type: 'change' });
+    expect(saves).toEqual([{ priority: 'p2' }]);
+  });
+
+  test('saves for one item are sent one at a time, in order; other items do not wait', async () => {
+    const sent: string[] = [];
+    const release: Record<string, () => void> = {};
+    const fetchFn = (url: string, init: any) => {
+      const body = JSON.parse(init.body);
+      sent.push(`${url} ${body.dueAt}`);
+      return new Promise<Response>((resolve) => { release[`${url} ${body.dueAt}`] = () => resolve(new Response(JSON.stringify({ ok: true }))); });
+    };
+    const WB = load(fetchFn);
+    const first = WB.serialPatch('a', '/api/items/a', { dueAt: '2026-10-01' });
+    const second = WB.serialPatch('a', '/api/items/a', { dueAt: '2026-10-31' });
+    WB.serialPatch('b', '/api/items/b', { dueAt: '2026-12-01' });
+    await Promise.resolve(); await Promise.resolve();
+    // The second save for "a" has not been sent while the first is in flight.
+    expect(sent).toEqual(['/api/items/a 2026-10-01', '/api/items/b 2026-12-01']);
+    release['/api/items/a 2026-10-01']();
+    await first;
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(sent).toEqual(['/api/items/a 2026-10-01', '/api/items/b 2026-12-01', '/api/items/a 2026-10-31']);
+    release['/api/items/a 2026-10-31']();
+    await second;
+  });
+
+  test('both pages save the date through the per-item queue', () => {
+    for (const page of ['project.html', 'item.html']) {
+      const html = readFileSync(new URL(`../public/${page}`, import.meta.url), 'utf8');
+      expect([page, html.includes('WB.serialPatch(')]).toEqual([page, true]);
+    }
+  });
+});
+
