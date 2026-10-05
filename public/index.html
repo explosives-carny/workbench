@@ -73,6 +73,10 @@
     <form id="newproj">
       <input type="text" id="pname" placeholder="Project name" aria-label="Project name" required>
       <input type="text" id="pdesc" placeholder="One line about it (optional)" aria-label="Project description">
+      <select id="pmode" aria-label="Kind of project">
+        <option value="board">Board</option>
+        <option value="todo">To-do list</option>
+      </select>
       <button type="submit">Create</button>
     </form>
   </section>
@@ -209,7 +213,11 @@
   }
 
   function card(p) {
-    const waiting = WB.waitingOnYou(p.counts, p.qaCounts);
+    const todo = p.mode === 'todo';
+    // A to-do list's badge counts what is left to do; it never claims to be
+    // waiting on you, because nobody asked you anything.
+    const waiting = todo ? 0 : WB.waitingOnYou(p.counts, p.qaCounts);
+    const left = todo ? (p.counts.todo || 0) : 0;
     const a = document.createElement('a');
     // "Waiting on you" is the badge below, not a border colour any more — the
     // project's own colour has that border now.
@@ -222,7 +230,8 @@
     a.style.setProperty('--proj-color', p.color);
     a.innerHTML =
       '<div class="row"><span class="color-dot" aria-hidden="true"></span><span class="t"></span>' +
-      (waiting ? '<span class="badge you">' + waiting + ' waiting on you</span>' : '<span class="badge">clear</span>') +
+      (waiting ? '<span class="badge you">' + waiting + ' waiting on you</span>'
+        : left ? '<span class="badge">' + left + ' to do</span>' : '<span class="badge">clear</span>') +
       '</div><div class="d"></div><div class="activity mono"></div><div class="counts mono"></div>';
     a.querySelector('.t').textContent = p.name;
     a.querySelector('.d').textContent = p.description || '';
@@ -231,6 +240,7 @@
     activityEl.title = WB.fmt(p.lastActivityAt);
     a.querySelector('.counts').textContent =
       WB.STATUSES
+        .filter((s) => (todo ? WB.TODO_STATUSES.includes(s) || WB.DOCUMENT_STATUSES.includes(s) : s !== 'todo'))
         .map((s) => WB.STATUS_LABELS[s] + ' ' + (p.counts[s] || 0))
         .join('  ·  ');
     return a;
@@ -312,9 +322,11 @@
     e.preventDefault();
     const name = document.getElementById('pname').value.trim();
     if (!name) return;
-    await WB.post('/api/projects', { name, description: document.getElementById('pdesc').value.trim() });
+    const mode = document.getElementById('pmode').value;
+    await WB.post('/api/projects', { name, description: document.getElementById('pdesc').value.trim(), ...(mode === 'todo' ? { mode } : {}) });
     document.getElementById('pname').value = '';
     document.getElementById('pdesc').value = '';
+    document.getElementById('pmode').value = 'board';
     render();
   });
 

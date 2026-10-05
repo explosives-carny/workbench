@@ -371,7 +371,8 @@
     sel.addEventListener('change', () => setStatus(sel.value));
     // Due date and priority beside the status: plain fields, saved on change,
     // and neither one moves the status.
-    bar.append(lbl, sel, WB.planControls(item, setPlan));
+    bar.append(lbl, sel);
+    if (item.kind === 'todo') bar.append(WB.planControls(item, setPlan));
     card.appendChild(bar);
 
     const saved = document.createElement('div');

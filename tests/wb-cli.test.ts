@@ -243,33 +243,52 @@ describe('wb settings', () => {
 });
 
 describe('wb due / wb priority', () => {
+  // Dates and priority live on to-dos, in a project created with mode todo.
+  beforeAll(() => {
+    const list = store.createProject({ name: 'Errands', key: 'ERR', mode: 'todo' });
+    store.createItem(list.id, { title: 'Renew the permit' });
+  });
+
   test('set, show and clear a due date and a priority without moving the status', async () => {
-    const before = store.resolveItem('WB-DEMO-2')!.status;
-    const due = await wb('due', 'WB-DEMO-2', '2026-10-31');
+    const due = await wb('due', 'WB-ERR-1', '2026-10-31');
     expect(due.code).toBe(0);
     expect(due.stdout).toContain('due: 2026-10-31');
-    const prio = await wb('priority', 'wb-demo-2', 'P1');
+    const prio = await wb('priority', 'wb-err-1', 'P1');
     expect(prio.code).toBe(0);
     expect(prio.stdout).toContain('priority: p1');
-    const item = store.resolveItem('WB-DEMO-2')!;
-    expect([item.dueAt, item.priority, item.status]).toEqual(['2026-10-31', 'p1', before]);
+    const item = store.resolveItem('WB-ERR-1')!;
+    expect([item.dueAt, item.priority, item.status]).toEqual(['2026-10-31', 'p1', 'todo']);
 
-    const shown = await wb('show', 'WB-DEMO-2');
+    const shown = await wb('show', 'WB-ERR-1');
     expect(shown.stdout).toContain('due:     2026-10-31');
     expect(shown.stdout).toContain('priority: p1');
-    const board = await wb('board', 'demo', '--all');
+    const board = await wb('board', 'errands', '--all');
     expect(board.stdout).toContain('p1  due 2026-10-31');
 
-    expect((await wb('due', 'WB-DEMO-2', 'none')).code).toBe(0);
-    expect((await wb('priority', 'WB-DEMO-2', 'none')).code).toBe(0);
-    const cleared = store.resolveItem('WB-DEMO-2')!;
+    expect((await wb('due', 'WB-ERR-1', 'none')).code).toBe(0);
+    expect((await wb('priority', 'WB-ERR-1', 'none')).code).toBe(0);
+    const cleared = store.resolveItem('WB-ERR-1')!;
     expect([cleared.dueAt, cleared.priority]).toEqual([null, null]);
   });
 
   test('a malformed date is refused with what to send, and nothing changes', async () => {
-    const result = await wb('due', 'WB-DEMO-2', '31/10/2026');
+    const result = await wb('due', 'WB-ERR-1', '31/10/2026');
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain('YYYY-MM-DD');
-    expect(store.resolveItem('WB-DEMO-2')!.dueAt).toBeNull();
+    expect(store.resolveItem('WB-ERR-1')!.dueAt).toBeNull();
+  });
+
+  test('on a board item it is refused, naming to-do projects', async () => {
+    const result = await wb('due', 'WB-DEMO-2', '2026-10-31');
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('to-do projects');
+  });
+
+  test('wb project --mode sets the mode and prints it', async () => {
+    store.createProject({ name: 'Spare' });
+    const set = await wb('project', 'spare', '--mode', 'todo');
+    expect(set.code).toBe(0);
+    const shown = await wb('project', 'spare');
+    expect(shown.stdout).toContain('mode: todo');
   });
 });

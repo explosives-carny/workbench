@@ -44,7 +44,15 @@
           <option value="due">Due date</option>
           <option value="priority">Priority</option>
         </select>
-        <p class="hint">Newest-first, a stable queue by reference number, soonest due first, or most urgent first.</p>
+        <p class="hint">Newest-first, or a stable queue by reference number. A to-do list can also order by due date or priority.</p>
+
+        <label for="set-mode">Kind of project</label>
+        <select id="set-mode" data-field="mode">
+          <option value="board">Board — decisions and work</option>
+          <option value="todo">To-do list — your own tasks, with due dates</option>
+        </select>
+        <p class="hint">Only while the project holds no decisions or to-dos; items are never converted. Documents can stay.</p>
+        <div class="saved" id="saved-mode"></div>
       </fieldset>
 
       <fieldset>
@@ -115,8 +123,8 @@
       <input type="text" id="ititle" placeholder="What needs deciding or doing" aria-label="Item title" required>
       <input type="text" id="isection" placeholder="Section (optional)" aria-label="Section">
       <input type="text" id="ilabels" placeholder="Labels, comma separated (optional)" aria-label="Labels" list="labellist" autocomplete="off">
-      <input type="date" id="idue" aria-label="Due date (optional)" title="Due date (optional)">
-      <select id="ipriority" aria-label="Priority (optional)">
+      <input type="date" id="idue" aria-label="Due date (optional)" title="Due date (optional)" hidden>
+      <select id="ipriority" aria-label="Priority (optional)" hidden>
         <option value="">No priority</option>
         <option value="p1">P1</option>
         <option value="p2">P2</option>
@@ -154,6 +162,9 @@
   // The viewer's calendar day, refreshed with every signature check; due bands
   // are measured from it.
   let today = WB.localToday();
+  // A to-do project (mode "todo") shows due dates and priorities; a board
+  // never does, and reads exactly as it did before they existed.
+  const isTodo = () => Boolean(project && project.mode === 'todo');
 
   // Project settings panel. Closed by default, remembered per project — a
   // setting nobody opens yet must not clutter the page, but somebody who opens
@@ -194,8 +205,16 @@
       const el = document.getElementById(id);
       if (el && el !== active) el.value = value;
     }
+    // Due and priority layouts belong to to-do projects; on a board they are
+    // not offered at all, so a board's panel reads exactly as it did.
+    for (const sel of ['set-groupBy', 'set-sortBy']) {
+      for (const opt of document.getElementById(sel).options) {
+        if (opt.value === 'due' || opt.value === 'priority') opt.hidden = opt.disabled = p.mode !== 'todo';
+      }
+    }
     setValue('set-groupBy', p.groupBy);
     setValue('set-sortBy', p.sortBy);
+    setValue('set-mode', p.mode || 'board');
     setValue('set-name', p.name);
     setValue('set-description', p.description || '');
     setValue('set-key', p.key || '');
@@ -210,6 +229,9 @@
   document.getElementById('set-groupBy').addEventListener('change', (e) => saveProjectField('groupBy', e.target.value));
   document.getElementById('set-sortBy').addEventListener('change', (e) => saveProjectField('sortBy', e.target.value));
   document.getElementById('set-sectionMode').addEventListener('change', (e) => saveProjectField('sectionMode', e.target.value));
+  // Refused by the server once the project holds work; the note under the
+  // select then says why, and the next load puts the select back.
+  document.getElementById('set-mode').addEventListener('change', (e) => saveProjectField('mode', e.target.value));
 
   for (const field of ['name', 'description', 'key']) {
     document.querySelector('[data-save="' + field + '"]').addEventListener('click', () => {
@@ -346,8 +368,12 @@
     // Each cluster is its own labelled group so the split is announced rather
     // than merely spaced, and either can be empty without leaving a stray
     // heading — a board with no documents yet shows no Documents filters.
+    // A to-do list's own cluster replaces Work: its items never hold the
+    // whose-move states, and a board never shows To do.
     const clusters = [
-      { label: 'Work', statuses: WB.STATUSES.filter((s) => !WB.DOCUMENT_STATUSES.includes(s)) },
+      isTodo()
+        ? { label: 'To-dos', statuses: WB.TODO_STATUSES }
+        : { label: 'Work', statuses: WB.ISSUE_STATUSES },
       { label: 'Documents', statuses: WB.DOCUMENT_STATUSES },
     ];
     for (const cluster of clusters) {
@@ -473,12 +499,12 @@
     { label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
   ];
 
-  // `due` and `priority` grouping: Open divided by due band (relative to the
-  // viewer's today) or by priority, the way `move` divides it by whose move.
-  // Below Open nothing changes — the same Deferred / Documents / Archived tail
-  // as STATUS_GROUPS — because a finished item is never "overdue".
+  // `due` and `priority` grouping, on a to-do project only: open to-dos split
+  // by due band (relative to the viewer's today) or by priority. Below them
+  // nothing changes — the same Deferred / Documents / Archived tail as
+  // STATUS_GROUPS — because a finished to-do is never "overdue".
   function planGroups(groupBy) {
-    const live = (i) => WB.LIVE_STATUSES.includes(i.status);
+    const live = (i) => WB.DUE_BANDED_STATUSES.includes(i.status);
     const head = groupBy === 'due'
       ? WB.DUE_BANDS.map((b) => ({ label: b.label, match: (i) => live(i) && WB.dueBand(i.dueAt, today) === b.id }))
           .concat([{ label: 'No due date', match: (i) => live(i) && !i.dueAt }])
@@ -749,7 +775,9 @@
       sel.appendChild(o);
     }
     sel.addEventListener('change', () => setStatus(item.id, sel.value));
-    bar.append(lbl, sel, WB.planControls(item, (patch) => setPlan(item.id, patch)));
+    bar.append(lbl, sel);
+    // Due date and priority are a to-do's alone.
+    if (item.kind === 'todo') bar.append(WB.planControls(item, (patch) => setPlan(item.id, patch)));
     card.appendChild(bar);
 
     const saved = document.createElement('div');
@@ -936,8 +964,12 @@
     document.getElementById('archivedbanner').hidden = !project.archivedAt;
     document.getElementById('addsection').hidden = !!project.archivedAt;
     items = data.items;
-    document.getElementById('eyebrow').textContent =
-      WB.waitingOnYou(data.counts, data.qaCounts) + ' waiting on you · ' + items.length + ' items';
+    // A to-do list counts what is left to do; a board, what waits on you.
+    document.getElementById('eyebrow').textContent = isTodo()
+      ? (data.counts.todo || 0) + ' to do · ' + items.length + ' items'
+      : WB.waitingOnYou(data.counts, data.qaCounts) + ' waiting on you · ' + items.length + ' items';
+    document.getElementById('idue').hidden = !isTodo();
+    document.getElementById('ipriority').hidden = !isTodo();
     WB.labelChoices(data.labels || [], document.getElementById('labellist'), document.getElementById('labelpicks'), document.getElementById('ilabels'));
     loadColorPicker(project.color);
     if (redraw !== false) safeRender();
@@ -1034,8 +1066,11 @@
       title,
       section: document.getElementById('isection').value.trim(),
       labels: document.getElementById('ilabels').value.split(',').map((l) => l.trim()).filter(Boolean),
-      dueAt: document.getElementById('idue').value || null,
-      priority: document.getElementById('ipriority').value || null,
+      // Sent only on a to-do list; a board refuses them.
+      ...(isTodo() ? {
+        dueAt: document.getElementById('idue').value || null,
+        priority: document.getElementById('ipriority').value || null,
+      } : {}),
     });
     document.getElementById('ititle').value = '';
     document.getElementById('ilabels').value = '';

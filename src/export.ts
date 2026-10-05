@@ -60,6 +60,10 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
         description: raw.project.description,
         repos: raw.project.repos,
         key: raw.project.key ?? undefined,
+        // Before the items, because the mode decides what kind each item
+        // lands as: a to-do restored into a board would become an issue and
+        // lose its dates. An export from before modes existed is a board.
+        mode: raw.project.mode === 'todo' ? 'todo' : 'board',
       });
       const existing = new Set(store.listItems(project.id, 'none').map((item) => item.title));
       let added = 0;

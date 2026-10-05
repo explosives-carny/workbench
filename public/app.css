@@ -223,6 +223,9 @@ button.filter.s-needs-qa { color: var(--qa); background: var(--qa-soft); }
 button.filter.s-received { color: var(--wait); background: var(--wait-soft); }
 button.filter.s-in-progress { color: var(--busy); background: var(--busy-soft); }
 button.filter.s-blocked { color: var(--blocked); background: var(--blocked-soft); }
+/* A to-do (v18) is the person's own task, not anybody's move: plain ink, so
+   the due chip beside it carries the urgency and the status stays quiet. */
+button.filter.s-todo { color: var(--ink-2); background: var(--rule-2); }
 button.filter.s-deferred { color: var(--park); background: var(--park-soft); }
 button.filter.s-active { color: var(--live); background: var(--live-soft); }
 button.filter.s-archived { color: var(--gone); background: var(--gone-soft); }
@@ -257,6 +260,7 @@ button.viewtoggle:disabled { opacity: .4; cursor: default; border-color: var(--r
 .listrow.s-received { border-left: 3px solid var(--wait); }
 .listrow.s-in-progress { border-left: 3px solid var(--busy); }
 .listrow.s-blocked { border-left: 3px solid var(--blocked); }
+.listrow.s-todo { border-left: 3px solid var(--ink-2); }
 .listrow.s-deferred { border-left: 3px solid var(--park); }
 .listrow.s-active { border-left: 3px solid var(--live); }
 .listrow.s-archived { border-left: 3px solid var(--gone); }
@@ -386,6 +390,7 @@ pre.doc {
 .item.s-received { border-left: 3px solid var(--wait); }
 .item.s-in-progress { border-left: 3px solid var(--busy); }
 .item.s-blocked { border-left: 3px solid var(--blocked); }
+.item.s-todo { border-left: 3px solid var(--ink-2); }
 .item.s-deferred { border-left: 3px solid var(--park); }
 .item.s-active { border-left: 3px solid var(--live); }
 .item.s-archived { border-left: 3px solid var(--gone); }
@@ -404,6 +409,7 @@ pre.doc {
 .chip.s-received { color: var(--wait); background: var(--wait-soft); }
 .chip.s-in-progress { color: var(--busy); background: var(--busy-soft); }
 .chip.s-blocked { color: var(--blocked); background: var(--blocked-soft); }
+.chip.s-todo { color: var(--ink-2); background: var(--rule-2); }
 .chip.s-deferred { color: var(--park); background: var(--park-soft); }
 .chip.s-active { color: var(--live); background: var(--live-soft); }
 .chip.s-archived { color: var(--gone); background: var(--gone-soft); }
@@ -463,6 +469,7 @@ select.status.s-needs-qa { color: var(--qa); background: var(--qa-soft); }
 select.status.s-received { color: var(--wait); background: var(--wait-soft); }
 select.status.s-in-progress { color: var(--busy); background: var(--busy-soft); }
 select.status.s-blocked { color: var(--blocked); background: var(--blocked-soft); }
+select.status.s-todo { color: var(--ink-2); background: var(--rule-2); }
 select.status.s-deferred { color: var(--park); background: var(--park-soft); }
 select.status.s-active { color: var(--live); background: var(--live-soft); }
 select.status.s-archived { color: var(--gone); background: var(--gone-soft); }

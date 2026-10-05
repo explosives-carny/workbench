@@ -26,7 +26,9 @@ Nothing at `received` → say so in one line. Never create items on a check-in.
 Do not read the board again until the check-in word.
 
 **Status is whose move it is.** An issue holds one of eight; a document (`kind:
-"document"`) holds `active` or `archived`, nothing else.
+"document"`) holds `active` or `archived`, nothing else. (A project created
+with `mode: "todo"` holds to-dos instead of issues — see **To-do projects**;
+nothing below changes for any other project.)
 
 | Status | Whose move | You set it when |
 |---|---|---|
@@ -54,15 +56,15 @@ wb reply <id> "…"                                  POST /api/items/<id>/messag
 wb reply <id> "Landed: …" --status complete        …same, with "status" — a reply that FINISHES work must carry one
 wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
 wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
-wb due <id|ref> 2026-10-31|none                    PATCH /api/items/<id> {"dueAt":"2026-10-31"}   — null clears; never moves the status
-wb priority <id|ref> p1|p2|p3|none                 PATCH /api/items/<id> {"priority":"p1"}        — null clears; never moves the status
+wb due <id|ref> 2026-10-31|none                    PATCH /api/items/<id> {"dueAt":"2026-10-31"}   — to-do projects only; null clears
+wb priority <id|ref> p1|p2|p3|none                 PATCH /api/items/<id> {"priority":"p1"}        — to-do projects only; null clears
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
                                                    — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
 wb export                                          bun run export — the server also exports on its own after every change
 wb archive <slug>                                  PATCH /api/projects/<slug> {"archived":true,"actor":"<you>"}
 wb restore <slug>                                  PATCH /api/projects/<slug> {"archived":false,"actor":"<you>"} — reclaims its colour if still free
 wb project <slug>                                  GET  /api/projects/<slug> — prints name, key, groupBy, sortBy, sectionMode, color, sections, repos
-wb project <slug> --group s|status|move|due|priority --sort activity|ref|due|priority --color '#…' --name … --description … --key … --section-mode adhoc|declared --sections a,b --repos a,b
+wb project <slug> --group s|status|move --sort activity|ref --mode board|todo --color '#…' --name … --description … --key … --section-mode adhoc|declared --sections a,b --repos a,b
                                                    PATCH /api/projects/<slug> {…whichever flags were given…} — any subset, one call
 wb settings                                        GET  /api/settings — prints every key, including its onboarding default when unset
 wb settings --default-project <slug> --backup-plan … --auto-capture --check-in-on-start --post-findings --summarise-on-exit --agent-name tool=name
@@ -505,38 +507,51 @@ like a duplicate of one in use — case, punctuation, a trailing plural — come
 back as a `warning` on the write, naming the existing label: reuse it, or merge
 the two. Repairs: `PATCH …/labels` and `PATCH …/sections` `{"from","to","actor"}`
 (empty `to` removes a label). `project.groupBy`
-(`status`, the default, `section`, `move` — Open split into Your move /
-With your agent / Waiting on something — or `due` / `priority`, Open split by
-due band or P1/P2/P3; see **Due dates and priority**), `project.sortBy`
-(`activity`, the default, newest first; `ref` to order every group by
-reference number ascending; `due`, earliest due date first; `priority`, p1
-first) and `project.sectionMode` (`adhoc`
+(`status`, the default, `section`, or `move` — Open split into Your move /
+With your agent / Waiting on something), `project.sortBy` (`activity`, the
+default, newest first; or `ref` to order every group by reference number
+ascending) — plus `due` and `priority` for both on a to-do project only —
+and `project.sectionMode` (`adhoc`
 warns on near-duplicates, `declared` refuses unlisted sections) are the
 human's calls; never switch them yourself. No good fit → leave `section`
 empty. Reasoning and failure modes: `docs/what-goes-here.md`.
 
-### Due dates and priority
+### To-do projects
 
-Two optional item fields, for a board used as a to-do list or a decision with
-a deadline. Both are settable on create and by `PATCH /api/items/<id>`, come
-back on every item and list row, and round-trip through export and import.
+A project created with `"mode":"todo"` (`POST /api/projects`, or `PATCH
+/api/projects/<slug> {"mode":"todo"}`) is a person's to-do list, kept on the
+same board as their decisions. It is opt-in, and it is the only place any of
+this applies. A project without it is a board, `mode: "board"`, and every rule
+above holds there unchanged.
 
-- `dueAt` — a calendar day, `"YYYY-MM-DD"` (`"2026-10-31"`), not a timestamp:
-  "due on the 31st" must not depend on whose clock reads it. Anything else —
-  a date-time, `"10/31/2026"`, `"2026-02-30"` — is a `400` saying the shape to
-  send. `null` (or `""`) clears it.
-- `priority` — `"p1"` (most urgent), `"p2"`, `"p3"`, or `null` for none;
-  matched case-insensitively. Anything else is a `400`.
+- **Its items are to-dos**, `kind: "todo"`, holding `todo`, `deferred`,
+  `complete` or `cancelled`. A create on a to-do project is a to-do unless it
+  says `kind: "document"` (documents live on either). The whose-move statuses,
+  options, QA and `blocked` are a board's: `kind: "issue"` or a status like
+  `needs-decision` on a to-do project is a `400`, and `kind: "todo"` on a
+  board is a `400`.
+- **A message never moves a to-do.** Nobody asked anybody anything, so a
+  person's note does not make it `received` and an agent's reply claims
+  nothing. A message with an explicit `status` still moves it, within the set.
+- **`dueAt` and `priority` exist on to-dos only.** `dueAt` is a calendar day,
+  `"YYYY-MM-DD"` (`"2026-10-31"`), never a timestamp; anything else — a
+  date-time, `"10/31/2026"`, `"2026-02-30"` — is a `400` naming the shape.
+  `priority` is `"p1"` (most urgent), `"p2"`, `"p3"`, any case. `null` or `""`
+  clears; left out keeps. On a board item either field is a `400` saying they
+  belong to to-do projects; board items carry neither field at all.
+- **Dates never move a status.** The page highlights an open to-do by due band
+  against the viewer's today — overdue, within 3, 7 and 30 days — and
+  `groupBy`/`sortBy` take `due` and `priority` on a to-do project (a board
+  refuses them). Bands are computed on the page, never stored.
+- **The mode changes only while the project holds no work.** Once it holds an
+  issue or a to-do, a switch is a `409` with `conflict: "mode"`: items are
+  never converted, because a `received` decision has no to-do equivalent and a
+  to-do has no whose-move answer. Start a new project instead. Leaving to-do
+  mode puts a `due`/`priority` layout back to the defaults.
 
-Neither touches status or any rule above: a due date passing does not move
-an item, and a status change leaves both alone. Left out of a write, they keep
-their value. The board highlights a live item's due date
-by band relative to the viewer's today — overdue, within 3, 7 and 30 days —
-and `groupBy: "due"` / `"priority"` split Open into those bands or P1/P2/P3
-the way `move` splits it by whose move (below Open nothing changes). The bands
-are computed on the page and never stored. Set these when the person gives a
-deadline or a priority; do not invent one, and do not change one they set
-without saying so in the thread (v18).
+Set a date or priority only when the person gave one; an invented deadline
+reads exactly like a real one. To-dos are theirs: do not file your own work as
+to-dos to get it off a board — that is what the board's statuses are for (v18).
 
 ### Payload
 

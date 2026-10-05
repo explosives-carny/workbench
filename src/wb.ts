@@ -186,15 +186,16 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb claim <id|ref> [<text>]               set in-progress with your name and say what you are about to do
   wb status <id|ref> <status>              change the status (reads the version, retries once on 409)
   wb block <id|ref> <what it waits on>     set status blocked and blockedBy (reads the version, retries once on 409)
-  wb due <id|ref> <YYYY-MM-DD|none>        set or clear the due date (status is untouched)
-  wb priority <id|ref> <p1|p2|p3|none>     set or clear the priority, p1 most urgent (status is untouched)
+  wb due <id|ref> <YYYY-MM-DD|none>        to-dos only: set or clear the due date (status is untouched)
+  wb priority <id|ref> <p1|p2|p3|none>     to-dos only: set or clear the priority, p1 most urgent
   wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
   wb export [dir]                          write one JSON per project to the content directory
   wb archive <slug>                        archive a project (its colour frees for reuse)
   wb restore <slug>                        restore an archived project (reclaims its colour if still free)
   wb project <slug> [flags]                print the project, or set any subset of:
-                                              --group section|status|move|due|priority
-                                              --sort activity|ref|due|priority
+                                              --mode board|todo   (todo: a to-do list; only while it holds no work)
+                                              --group section|status|move   --sort activity|ref
+                                              (to-do projects also: --group due|priority  --sort due|priority)
                                               --color '#rrggbb'             --name <name>
                                               --description <text>         --key <KEY>
                                               --section-mode adhoc|declared --sections a,b,c
@@ -409,7 +410,7 @@ async function main() {
   // than silently ignored — a typo'd flag name here used to mean "nothing
   // happened, no error", the same failure `ignored` on the HTTP response
   // exists to catch.
-  const PROJECT_FLAGS = new Set(['group', 'sort', 'color', 'name', 'description', 'key', 'section-mode', 'sections', 'repos', 'json', 'actor']);
+  const PROJECT_FLAGS = new Set(['group', 'sort', 'mode', 'color', 'name', 'description', 'key', 'section-mode', 'sections', 'repos', 'json', 'actor']);
   if (cmd === 'project') {
     const slug = args[0] || fail('usage: wb project <slug> [flags] (wb help for the flag list)');
     for (const k of Object.keys(flags)) {
@@ -421,6 +422,7 @@ async function main() {
     const patch: Record<string, unknown> = {};
     if (typeof flags.group === 'string') patch.groupBy = flags.group;
     if (typeof flags.sort === 'string') patch.sortBy = flags.sort;
+    if (typeof flags.mode === 'string') patch.mode = flags.mode;
     if (typeof flags.color === 'string') patch.color = flags.color;
     if (typeof flags.name === 'string') patch.name = flags.name;
     if (typeof flags.description === 'string') patch.description = flags.description;
@@ -443,7 +445,7 @@ async function main() {
       `${p.slug}  ${p.name}`,
       p.key ? `key: ${p.key}` : null,
       p.description ? `description: ${p.description}` : null,
-      `groupBy: ${p.groupBy}  sortBy: ${p.sortBy}  sectionMode: ${p.sectionMode}  colour: ${p.color}`,
+      `mode: ${p.mode}  groupBy: ${p.groupBy}  sortBy: ${p.sortBy}  sectionMode: ${p.sectionMode}  colour: ${p.color}`,
       p.sections?.length ? `sections: ${p.sections.join(', ')}` : null,
       p.repos?.length ? `repos: ${p.repos.join(', ')}` : null,
       `archivedAt: ${p.archivedAt || '-'}  lastActivityAt: ${p.lastActivityAt}`,

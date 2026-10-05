@@ -12,6 +12,8 @@ window.WB = (function () {
     // another item, a merge. It WILL be done — unlike deferred, which is
     // parked on purpose and may never come back.
     'blocked': 'Blocked',
+    // A to-do's open state, on a to-do project only (contract v18).
+    todo: 'To do',
     'deferred': 'Deferred',
     active: 'Active',
     archived: 'Archived',
@@ -23,13 +25,17 @@ window.WB = (function () {
   // Not tasks. A document is either the current reference or it has been
   // superseded; it is never waiting on anybody and never finished.
   const DOCUMENT_STATUSES = ['active', 'archived'];
-  const ISSUE_STATUSES = Object.keys(STATUS_LABELS).filter((s) => DOCUMENT_STATUSES.indexOf(s) === -1);
+  // A to-do's set: its own open state plus the parked and finished ones it
+  // shares with an issue. Mirrors TODO_STATUSES in src/db.ts.
+  const TODO_STATUSES = ['todo', 'deferred', 'complete', 'cancelled'];
+  const ISSUE_STATUSES = Object.keys(STATUS_LABELS).filter((s) => DOCUMENT_STATUSES.indexOf(s) === -1 && s !== 'todo');
 
-  // The statuses an item may hold, by what it IS. The two sets do not overlap:
-  // offering all seven let a specification be set to "Received", which is the
-  // exact confusion the split exists to prevent.
+  // The statuses an item may hold, by what it IS. Issue and document do not
+  // overlap: offering all seven let a specification be set to "Received",
+  // which is the exact confusion the split exists to prevent. A to-do never
+  // offers the whose-move states either.
   function statusesFor(kind) {
-    return kind === 'document' ? DOCUMENT_STATUSES : ISSUE_STATUSES;
+    return kind === 'document' ? DOCUMENT_STATUSES : kind === 'todo' ? TODO_STATUSES : ISSUE_STATUSES;
   }
 
   // Statuses that mean the human owes something. The index card counts these
@@ -232,10 +238,10 @@ window.WB = (function () {
   // local day, never through Date.parse — which treats a bare date as UTC
   // midnight and shows "due yesterday" to anybody west of Greenwich.
 
-  // Only live work is highlighted. A finished item that was due last week is
-  // not overdue, and a board that shouts about done work stops being read.
-  // Mirrors the Open group (STATUS_GROUPS in src/db.ts).
-  const LIVE_STATUSES = ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked'];
+  // Only an open to-do is highlighted. Due dates exist on to-dos alone; a
+  // deferred, finished or cancelled one that was due last week is not
+  // overdue, and a list that shouts about done work stops being read.
+  const DUE_BANDED_STATUSES = ['todo'];
 
   // The bands, nearest first. `max` is the last day-count (from today) a band
   // holds: overdue is anything before today, then within 3, 7 and 30 days.
@@ -310,7 +316,7 @@ window.WB = (function () {
   // A settled item (anything not live) shows its date plainly, unhighlighted.
   function dueChip(item, today) {
     if (!item || !item.dueAt) return null;
-    const live = LIVE_STATUSES.indexOf(item.status) !== -1;
+    const live = DUE_BANDED_STATUSES.indexOf(item.status) !== -1;
     const band = live ? dueBand(item.dueAt, today) : 'settled';
     const chip = document.createElement('span');
     chip.className = 'due mono b-' + band;
@@ -383,7 +389,8 @@ window.WB = (function () {
   }
 
   return {
-    LIVE_STATUSES,
+    DUE_BANDED_STATUSES,
+    TODO_STATUSES,
     DUE_BANDS,
     PRIORITIES,
     PRIORITY_LABELS,

@@ -11,7 +11,7 @@ import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
   ProjectKeyTaken, PROJECT_COLORS,
   isStatusAllowed, statusesFor, KINDS, defaultStatusFor, normaliseRecommended, CHECK_OWNERS,
-  isDueDate, normalisePriority, PRIORITIES,
+  isDueDate, normalisePriority, PRIORITIES, kindFor, PROJECT_MODES, TODO_STATUSES,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
 import { join } from 'path';
@@ -316,6 +316,41 @@ function archivedProjectWarning(project: { name: string; archivedAt: string | nu
   return `project "${project.name}" is archived — the write landed, but this project is kept as a record, not actively worked`;
 }
 
+// To-do projects (contract v18). A project with mode "todo" holds to-dos and
+// documents; every other project is a board and holds issues and documents,
+// exactly as before. Due dates and priorities exist on to-dos only, so a board
+// item can never grow a deadline field that would compete with the whose-move
+// status as the thing that says what needs doing. Refused rather than
+// dropped: a deadline the writer thinks they set and the board silently
+// discarded is the worst outcome a deadline field can have.
+function todoPolicy(
+  project: Project,
+  resultingKind: Kind,
+  asked: { kind?: Kind; status?: Status; dueAt?: string | null; priority?: string | null }
+): string | undefined {
+  const where = `"${project.slug}"`;
+  if (project.mode !== 'todo' && asked.kind === 'todo') {
+    return `kind "todo" belongs to to-do projects; ${where} is a board. Keep to-dos in their own project: POST /api/projects {"name":"…","mode":"todo"}`;
+  }
+  if (project.mode === 'todo' && asked.kind === 'issue') {
+    return `${where} is a to-do project: it holds to-dos and documents, not decisions or QA. File those on a board project.`;
+  }
+  const dated = (asked.dueAt !== undefined && asked.dueAt !== null) || (asked.priority !== undefined && asked.priority !== null);
+  if (dated && project.mode !== 'todo') {
+    return `dueAt and priority belong to to-do projects; ${where} is a board, where the status says whose move it is. Put a deadline in the context, or keep to-dos in a project created with "mode":"todo".`;
+  }
+  if (dated && resultingKind !== 'todo') {
+    return 'dueAt and priority belong to to-dos, not documents';
+  }
+  if (asked.status !== undefined && resultingKind === 'todo' && !TODO_STATUSES.includes(asked.status)) {
+    return `a to-do holds ${TODO_STATUSES.join(', ')} — "${asked.status}" is a board status, for decisions and work waiting on someone`;
+  }
+  if (asked.status === 'todo' && resultingKind !== 'todo') {
+    return `"todo" is a to-do status; ${where} is a board, where an item holds a whose-move status`;
+  }
+  return undefined;
+}
+
 async function readJson(req: Request): Promise<any> {
   const text = await req.text();
   if (!text.trim()) return {};
@@ -349,9 +384,9 @@ const ROUTES = [
   'GET    /api                                 this',
   'GET    /api/settings · PATCH /api/settings',
   'GET    /api/projects[?archived=1][?repo=<remote-or-path>]  ordered by lastActivityAt DESC, each with color',
-  'POST   /api/projects                        {name, slug?, description?, repos?, key?}',
+  'POST   /api/projects                        {name, slug?, description?, repos?, key?, mode?}   mode: board (default) | todo',
   'GET    /api/projects/<slug>[?status=a,b][?messages=all|last|none]',
-  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|sortBy?|repos?|key?|color?}',
+  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|mode?|sections?|groupBy?|sortBy?|repos?|key?|color?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
   'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
   'GET    /api/projects/<slug>/audit           live items out of spec with the current contract, each with the rule and the fix',
@@ -424,8 +459,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
       if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
         return badRequest(ctx, 'repos must be an array of strings');
       }
+      if (body.mode !== undefined && !(PROJECT_MODES as readonly string[]).includes(body.mode)) {
+        return badRequest(ctx, "mode must be 'board' or 'todo'");
+      }
       ctx.wrote = true;
-      const project = store.createProject({ name: body.name.trim(), slug: body.slug, description: body.description, repos: body.repos, key: body.key });
+      const project = store.createProject({ name: body.name.trim(), slug: body.slug, description: body.description, repos: body.repos, key: body.key, mode: body.mode });
       // createProject is idempotent by slug. A repeat request must not rename
       // public references, so it returns the established project and tells the
       // caller which explicit route can make that intentional change.
@@ -475,7 +513,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (body.key !== undefined && typeof body.key !== 'string') {
           return badRequest(ctx, 'key cannot be removed; set a different key instead');
         }
-        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
+        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.mode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
           if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
             return badRequest(ctx, 'name must be a non-empty string');
           }
@@ -494,16 +532,41 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (body.sortBy !== undefined && !['activity', 'ref', 'due', 'priority'].includes(body.sortBy)) {
             return badRequest(ctx, "sortBy must be 'activity', 'ref', 'due' or 'priority'");
           }
+          if (body.mode !== undefined && !(PROJECT_MODES as readonly string[]).includes(body.mode)) {
+            return badRequest(ctx, "mode must be 'board' or 'todo'");
+          }
+          // Due and priority layouts order to-dos by their dates; a board has
+          // none, so they are refused there rather than showing one big group.
+          const modeAfter = body.mode ?? project.mode;
+          const planLayout = ['due', 'priority'];
+          if (modeAfter !== 'todo' && (planLayout.includes(body.groupBy) || planLayout.includes(body.sortBy))) {
+            return badRequest(ctx, `groupBy and sortBy "due" and "priority" belong to to-do projects; "${project.slug}" is a board`);
+          }
           if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'repos must be an array of strings');
           }
           if (body.color !== undefined && !(PROJECT_COLORS as readonly string[]).includes(body.color)) {
             return badRequest(ctx, `color must be one of: ${PROJECT_COLORS.join(', ')}`);
           }
+          // Mode before anything else, so a refused switch leaves the whole
+          // request unapplied. Refused once the project holds work; see
+          // Store.setProjectMode for why it never converts items.
+          let updated = project;
+          if (body.mode !== undefined && body.mode !== project.mode) {
+            const switched = store.setProjectMode(project.slug, body.mode);
+            if (switched.blocking) {
+              return json(ctx, {
+                ok: false,
+                conflict: 'mode',
+                error: `"${project.slug}" holds ${switched.blocking} ${project.mode === 'todo' ? 'to-do(s)' : 'decision(s) or work item(s)'}, so its mode cannot change: items are never converted between a board and a to-do list. Create a new project with the mode you want.`,
+              }, 409);
+            }
+            ctx.wrote = true;
+            updated = switched.project!;
+          }
           ctx.wrote = true;
           // Key first: the rest of this request may rename project metadata,
           // but a rejected public-reference change must leave it all untouched.
-          let updated = project;
           let warning: string | undefined;
           if (typeof body.key === 'string') {
             const changed = store.setProjectKey(updated.slug, body.key)!;
@@ -518,7 +581,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           }
           return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id), ...(warning ? { warning } : {}) });
         }
-        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, sortBy, repos, color');
+        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, mode, sections, groupBy, sortBy, repos, color');
       }
       return badRequest(ctx, `${method} not supported here`);
     }
@@ -601,10 +664,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (archivedWarn) warnings.push(archivedWarn);
         for (const input of parsed) {
           const named = (text: string) => (parsed.length > 1 ? `"${input.title}": ${text}` : text);
+          const misplaced = todoPolicy(project, kindFor(project.mode, input.kind), input);
+          if (misplaced) return badRequest(ctx, named(misplaced));
           // A retry of something already filed returns the existing item
           // untouched, so the rule is not applied to it a second time.
           if (!store.hasClientId(project.id, input.clientId)) {
-            const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
+            const kind: Kind = kindFor(project.mode, input.kind);
             const converted = convertRecommendedSuffix(input);
             if (converted) warnings.push(named(converted));
             const refusal = recommendationRefusal(input.options || [], input.recommended);
@@ -671,7 +736,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           warnings.push(...labelPolicy(store, owner, added));
         }
         // Same arithmetic as the store's updateItem: where the item lands.
-        const kind: Kind = patch.kind === undefined ? item.kind : (patch.kind === 'document' ? 'document' : 'issue');
+        const kind: Kind = patch.kind === undefined ? item.kind : kindFor(owner?.mode ?? 'board', patch.kind);
+        if (owner) {
+          const misplaced = todoPolicy(owner, kind, patch);
+          if (misplaced) return badRequest(ctx, misplaced);
+        }
         const wanted = patch.status ?? item.status;
         const landsAt = isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind);
         // A document turned into an issue lands at needs-decision without
