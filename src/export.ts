@@ -65,6 +65,15 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
         // lose its dates. An export from before modes existed is a board.
         mode: raw.project.mode === 'todo' ? 'todo' : 'board',
       });
+      // createProject returns an existing project of the same slug as it is,
+      // so the file's mode may not be the project's. Converting would turn
+      // to-dos into decisions nobody asked (or decisions into to-dos), so a
+      // mismatch restores nothing into that project and says so.
+      const fileMode = raw.project.mode === 'todo' ? 'todo' : 'board';
+      if (project.mode !== fileMode) {
+        log(`${file}: skipped — the file is a ${fileMode} project but "${project.slug}" here is a ${project.mode} project (mode differs); items are never converted. Import into an empty database, or rename one of them.`);
+        continue;
+      }
       const existing = new Set(store.listItems(project.id, 'none').map((item) => item.title));
       let added = 0;
       for (const item of raw.items || []) {

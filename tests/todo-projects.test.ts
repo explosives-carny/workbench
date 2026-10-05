@@ -359,6 +359,44 @@ describe('storage', () => {
   });
 });
 
+// Review finding 3: import is idempotent by slug, so a to-do list restored
+// into an existing board of the same slug had its to-dos turned into
+// decisions. A mode mismatch now skips that project's items, and says so.
+describe('import into a project of the other mode', () => {
+  async function exported(): Promise<string> {
+    await todo({ dueAt: '2026-10-31', priority: 'p1' });
+    await ask();
+    const dir = mkdtempSync(join(tmpdir(), 'wb-todo-mismatch-'));
+    paths.push(dir);
+    exportAll(store, dir);
+    return dir;
+  }
+
+  test('to-dos are not restored into a board, and the log says why', async () => {
+    const dir = await exported();
+    const target = new Store(openDb(tmpDb('mismatch')));
+    target.createProject({ name: 'List' });                // a board with the same slug
+    const lines: string[] = [];
+    importAll(target, dir, (l) => lines.push(l));
+    const list = target.getProject('list')!;
+    expect(list.mode).toBe('board');
+    expect(target.listItems(list.id)).toHaveLength(0);
+    expect(lines.join('\n')).toMatch(/list\.json: skipped.*mode/);
+    // The other project in the same export still restores.
+    expect(target.listItems(target.getProject('board')!.id)).toHaveLength(1);
+  });
+
+  test('board items are not restored into a to-do list either', async () => {
+    const dir = await exported();
+    const target = new Store(openDb(tmpDb('mismatch2')));
+    target.createProject({ name: 'Board', mode: 'todo' });
+    const lines: string[] = [];
+    importAll(target, dir, (l) => lines.push(l));
+    expect(target.listItems(target.getProject('board')!.id)).toHaveLength(0);
+    expect(lines.join('\n')).toMatch(/board\.json: skipped.*mode/);
+  });
+});
+
 // The page's own helpers, run from public/app.js itself. The file only touches
 // `document` inside functions, so loading it needs nothing but a `window`.
 describe('due bands and ordering on the page (public/app.js)', () => {
