@@ -9,8 +9,9 @@
 // `Request` and read the `Response` in-process.
 import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
-  ProjectKeyTaken, PROJECT_COLORS,
+  ProjectKeyTaken, PROJECT_COLORS, STATUS_GROUPS, MOVE_GROUPS,
   isStatusAllowed, statusesFor, KINDS, defaultStatusFor, normaliseRecommended, CHECK_OWNERS,
+  isDueDate, normalisePriority, PRIORITIES, kindFor, PROJECT_MODES, TODO_STATUSES,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
 import { join } from 'path';
@@ -26,7 +27,7 @@ import {
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '17';
+export const CONTRACT_VERSION = '18';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -110,7 +111,7 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // caller believed the label had landed until the board looked wrong. Refusing
 // would break older writers sending fields since retired; naming the drop is
 // enough for a writer to notice and fix itself.
-const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
+const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'dueAt', 'priority', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
 const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
 const CHECK_FIELDS = new Set(['result', 'note', 'owner', 'actor', 'by', 'session']);
 
@@ -183,6 +184,18 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
   if (Array.isArray(body.checks) && body.checks.some((c: any) => c?.owner !== undefined && c.owner !== '' && !CHECK_OWNERS.includes(c.owner))) {
     throw new Error('check owner must be human or agent');
   }
+  // A due date is a calendar day, and a malformed one is refused rather than
+  // dropped: a deadline the writer believes they set and the board silently
+  // discarded is the worst outcome a deadline field can have. null (or "")
+  // clears it.
+  if (body.dueAt !== undefined && body.dueAt !== null && body.dueAt !== '' && !isDueDate(body.dueAt)) {
+    throw new Error(
+      `dueAt must be a calendar date written YYYY-MM-DD, e.g. "2026-10-31", or null to clear it; got ${JSON.stringify(body.dueAt)}`
+    );
+  }
+  if (body.priority !== undefined && body.priority !== null && body.priority !== '' && !normalisePriority(body.priority)) {
+    throw new Error(`priority must be one of ${PRIORITIES.join(', ')} (p1 is the most urgent), or null to clear it; got ${JSON.stringify(body.priority)}`);
+  }
   if (body.bodyFormat !== undefined && !['text', 'markdown', 'html'].includes(body.bodyFormat)) {
     throw new Error('bodyFormat must be text, markdown or html');
   }
@@ -208,6 +221,9 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     status: asStatus(body.status),
     section: typeof body.section === 'string' ? body.section : undefined,
     blockedBy: typeof body.blockedBy === 'string' ? body.blockedBy : undefined,
+    // Left out → unchanged; null or "" → cleared (validated above).
+    dueAt: body.dueAt === undefined ? undefined : (body.dueAt === null || body.dueAt === '' ? null : body.dueAt),
+    priority: body.priority === undefined ? undefined : (body.priority === null || body.priority === '' ? null : normalisePriority(body.priority)),
     kind: body.kind === undefined ? undefined : body.kind,
     // These were added to the store and forgotten here, so every document
     // imported as an empty one and the API cheerfully reported success. A
@@ -300,6 +316,41 @@ function archivedProjectWarning(project: { name: string; archivedAt: string | nu
   return `project "${project.name}" is archived — the write landed, but this project is kept as a record, not actively worked`;
 }
 
+// To-do projects (contract v18). A project with mode "todo" holds to-dos and
+// documents; every other project is a board and holds issues and documents,
+// exactly as before. Due dates and priorities exist on to-dos only, so a board
+// item can never grow a deadline field that would compete with the whose-move
+// status as the thing that says what needs doing. Refused rather than
+// dropped: a deadline the writer thinks they set and the board silently
+// discarded is the worst outcome a deadline field can have.
+function todoPolicy(
+  project: Project,
+  resultingKind: Kind,
+  asked: { kind?: Kind; status?: Status; dueAt?: string | null; priority?: string | null }
+): string | undefined {
+  const where = `"${project.slug}"`;
+  if (project.mode !== 'todo' && asked.kind === 'todo') {
+    return `kind "todo" belongs to to-do projects; ${where} is a board. Keep to-dos in their own project: POST /api/projects {"name":"…","mode":"todo"}`;
+  }
+  if (project.mode === 'todo' && asked.kind === 'issue') {
+    return `${where} is a to-do project: it holds to-dos and documents, not decisions or QA. File those on a board project.`;
+  }
+  const dated = (asked.dueAt !== undefined && asked.dueAt !== null) || (asked.priority !== undefined && asked.priority !== null);
+  if (dated && project.mode !== 'todo') {
+    return `dueAt and priority belong to to-do projects; ${where} is a board, where the status says whose move it is. Put a deadline in the context, or keep to-dos in a project created with "mode":"todo".`;
+  }
+  if (dated && resultingKind !== 'todo') {
+    return 'dueAt and priority belong to to-dos, not documents';
+  }
+  if (asked.status !== undefined && resultingKind === 'todo' && !TODO_STATUSES.includes(asked.status)) {
+    return `a to-do holds ${TODO_STATUSES.join(', ')} — "${asked.status}" is a board status, for decisions and work waiting on someone`;
+  }
+  if (asked.status === 'todo' && resultingKind !== 'todo') {
+    return `"todo" is a to-do status; ${where} is a board, where an item holds a whose-move status`;
+  }
+  return undefined;
+}
+
 async function readJson(req: Request): Promise<any> {
   const text = await req.text();
   if (!text.trim()) return {};
@@ -333,9 +384,9 @@ const ROUTES = [
   'GET    /api                                 this',
   'GET    /api/settings · PATCH /api/settings',
   'GET    /api/projects[?archived=1][?repo=<remote-or-path>]  ordered by lastActivityAt DESC, each with color',
-  'POST   /api/projects                        {name, slug?, description?, repos?, key?}',
+  'POST   /api/projects                        {name, slug?, description?, repos?, key?, mode?}   mode: board (default) | todo',
   'GET    /api/projects/<slug>[?status=a,b][?messages=all|last|none]',
-  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|sections?|groupBy?|sortBy?|repos?|key?|color?}',
+  'PATCH  /api/projects/<slug>                 {archived?|name?|description?|sectionMode?|mode?|sections?|groupBy?|sortBy?|repos?|key?|color?}',
   'PATCH  /api/projects/<slug>/sections        {from,to,actor}',
   'GET    /api/projects/<slug>/labels          labels in use, with counts (also returned with the board)',
   'GET    /api/projects/<slug>/audit           live items out of spec with the current contract, each with the rule and the fix',
@@ -408,8 +459,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
       if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
         return badRequest(ctx, 'repos must be an array of strings');
       }
+      if (body.mode !== undefined && !(PROJECT_MODES as readonly string[]).includes(body.mode)) {
+        return badRequest(ctx, "mode must be 'board' or 'todo'");
+      }
       ctx.wrote = true;
-      const project = store.createProject({ name: body.name.trim(), slug: body.slug, description: body.description, repos: body.repos, key: body.key });
+      const project = store.createProject({ name: body.name.trim(), slug: body.slug, description: body.description, repos: body.repos, key: body.key, mode: body.mode });
       // createProject is idempotent by slug. A repeat request must not rename
       // public references, so it returns the established project and tells the
       // caller which explicit route can make that intentional change.
@@ -459,7 +513,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (body.key !== undefined && typeof body.key !== 'string') {
           return badRequest(ctx, 'key cannot be removed; set a different key instead');
         }
-        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
+        if (typeof body.archived === 'boolean' || body.key !== undefined || body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.mode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
           if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
             return badRequest(ctx, 'name must be a non-empty string');
           }
@@ -472,11 +526,21 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (body.sections !== undefined && (!Array.isArray(body.sections) || body.sections.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'sections must be an array of strings');
           }
-          if (body.groupBy !== undefined && !['section', 'status', 'move'].includes(body.groupBy)) {
-            return badRequest(ctx, "groupBy must be 'section', 'status' or 'move'");
+          if (body.groupBy !== undefined && !['section', 'status', 'move', 'due', 'priority'].includes(body.groupBy)) {
+            return badRequest(ctx, "groupBy must be 'section', 'status', 'move', 'due' or 'priority'");
           }
-          if (body.sortBy !== undefined && !['activity', 'ref'].includes(body.sortBy)) {
-            return badRequest(ctx, "sortBy must be 'activity' or 'ref'");
+          if (body.sortBy !== undefined && !['activity', 'ref', 'due', 'priority'].includes(body.sortBy)) {
+            return badRequest(ctx, "sortBy must be 'activity', 'ref', 'due' or 'priority'");
+          }
+          if (body.mode !== undefined && !(PROJECT_MODES as readonly string[]).includes(body.mode)) {
+            return badRequest(ctx, "mode must be 'board' or 'todo'");
+          }
+          // Due and priority layouts order to-dos by their dates; a board has
+          // none, so they are refused there rather than showing one big group.
+          const modeAfter = body.mode ?? project.mode;
+          const planLayout = ['due', 'priority'];
+          if (modeAfter !== 'todo' && (planLayout.includes(body.groupBy) || planLayout.includes(body.sortBy))) {
+            return badRequest(ctx, `groupBy and sortBy "due" and "priority" belong to to-do projects; "${project.slug}" is a board`);
           }
           if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'repos must be an array of strings');
@@ -484,25 +548,45 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (body.color !== undefined && !(PROJECT_COLORS as readonly string[]).includes(body.color)) {
             return badRequest(ctx, `color must be one of: ${PROJECT_COLORS.join(', ')}`);
           }
+          // All or nothing: every write below runs in one transaction, so a
+          // refusal anywhere (the mode once the project holds work, a key
+          // another project holds) leaves the whole request unapplied. Review
+          // found the mode switching and then surviving a refused key.
           ctx.wrote = true;
-          // Key first: the rest of this request may rename project metadata,
-          // but a rejected public-reference change must leave it all untouched.
-          let updated = project;
-          let warning: string | undefined;
-          if (typeof body.key === 'string') {
-            const changed = store.setProjectKey(updated.slug, body.key)!;
-            updated = changed.project;
-            if (changed.changed && changed.previousKey) {
-              warning = `refs quoted as WB-${changed.previousKey}-<n> keep resolving here, but this project now displays WB-${updated.key}-<n>`;
+          const outcome = store.atomically(() => {
+            let updated = project;
+            if (body.mode !== undefined && body.mode !== project.mode) {
+              // Refused once the project holds work; see Store.setProjectMode
+              // for why it never converts items.
+              const switched = store.setProjectMode(project.slug, body.mode);
+              if (switched.blocking) return { blocking: switched.blocking };
+              updated = switched.project!;
             }
+            let warning: string | undefined;
+            if (typeof body.key === 'string') {
+              const changed = store.setProjectKey(updated.slug, body.key)!;
+              updated = changed.project;
+              if (changed.changed && changed.previousKey) {
+                warning = `refs quoted as WB-${changed.previousKey}-<n> keep resolving here, but this project now displays WB-${updated.key}-<n>`;
+              }
+            }
+            if (typeof body.archived === 'boolean') updated = store.archiveProject(updated.slug, body.archived)!;
+            if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
+              updated = store.setProjectSections(updated.slug, body)!;
+            }
+            return { updated, warning };
+          });
+          if ('blocking' in outcome) {
+            return json(ctx, {
+              ok: false,
+              conflict: 'mode',
+              error: `"${project.slug}" holds ${outcome.blocking} ${project.mode === 'todo' ? 'to-do(s)' : 'decision(s) or work item(s)'}, so its mode cannot change: items are never converted between a board and a to-do list. Create a new project with the mode you want.`,
+            }, 409);
           }
-          if (typeof body.archived === 'boolean') updated = store.archiveProject(updated.slug, body.archived)!;
-          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
-            updated = store.setProjectSections(updated.slug, body)!;
-          }
+          const { updated, warning } = outcome;
           return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id), ...(warning ? { warning } : {}) });
         }
-        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, sections, groupBy, sortBy, repos, color');
+        return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, mode, sections, groupBy, sortBy, repos, color');
       }
       return badRequest(ctx, `${method} not supported here`);
     }
@@ -585,10 +669,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (archivedWarn) warnings.push(archivedWarn);
         for (const input of parsed) {
           const named = (text: string) => (parsed.length > 1 ? `"${input.title}": ${text}` : text);
+          const misplaced = todoPolicy(project, kindFor(project.mode, input.kind), input);
+          if (misplaced) return badRequest(ctx, named(misplaced));
           // A retry of something already filed returns the existing item
           // untouched, so the rule is not applied to it a second time.
           if (!store.hasClientId(project.id, input.clientId)) {
-            const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
+            const kind: Kind = kindFor(project.mode, input.kind);
             const converted = convertRecommendedSuffix(input);
             if (converted) warnings.push(named(converted));
             const refusal = recommendationRefusal(input.options || [], input.recommended);
@@ -655,7 +741,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           warnings.push(...labelPolicy(store, owner, added));
         }
         // Same arithmetic as the store's updateItem: where the item lands.
-        const kind: Kind = patch.kind === undefined ? item.kind : (patch.kind === 'document' ? 'document' : 'issue');
+        const kind: Kind = patch.kind === undefined ? item.kind : kindFor(owner?.mode ?? 'board', patch.kind);
+        if (owner) {
+          const misplaced = todoPolicy(owner, kind, patch);
+          if (misplaced) return badRequest(ctx, misplaced);
+        }
         const wanted = patch.status ?? item.status;
         const landsAt = isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind);
         // A document turned into an issue lands at needs-decision without
@@ -798,6 +888,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           finishedWithoutStatus(who, body.text, status, after.status),
           archivedProjectWarning(owner),
           reopensWithout ? `this decision has options and no recommended — PATCH /api/items/${item.id} {"recommended":["<one of the options>"]}` : undefined,
+          // The message lands (it never conflicts), but a status this kind of
+          // item cannot hold is not applied. Said rather than dropped, naming
+          // the set it can hold, the same set PATCH refuses with a 400.
+          status !== undefined && !isStatusAllowed(item.kind, status)
+            ? `the message landed but "${status}" was not applied: a ${item.kind === 'todo' ? 'to-do' : item.kind} holds ${statusesFor(item.kind).join(', ')}, so it stays "${after.status}"`
+            : undefined,
         ].filter(Boolean) as string[];
         return json(ctx, withIgnored({ ok: true, message, item: after, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignoredKeys(body, MESSAGE_FIELDS)), 201);
       }
@@ -839,6 +935,13 @@ export function createHandler(store: Store, opts: HandlerOptions): (req: Request
     // update, and the footer link pointed at a page that did not exist at all.
     if (url.pathname === '/agents.html') {
       return new Response(Bun.file(join(opts.publicDir, 'agents.html')));
+    }
+    // The board's group tables, built from the server's own, so the page never
+    // keeps a second copy to forget to update.
+    if (url.pathname === '/groups.js') {
+      return new Response(`window.WB_GROUPS = ${JSON.stringify({ status: STATUS_GROUPS, move: MOVE_GROUPS })};\n`, {
+        headers: { 'content-type': 'text/javascript; charset=utf-8' },
+      });
     }
     if (url.pathname === '/api-doc') {
       return new Response(Bun.file(opts.agentsMdPath), { headers: { 'content-type': 'text/plain; charset=utf-8' } });

@@ -14,7 +14,8 @@ If yes, it goes on the board. If it is a note to yourself, it belongs in your
 own working notes. If it is a fact about the code, it belongs in the code.
 
 The board is not a task tracker and not a log. It is the place where work waits
-on a person.
+on a person. (One exception, by opt-in only: a project created as a to-do list.
+See *A to-do list, if a person asks for one* below.)
 
 ## How to segment projects
 
@@ -76,6 +77,27 @@ Order inside a group is separate: `{"sortBy":"ref"}` orders every group by
 reference number ascending, so the list reads top to bottom and does not
 reshuffle as you reply down it. The default `activity` puts newest first, which
 is what you want while a board is a feed rather than a queue.
+
+### A to-do list, if a person asks for one
+
+This is an exception to "not a task tracker", and it is deliberately narrow. A
+person who keeps their decisions here asked to keep their own to-dos in the
+same place, rather than in a second tool they have to remember to open. So a
+project can be created with `"mode":"todo"`, and only that project behaves
+like a to-do list: its items are to-dos (`todo`, `deferred`, `complete`,
+`cancelled`), they can carry a due date (`"2026-10-31"`, a day, never a time)
+and a priority (`p1`-`p3`), and the page highlights what is overdue or due
+within 3, 7 or 30 days and can group or order by either.
+
+Nothing about any other project changes. A board keeps whose-move statuses,
+refuses due dates and priorities, and never shows a to-do control. The rules
+that keep a board honest — status is whose move it is, a reply is input, a
+finishing reply carries a status — are not loosened to make room; a to-do list
+simply does not use them, because nothing on it is waiting for anybody.
+
+Do not reach for it to park agent work: a to-do is the person's own task. If it
+is waiting on them, it is a decision or QA on a board. A project switches mode
+only while it holds no work, so the choice is made once, at the start.
 
 ### Sections, if you want the board grouped by area of work instead
 

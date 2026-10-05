@@ -68,7 +68,11 @@ import { dirname } from 'path';
 // existed, blocked work went to `deferred` for lack of anywhere better, and
 // read exactly like abandoned work, because `deferred` says "parked", not
 // "waiting". See `blockedBy` on Item for what it is waiting on.
-export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'deferred', 'active', 'archived', 'complete', 'cancelled'] as const;
+// `todo` (contract v18) exists only on a to-do — an item in a project that
+// opted in with `mode: "todo"`. It is not one more point on the whose-move
+// scale and never means "waiting on the human": a to-do is the person's own
+// task, kept beside their decisions, and nobody else is asked to act on it.
+export const STATUSES = ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'todo', 'deferred', 'active', 'archived', 'complete', 'cancelled'] as const;
 export type Status = (typeof STATUSES)[number];
 
 // Display labels. Short on purpose: these sit in a chip, a filter button and a
@@ -81,6 +85,7 @@ export const STATUS_LABELS: Record<Status, string> = {
   received: 'Received',
   'in-progress': 'Working',
   'blocked': 'Blocked',
+  todo: 'To do',
   'deferred': 'Deferred',
   active: 'Active',
   archived: 'Archived',
@@ -97,14 +102,23 @@ export const STATUS_LABELS: Record<Status, string> = {
  */
 export const DOCUMENT_STATUSES: Status[] = ['active', 'archived'];
 
-/** The six a task moves through. The complement of DOCUMENT_STATUSES. */
-export const ISSUE_STATUSES: Status[] = STATUSES.filter((s) => !DOCUMENT_STATUSES.includes(s));
+/**
+ * The statuses a to-do carries. Shares parked and finished with an issue —
+ * they mean the same thing on either — and has `todo` where an issue has the
+ * whose-move states, because a to-do is nobody's move but its owner's.
+ */
+export const TODO_STATUSES: Status[] = ['todo', 'deferred', 'complete', 'cancelled'];
+
+/** What a task moves through: everything but the document pair and `todo`. */
+export const ISSUE_STATUSES: Status[] = STATUSES.filter((s) => !DOCUMENT_STATUSES.includes(s) && s !== 'todo');
 
 /**
  * What an item IS, which decides which statuses it may hold.
  *
  *   issue    — something to decide or do: the five task states
  *   document — something to read or work through: active or archived
+ *   todo     — the person's own task, on a project with `mode: "todo"` only:
+ *              todo, deferred, complete or cancelled (contract v18)
  *
  * Stored rather than inferred. It was briefly inferred from whether the item
  * carried a body, which is wrong in both directions: a decision can arrive with
@@ -112,12 +126,12 @@ export const ISSUE_STATUSES: Status[] = STATUSES.filter((s) => !DOCUMENT_STATUSE
  * Getting it wrong lets a specification be set to "Received", which is the
  * exact confusion the two status sets exist to prevent.
  */
-export type Kind = 'issue' | 'document';
-export const KINDS = ['issue', 'document'] as const;
+export type Kind = 'issue' | 'document' | 'todo';
+export const KINDS = ['issue', 'document', 'todo'] as const;
 
 /** The statuses this kind of item is allowed to hold. */
 export function statusesFor(kind: Kind): Status[] {
-  return kind === 'document' ? DOCUMENT_STATUSES : ISSUE_STATUSES;
+  return kind === 'document' ? DOCUMENT_STATUSES : kind === 'todo' ? TODO_STATUSES : ISSUE_STATUSES;
 }
 
 export function isStatusAllowed(kind: Kind, status: Status): boolean {
@@ -126,7 +140,29 @@ export function isStatusAllowed(kind: Kind, status: Status): boolean {
 
 /** The status a kind falls back to when it has none, or an incompatible one. */
 export function defaultStatusFor(kind: Kind): Status {
-  return kind === 'document' ? 'active' : 'needs-decision';
+  return kind === 'document' ? 'active' : kind === 'todo' ? 'todo' : 'needs-decision';
+}
+
+/**
+ * What a project holds, which decides the kinds its items may be.
+ *
+ *   board — the default and the whole contract: decisions, QA and work, by
+ *           whose move it is, plus documents
+ *   todo  — a to-do list: to-dos (with optional due date and priority) and
+ *           documents. Opt-in, and an exception to "the board is not a task
+ *           tracker", scoped to the projects that ask for it
+ *
+ * Named beside `sectionMode` because it is the same sort of thing: a
+ * per-project switch for what the board enforces. `kind` was the other
+ * candidate and is deliberately not used — it already means an item's kind.
+ */
+export type ProjectMode = 'board' | 'todo';
+export const PROJECT_MODES = ['board', 'todo'] as const;
+
+/** The kind an item lands as in a project of this mode, given what was asked for. */
+export function kindFor(mode: ProjectMode, asked: unknown): Kind {
+  if (asked === 'document') return 'document';
+  return mode === 'todo' ? 'todo' : 'issue';
 }
 
 /**
@@ -151,7 +187,7 @@ export function asStatusValue(value: unknown): Status | null {
 
 export type SectionMode = 'adhoc' | 'declared';
 
-export type GroupBy = 'section' | 'status' | 'move';
+export type GroupBy = 'section' | 'status' | 'move' | 'due' | 'priority';
 
 /**
  * How rows are ordered inside whichever group they land in.
@@ -164,8 +200,54 @@ export type GroupBy = 'section' | 'status' | 'move';
  * are still thinking about. `ref` is for reading a group as a list you work
  * top to bottom: the order never changes under you as you reply, which is what
  * you want when a group is a queue rather than a feed.
+ *
+ *   due      — earliest due date first; items with no due date last
+ *   priority — p1, then p2, then p3, then none; ties broken by due date
+ *
+ * The last two exist for a board used as a to-do list, where "what is due
+ * next" or "what matters most" is the order you work in. Ties inside either
+ * fall back to activity, so two undated items still read newest first.
  */
-export type SortBy = 'activity' | 'ref';
+export type SortBy = 'activity' | 'ref' | 'due' | 'priority';
+
+/**
+ * An item's priority: p1 is the most urgent. Three levels and "none" (null),
+ * deliberately few — a scale with more steps than people can tell apart gets
+ * every item filed in its middle.
+ */
+export const PRIORITIES = ['p1', 'p2', 'p3'] as const;
+export type Priority = typeof PRIORITIES[number];
+
+// A calendar date with no time and no zone: the day something is due, not an
+// instant. A timestamp would make "due on the 31st" depend on whose clock read
+// it, and a person setting a deadline means a day.
+const DUE_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** True for a real calendar day written YYYY-MM-DD (2026-02-30 is not one). */
+export function isDueDate(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const m = value.match(DUE_DATE);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const at = new Date(Date.UTC(y, mo - 1, d));
+  return at.getUTCFullYear() === y && at.getUTCMonth() === mo - 1 && at.getUTCDate() === d;
+}
+
+/**
+ * A stored or imported due date, or null. The API refuses a bad one with a 400
+ * before it gets here; this is the store's own guard, for an import or a
+ * hand-edited row, where a bad date is dropped rather than losing the item.
+ */
+export function normaliseDueAt(value: unknown): string | null {
+  return isDueDate(value) ? value : null;
+}
+
+/** A priority from any writer (case-insensitive), or null. */
+export function normalisePriority(value: unknown): Priority | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().toLowerCase();
+  return (PRIORITIES as readonly string[]).includes(v) ? (v as Priority) : null;
+}
 
 /**
  * Twelve distinct hues a project's colour is drawn from — a fixed, closed
@@ -212,7 +294,9 @@ export type ProjectColor = typeof PROJECT_COLORS[number];
 export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] = [
   // Blocked is open work: it will be done, so it sits with the rest of Open and
   // its status chip and Blocked by line say what it waits on.
-  { id: 'open', label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked'] },
+  // `todo` is open too; it only ever appears on a to-do project, where it is
+  // the whole of Open.
+  { id: 'open', label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'todo'] },
   { id: 'deferred', label: 'Deferred', statuses: ['deferred'] },
   // Documents sit above Archived and below the work, because a current
   // reference is something you reach for while working rather than something
@@ -243,7 +327,8 @@ export const STATUS_GROUPS: { id: string; label: string; statuses: Status[] }[] 
  * agent's (Item.qaWaitingOn === 'agent') is shown with the agent's work.
  */
 export const MOVE_GROUPS: { id: string; label: string; statuses: Status[] }[] = [
-  { id: 'yours', label: 'Your move', statuses: ['needs-decision', 'needs-qa'] },
+  // A to-do is its owner's, so on a to-do project it reads as Your move.
+  { id: 'yours', label: 'Your move', statuses: ['needs-decision', 'needs-qa', 'todo'] },
   { id: 'agent', label: 'With your agent', statuses: ['received', 'in-progress'] },
   // Blocked is nobody's until the blocker clears, so it reads last of the live
   // groups rather than as something to act on.
@@ -265,6 +350,8 @@ export type Project = {
   /** The next per-project item sequence number reserved for creation. */
   nextSeq: number;
   sectionMode: SectionMode;
+  /** board (the default) or todo. See ProjectMode. */
+  mode: ProjectMode;
   /** Declared vocabulary. Advisory in adhoc mode, enforced in declared mode. */
   sections: string[];
   /**
@@ -273,6 +360,16 @@ export type Project = {
    *   section — one group per area of work (the original behaviour)
    *   status  — Open, Deferred, Documents, Archived
    *   move    — Open split by whose move it is, then Deferred/Documents/Archived
+   *   due     — to-do projects only: open to-dos split by due date (Overdue,
+   *             within 3 / 7 / 30 days, Later, No due date); then
+   *             Deferred/Documents/Archived
+   *   priority — to-do projects only: P1, P2, P3, No priority; then the same tail
+   *
+   * `due` and `priority` divide only the open to-dos, like `move` divides Open:
+   * a finished to-do that was due last week is not overdue, and filing it under
+   * Overdue would make the board shout about work that is done. The bands are
+   * relative to the viewer's today, so they are computed on the page
+   * (public/app.js, WB.dueBand), never stored.
    *
    * `move` is `status` with its Open group divided the way the contract's own
    * status table already reads: the statuses that are theirs to answer, then
@@ -511,6 +608,15 @@ export type Item = {
    * on", still has the answer. Only an explicit empty string clears it.
    */
   blockedBy: string;
+  /**
+   * The day this is due, YYYY-MM-DD, or null. A calendar date rather than an
+   * instant (see isDueDate). Present on to-dos only (kind "todo"); absent on
+   * every other item. Independent of status: a due date never moves an item,
+   * it only orders and highlights it on the board.
+   */
+  dueAt?: string | null;
+  /** p1 (most urgent), p2, p3, or null for none. Never moves an item either. To-dos only. */
+  priority?: Priority | null;
   position: number;
   version: number;
   updatedBy: string;
@@ -544,6 +650,10 @@ export type ItemInput = {
   section?: string;
   /** See Item.blockedBy. Trimmed and capped at 200 characters on write. */
   blockedBy?: string;
+  /** See Item.dueAt. null clears it; anything that is not a real YYYY-MM-DD day is stored as null. */
+  dueAt?: string | null;
+  /** See Item.priority. null clears it; matched case-insensitively. */
+  priority?: string | null;
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
   checks?: Check[];
@@ -658,6 +768,8 @@ export function openDb(path: string): Database {
       -- one and being forced to guess produces a worse taxonomy than letting one
       -- emerge and tidying it later.
       section_mode TEXT NOT NULL DEFAULT 'adhoc',
+      -- board or todo: what this project holds (contract v18).
+      mode         TEXT NOT NULL DEFAULT 'board',
       sections     TEXT NOT NULL DEFAULT '[]',
       -- What the board groups rows by: 'section' or 'status'. The COLUMN default
       -- is section, deliberately different from the default for a NEW project:
@@ -734,6 +846,10 @@ export function openDb(path: string): Database {
       -- history when the status moves off blocked rather than cleared, so
       -- re-blocking or asking "what was this stuck on" still has the answer.
       blocked_by  TEXT NOT NULL DEFAULT '',
+      -- The day this is due, YYYY-MM-DD, and p1/p2/p3. Both optional (NULL is
+      -- none) and neither touches status: they order and highlight, nothing more.
+      due_at      TEXT,
+      priority    TEXT,
       seq         INTEGER,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -765,6 +881,7 @@ export function openDb(path: string): Database {
   // times must open an old file rather than refuse it.
   const pcols = new Set<string>(db.query('PRAGMA table_info(projects)').all().map((r: any) => r.name));
   if (!pcols.has('section_mode')) db.exec("ALTER TABLE projects ADD COLUMN section_mode TEXT NOT NULL DEFAULT 'adhoc'");
+  if (!pcols.has('mode')) db.exec("ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'board'");
   if (!pcols.has('sections')) db.exec("ALTER TABLE projects ADD COLUMN sections TEXT NOT NULL DEFAULT '[]'");
   if (!pcols.has('group_by')) db.exec("ALTER TABLE projects ADD COLUMN group_by TEXT NOT NULL DEFAULT 'section'");
   if (!pcols.has('repos')) db.exec("ALTER TABLE projects ADD COLUMN repos TEXT NOT NULL DEFAULT '[]'");
@@ -820,6 +937,8 @@ export function openDb(path: string): Database {
   if (!columns.has('labels')) db.exec("ALTER TABLE items ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('blocked_by')) db.exec("ALTER TABLE items ADD COLUMN blocked_by TEXT NOT NULL DEFAULT ''");
   if (!columns.has('recommended')) db.exec("ALTER TABLE items ADD COLUMN recommended TEXT NOT NULL DEFAULT '[]'");
+  if (!columns.has('due_at')) db.exec('ALTER TABLE items ADD COLUMN due_at TEXT');
+  if (!columns.has('priority')) db.exec('ALTER TABLE items ADD COLUMN priority TEXT');
   if (!columns.has('kind')) {
     db.exec("ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'issue'");
     // Backfill: anything carrying long-form content is a document. That is the
@@ -833,7 +952,8 @@ export function openDb(path: string): Database {
   // guard that stops a stored value the UI can no longer produce from sitting
   // there forever after a hand-edit or an older writer.
   db.exec("UPDATE items SET status = 'active' WHERE kind = 'document' AND status NOT IN ('active','archived')");
-  db.exec("UPDATE items SET status = 'needs-decision' WHERE kind = 'issue' AND status IN ('active','archived')");
+  db.exec("UPDATE items SET status = 'needs-decision' WHERE kind = 'issue' AND status IN ('active','archived','todo')");
+  db.exec("UPDATE items SET status = 'todo' WHERE kind = 'todo' AND status NOT IN ('todo','deferred','complete','cancelled')");
   // `needs-you` split into `needs-decision` and `needs-qa`. Every existing row
   // predates the split and therefore predates the distinction, so it becomes
   // `needs-decision` — the meaning it actually had. Nothing is guessed as QA:
@@ -911,14 +1031,15 @@ function rowToProject(r: any): Project {
     oldKeys,
     nextSeq: Number.isSafeInteger(r.next_seq) && r.next_seq > 0 ? r.next_seq : 1,
     sectionMode: (r.section_mode === 'declared' ? 'declared' : 'adhoc') as SectionMode,
+    mode: (r.mode === 'todo' ? 'todo' : 'board') as ProjectMode,
     sections: (() => {
       try {
         const parsed = JSON.parse(r.sections ?? '[]');
         return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
       } catch { return []; }
     })(),
-    groupBy: (r.group_by === 'status' || r.group_by === 'move' ? r.group_by : 'section') as GroupBy,
-    sortBy: (r.sort_by === 'ref' ? 'ref' : 'activity') as SortBy,
+    groupBy: (['status', 'move', 'due', 'priority'].includes(r.group_by) ? r.group_by : 'section') as GroupBy,
+    sortBy: (['ref', 'due', 'priority'].includes(r.sort_by) ? r.sort_by : 'activity') as SortBy,
     repos: (() => {
       try {
         const parsed = JSON.parse(r.repos ?? '[]');
@@ -985,6 +1106,8 @@ function rowToItem(r: any): Item {
     status: r.status as Status,
     section: r.section,
     blockedBy: r.blocked_by ?? '',
+    // Only a to-do carries these; every other item keeps the shape it had.
+    ...(r.kind === 'todo' ? { dueAt: normaliseDueAt(r.due_at), priority: normalisePriority(r.priority) } : {}),
     position: r.position,
     version: r.version ?? 1,
     updatedBy: r.updated_by ?? '',
@@ -992,7 +1115,7 @@ function rowToItem(r: any): Item {
     checks,
     ...qaOf(checks),
     labels: parseLabels(r.labels),
-    kind: (r.kind === 'document' ? 'document' : 'issue') as Kind,
+    kind: (r.kind === 'document' || r.kind === 'todo' ? r.kind : 'issue') as Kind,
     clientId: r.client_id ?? '',
     body: r.body ?? '',
     bodyFormat: (r.body_format ?? 'text') as 'text' | 'markdown' | 'html',
@@ -1142,7 +1265,7 @@ export class Store {
     return null;
   }
 
-  createProject(input: { name: string; slug?: string; description?: string; repos?: string[]; key?: string }): Project {
+  createProject(input: { name: string; slug?: string; description?: string; repos?: string[]; key?: string; mode?: ProjectMode }): Project {
     const slug = slugify(input.slug || input.name);
     const existing = this.getProject(slug);
     // Idempotent by slug. An agent that re-runs its own setup should find its
@@ -1162,6 +1285,7 @@ export class Store {
       oldKeys: [],
       nextSeq: 1,
       sectionMode: 'adhoc',
+      mode: input.mode === 'todo' ? 'todo' : 'board',
       sections: [],
       // The default for anything created from now on. A board exists to answer
       // "what is waiting on me", and status grouping answers it directly, where
@@ -1183,8 +1307,8 @@ export class Store {
       lastActivityAt: createdAt,
     };
     this.db
-      .query('INSERT INTO projects (id, slug, name, description, key, old_keys, next_seq, section_mode, sections, group_by, repos, sort_by, color, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-      .run(project.id, project.slug, project.name, project.description, project.key, JSON.stringify(project.oldKeys), project.nextSeq, project.sectionMode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.sortBy, project.color, project.createdAt);
+      .query('INSERT INTO projects (id, slug, name, description, key, old_keys, next_seq, section_mode, mode, sections, group_by, repos, sort_by, color, created_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+      .run(project.id, project.slug, project.name, project.description, project.key, JSON.stringify(project.oldKeys), project.nextSeq, project.sectionMode, project.mode, JSON.stringify(project.sections), project.groupBy, JSON.stringify(project.repos), project.sortBy, project.color, project.createdAt);
     return project;
   }
 
@@ -1361,7 +1485,12 @@ export class Store {
       // replaced rather than refused: the caller told us what the thing IS, which
       // is the more reliable half of the pair, and refusing the whole create over
       // a status an older writer could not have known about loses the item.
-      const kind: Kind = input.kind === 'document' ? 'document' : 'issue';
+      // The project's mode decides what "an item" is here: a to-do on a
+      // to-do project, an issue anywhere else; a document is a document on
+      // either. The route refuses a kind that does not belong; this is the
+      // store's own guard for an import or a direct caller.
+      const modeRow: any = this.db.query('SELECT mode FROM projects WHERE id = ?').get(projectId);
+      const kind: Kind = kindFor(modeRow?.mode === 'todo' ? 'todo' : 'board', input.kind);
       const status = input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind);
       // A retry returns before reading or advancing next_seq. Keeping this in
       // the same transaction as the insert closes the only sequence race.
@@ -1383,8 +1512,8 @@ export class Store {
       const id = randomUUID();
       this.db
         .query(
-          `INSERT INTO items (id, project_id, title, context, options, recommended, choice, status, section, blocked_by, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO items (id, project_id, title, context, options, recommended, choice, status, section, blocked_by, due_at, priority, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -1397,6 +1526,8 @@ export class Store {
           status,
           input.section || '',
           normaliseBlockedBy(input.blockedBy),
+          kind === 'todo' ? normaliseDueAt(input.dueAt) : null,
+          kind === 'todo' ? normalisePriority(input.priority) : null,
           position,
           input.body || '',
           input.bodyFormat || inferBodyFormat(input.body),
@@ -1434,7 +1565,8 @@ export class Store {
     // legitimate — a decision that turns out to be a specification, or the other
     // way round — but it cannot leave the item holding a status its new kind
     // does not have, so the status follows unless the same patch sets a valid one.
-    const kind: Kind = patch.kind === undefined ? current.kind : (patch.kind === 'document' ? 'document' : 'issue');
+    const modeRow: any = this.db.query('SELECT mode FROM projects WHERE id = ?').get(current.projectId);
+    const kind: Kind = patch.kind === undefined ? current.kind : kindFor(modeRow?.mode === 'todo' ? 'todo' : 'board', patch.kind);
     const wanted = patch.status ?? current.status;
     const status = isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind);
     const options = patch.options ?? current.options;
@@ -1450,6 +1582,11 @@ export class Store {
       kind,
       section: patch.section ?? current.section,
       blockedBy: patch.blockedBy === undefined ? current.blockedBy : normaliseBlockedBy(patch.blockedBy),
+      // Left out keeps what is there; null (or anything the API let through as
+      // "clear") removes it.
+      // To-dos only: an item that is not (or stops being) a to-do holds none.
+      dueAt: kind !== 'todo' ? null : patch.dueAt === undefined ? (current.dueAt ?? null) : normaliseDueAt(patch.dueAt),
+      priority: kind !== 'todo' ? null : patch.priority === undefined ? (current.priority ?? null) : normalisePriority(patch.priority),
       position: patch.position ?? current.position,
       body: patch.body ?? current.body,
       // A new body with no format named, on an item still stored as plain text,
@@ -1463,13 +1600,13 @@ export class Store {
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
-      next.title, next.context, next.options, next.recommended, next.choice, next.status, next.kind, next.section, next.blockedBy, next.position,
+      next.title, next.context, next.options, next.recommended, next.choice, next.status, next.kind, next.section, next.blockedBy, next.dueAt, next.priority, next.position,
       next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', opts.session || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
-        `UPDATE items SET title = ?, context = ?, options = ?, recommended = ?, choice = ?, status = ?, kind = ?, section = ?, blocked_by = ?, position = ?,
+        `UPDATE items SET title = ?, context = ?, options = ?, recommended = ?, choice = ?, status = ?, kind = ?, section = ?, blocked_by = ?, due_at = ?, priority = ?, position = ?,
            body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1
          WHERE id = ?${guard}`
       )
@@ -1694,6 +1831,39 @@ export class Store {
   }
 
   /**
+   * Run `fn` as one transaction: everything it writes lands, or nothing does
+   * if it throws. Nested store transactions inside become savepoints. Used by
+   * a project PATCH, which touches mode, key, archive and layout in turn and
+   * must never leave half of them applied after a refusal.
+   */
+  atomically<T>(fn: () => T): T {
+    return this.db.transaction(fn).immediate();
+  }
+
+  /**
+   * Switch a project between board and to-do mode — only while it holds no
+   * work. Converting a decision into a to-do (or back) would have to invent a
+   * status for it: a `received` decision has no to-do equivalent, and a `todo`
+   * has no whose-move answer. Rewriting somebody's record to guess is worse
+   * than saying no, so the switch is refused once any issue or to-do exists
+   * (documents are fine on either side) and the answer is a new project.
+   *
+   * Leaving to-do mode puts a due or priority layout back to the defaults,
+   * because those layouts mean nothing on a board.
+   */
+  setProjectMode(slug: string, mode: ProjectMode): { project: Project | null; blocking: number } {
+    const project = this.getProject(slug);
+    if (!project) return { project: null, blocking: 0 };
+    if (project.mode === mode) return { project, blocking: 0 };
+    const row: any = this.db.query("SELECT COUNT(*) AS n FROM items WHERE project_id = ? AND kind != 'document'").get(project.id);
+    if (row.n > 0) return { project, blocking: row.n };
+    const groupBy = mode === 'board' && (project.groupBy === 'due' || project.groupBy === 'priority') ? 'status' : project.groupBy;
+    const sortBy = mode === 'board' && (project.sortBy === 'due' || project.sortBy === 'priority') ? 'activity' : project.sortBy;
+    this.db.query('UPDATE projects SET mode = ?, group_by = ?, sort_by = ? WHERE id = ?').run(mode, groupBy, sortBy, project.id);
+    return { project: this.getProject(slug), blocking: 0 };
+  }
+
+  /**
    * Every label in use on this project, commonest first.
    *
    * Read for the same reason `sectionsInUse` is: so a writer reuses a label
@@ -1779,7 +1949,7 @@ export class Store {
   }
 
   counts(projectId: string): Record<Status, number> {
-    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'blocked': 0, 'deferred': 0, active: 0, archived: 0, complete: 0, cancelled: 0 };
+    const out: Record<Status, number> = { 'needs-decision': 0, 'needs-qa': 0, received: 0, 'in-progress': 0, 'blocked': 0, todo: 0, 'deferred': 0, active: 0, archived: 0, complete: 0, cancelled: 0 };
     const rows: any[] = this.db.query('SELECT status, COUNT(*) AS n FROM items WHERE project_id = ? GROUP BY status').all(projectId);
     for (const row of rows) if (row.status in out) out[row.status as Status] = row.n;
     return out;

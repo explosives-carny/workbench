@@ -427,7 +427,8 @@ describe('grouping', () => {
   // between groups every time it changed hands.
   it('puts every live task state under Open', () => {
     const open = STATUS_GROUPS.find((g) => g.id === 'open')!;
-    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked']);
+    // `todo` (v18) is open too, and only ever present on a to-do project.
+    expect(open.statuses).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'todo']);
     expect(STATUS_GROUPS.map((g) => g.label)).toEqual(['Open', 'Deferred', 'Documents', 'Archived']);
     // Every status lands in exactly one group, or a row would vanish from the board.
     const placed = STATUS_GROUPS.flatMap((g) => g.statuses);
@@ -474,24 +475,17 @@ describe('grouping by whose move it is', () => {
   });
 });
 
-// The board is a static page with no build step, so public/project.html mirrors
-// these tables by hand. A mirror nobody checks is the thing that drifts.
-describe('the board page mirrors the grouping tables', () => {
+// The board page used to mirror these tables by hand, and the copy drifted
+// (open to-dos vanished from the default layout). It now loads them from the
+// server; tests/board-render.test.ts renders the page against them.
+describe('the board page takes its grouping tables from the server', () => {
   const page = readFileSync(new URL('../public/project.html', import.meta.url), 'utf8');
 
-  function mirrored(name: string) {
-    const start = page.indexOf('const ' + name + ' = [');
-    expect(start).toBeGreaterThan(-1);
-    const body = page.slice(start, page.indexOf('];', start));
-    return [...body.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
-  }
-
-  it('carries the same status groups, in order', () => {
-    expect(mirrored('STATUS_GROUPS')).toEqual(STATUS_GROUPS.map((g) => g.label));
-  });
-
-  it('carries the same move groups, in order', () => {
-    expect(mirrored('MOVE_GROUPS')).toEqual(MOVE_GROUPS.map((g) => g.label));
+  it('loads /groups.js and keeps no copy of its own', () => {
+    expect(page).toContain('<script src="/groups.js"></script>');
+    expect(page).toContain('WB_GROUPS.status');
+    expect(page).toContain('WB_GROUPS.move');
+    expect(page).not.toMatch(/const (STATUS|MOVE)_GROUPS = \[/);
   });
 });
 
@@ -527,8 +521,8 @@ describe('the status split', () => {
   let store: Store;
   beforeEach(() => { store = freshStore(); });
 
-  it('has ten distinct states', () => {
-    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'deferred', 'active', 'archived', 'complete', 'cancelled']);
+  it('has eleven distinct states', () => {
+    expect([...STATUSES]).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'todo', 'deferred', 'active', 'archived', 'complete', 'cancelled']);
     expect(new Set(STATUSES).size).toBe(STATUSES.length);
   });
 
@@ -594,8 +588,11 @@ describe('kind and status', () => {
   it('splits the statuses with no overlap and no gaps', () => {
     expect(statusesFor('document')).toEqual(['active', 'archived']);
     expect(statusesFor('issue')).toEqual(['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked', 'deferred', 'complete', 'cancelled']);
-    expect([...statusesFor('issue'), ...statusesFor('document')].sort()).toEqual([...STATUSES].sort());
+    // `todo` belongs to a to-do alone (v18); issue and document still split
+    // everything else between them with no overlap.
+    expect([...statusesFor('issue'), ...statusesFor('document'), 'todo'].sort()).toEqual([...STATUSES].sort());
     for (const s of statusesFor('document')) expect(statusesFor('issue')).not.toContain(s);
+    expect(statusesFor('issue')).not.toContain('todo');
   });
 
   it('starts a document Active and an issue needing a decision', () => {

@@ -54,15 +54,23 @@ describe('project settings panel (public/project.html)', () => {
     expect(selectOptionValues(projectHtml, 'sectionMode')).toEqual(allowedByServer('sectionMode'));
   });
 
-  it('has controls for exactly groupBy, sortBy, name, description, key, color, sectionMode, sections, repos, archived', () => {
+  // `mode` (v18): board or to-do list, checked against the server's own list.
+  it('offers the same project modes the server accepts, same order', async () => {
+    const { PROJECT_MODES } = await import('../src/db.ts');
+    expect(selectOptionValues(projectHtml, 'mode')).toEqual([...PROJECT_MODES]);
+  });
+
+  it('has controls for exactly groupBy, sortBy, mode, name, description, key, color, sectionMode, sections, repos, archived', () => {
     expect(panelFields(projectHtml)).toEqual(
-      ['archived', 'color', 'description', 'groupBy', 'key', 'name', 'repos', 'sectionMode', 'sections', 'sortBy'].sort()
+      ['archived', 'color', 'description', 'groupBy', 'key', 'mode', 'name', 'repos', 'sectionMode', 'sections', 'sortBy'].sort()
     );
   });
 
-  it('hides the Add-item Section box for status AND move, not status alone', () => {
+  // Every grouping except section has no section headings (status, move, and
+  // since v18 due and priority), so the box would file into something unseen.
+  it('hides the Add-item Section box for every grouping but section', () => {
     expect(projectHtml).toContain(
-      "document.getElementById('isection').hidden = project.groupBy === 'status' || project.groupBy === 'move';"
+      "document.getElementById('isection').hidden = project.groupBy !== 'section';"
     );
   });
 

@@ -12,6 +12,8 @@ window.WB = (function () {
     // another item, a merge. It WILL be done — unlike deferred, which is
     // parked on purpose and may never come back.
     'blocked': 'Blocked',
+    // A to-do's open state, on a to-do project only (contract v18).
+    todo: 'To do',
     'deferred': 'Deferred',
     active: 'Active',
     archived: 'Archived',
@@ -23,13 +25,17 @@ window.WB = (function () {
   // Not tasks. A document is either the current reference or it has been
   // superseded; it is never waiting on anybody and never finished.
   const DOCUMENT_STATUSES = ['active', 'archived'];
-  const ISSUE_STATUSES = Object.keys(STATUS_LABELS).filter((s) => DOCUMENT_STATUSES.indexOf(s) === -1);
+  // A to-do's set: its own open state plus the parked and finished ones it
+  // shares with an issue. Mirrors TODO_STATUSES in src/db.ts.
+  const TODO_STATUSES = ['todo', 'deferred', 'complete', 'cancelled'];
+  const ISSUE_STATUSES = Object.keys(STATUS_LABELS).filter((s) => DOCUMENT_STATUSES.indexOf(s) === -1 && s !== 'todo');
 
-  // The statuses an item may hold, by what it IS. The two sets do not overlap:
-  // offering all seven let a specification be set to "Received", which is the
-  // exact confusion the split exists to prevent.
+  // The statuses an item may hold, by what it IS. Issue and document do not
+  // overlap: offering all seven let a specification be set to "Received",
+  // which is the exact confusion the split exists to prevent. A to-do never
+  // offers the whose-move states either.
   function statusesFor(kind) {
-    return kind === 'document' ? DOCUMENT_STATUSES : ISSUE_STATUSES;
+    return kind === 'document' ? DOCUMENT_STATUSES : kind === 'todo' ? TODO_STATUSES : ISSUE_STATUSES;
   }
 
   // Statuses that mean the human owes something. The index card counts these
@@ -126,6 +132,17 @@ window.WB = (function () {
       sync();
       picks.appendChild(b);
     }
+  }
+
+  // PATCHes for one key (an item id) go one at a time, in the order asked, so
+  // a slow earlier response can never land after a later one. Different keys
+  // do not wait for each other. A failed save does not block the next.
+  const saveQueues = {};
+  function serialPatch(key, path, body) {
+    const prev = saveQueues[key] || Promise.resolve();
+    const next = prev.catch(() => {}).then(() => req('PATCH', path, body));
+    saveQueues[key] = next;
+    return next;
   }
 
   // Copy `ref` onto the clipboard, with feedback either way. Wrapped so a
@@ -226,7 +243,189 @@ window.WB = (function () {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
+  // ---- Due dates and priority ----
+  //
+  // `dueAt` is a calendar day (YYYY-MM-DD), so it is read as the viewer's own
+  // local day, never through Date.parse — which treats a bare date as UTC
+  // midnight and shows "due yesterday" to anybody west of Greenwich.
+
+  // Only an open to-do is highlighted. Due dates exist on to-dos alone; a
+  // deferred, finished or cancelled one that was due last week is not
+  // overdue, and a list that shouts about done work stops being read.
+  const DUE_BANDED_STATUSES = ['todo'];
+
+  // The bands, nearest first. `max` is the last day-count (from today) a band
+  // holds: overdue is anything before today, then within 3, 7 and 30 days.
+  const DUE_BANDS = [
+    { id: 'overdue', label: 'Overdue', max: -1 },
+    { id: 'd3', label: 'Due within 3 days', max: 3 },
+    { id: 'd7', label: 'Due within 7 days', max: 7 },
+    { id: 'd30', label: 'Due within 30 days', max: 30 },
+    { id: 'later', label: 'Due later', max: Infinity },
+  ];
+
+  const PRIORITIES = ['p1', 'p2', 'p3'];
+  const PRIORITY_LABELS = { p1: 'P1', p2: 'P2', p3: 'P3' };
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  // Today as the viewer's own calendar day. `now` is injectable for tests.
+  function localToday(now) {
+    const d = now || new Date();
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+
+  function dayNumber(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    if (!m) return null;
+    // UTC arithmetic on both sides, so a daylight-saving change between today
+    // and the due date cannot turn 7 days into 6.96.
+    return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86400000;
+  }
+
+  /** Whole days from `today` to `dueAt`: negative when past, 0 on the day. */
+  function daysUntil(dueAt, today) {
+    const due = dayNumber(dueAt);
+    const now = dayNumber(today || localToday());
+    if (due === null || now === null) return null;
+    return Math.round(due - now);
+  }
+
+  /** The band id for a due date (see DUE_BANDS), or null when there is none. */
+  function dueBand(dueAt, today) {
+    const days = daysUntil(dueAt, today);
+    if (days === null) return null;
+    for (const band of DUE_BANDS) if (days <= band.max) return band.id;
+    return 'later';
+  }
+
+  function dueDateLabel(dueAt, long) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueAt || '');
+    if (!m) return '';
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const opts = long
+      ? { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }
+      : { month: 'short', day: 'numeric' };
+    if (!long && d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString(undefined, opts);
+  }
+
+  // The words on the chip carry the band as well as its colour, so the
+  // highlight never depends on colour alone: "Overdue 2d", "Due today",
+  // "Due in 5d", or the date itself once it is more than a month out.
+  function dueText(dueAt, today) {
+    const days = daysUntil(dueAt, today);
+    if (days === null) return '';
+    if (days < 0) return 'Overdue ' + -days + 'd';
+    if (days === 0) return 'Due today';
+    if (days === 1) return 'Due tomorrow';
+    if (days <= 30) return 'Due in ' + days + 'd';
+    return 'Due ' + dueDateLabel(dueAt);
+  }
+
+  // The due chip for a row or a card, or null when the item has no due date.
+  // A settled item (anything not live) shows its date plainly, unhighlighted.
+  function dueChip(item, today) {
+    if (!item || !item.dueAt) return null;
+    const live = DUE_BANDED_STATUSES.indexOf(item.status) !== -1;
+    const band = live ? dueBand(item.dueAt, today) : 'settled';
+    const chip = document.createElement('span');
+    chip.className = 'due mono b-' + band;
+    chip.textContent = live ? dueText(item.dueAt, today) : 'Due ' + dueDateLabel(item.dueAt);
+    chip.title = 'Due ' + dueDateLabel(item.dueAt, true) + ' (' + item.dueAt + ')';
+    return chip;
+  }
+
+  function priorityChip(priority) {
+    if (!PRIORITY_LABELS[priority]) return null;
+    const chip = document.createElement('span');
+    chip.className = 'prio mono p-' + priority;
+    chip.textContent = PRIORITY_LABELS[priority];
+    chip.title = 'Priority ' + PRIORITY_LABELS[priority] + (priority === 'p1' ? ' (most urgent)' : '');
+    return chip;
+  }
+
+  // Row order for sortBy `due` and `priority`. Each returns 0 on a tie so the
+  // caller can fall through to its usual order (activity, newest first).
+  function byDue(a, b) {
+    const da = dayNumber(a.dueAt);
+    const db = dayNumber(b.dueAt);
+    if (da === db) return 0;
+    if (da === null) return 1;
+    if (db === null) return -1;
+    return da - db;
+  }
+  function byPriority(a, b) {
+    const pa = PRIORITIES.indexOf(a.priority);
+    const pb = PRIORITIES.indexOf(b.priority);
+    return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb) || byDue(a, b);
+  }
+
+  // A date field and a priority select for one item, saving each on change.
+  // Shared by the item page and an expanded row so the two cannot drift.
+  // `save` receives the PATCH body ({dueAt} or {priority}); null clears.
+  function planControls(item, save) {
+    const wrap = document.createElement('span');
+    wrap.className = 'planbar';
+
+    const dl = document.createElement('label');
+    dl.className = 'lbl';
+    dl.setAttribute('for', 'due-' + item.id);
+    dl.textContent = 'Due';
+    const date = document.createElement('input');
+    date.type = 'date';
+    date.id = 'due-' + item.id;
+    date.className = 'plan-date';
+    date.value = item.dueAt || '';
+    // Committed when the field is left (or on Enter), and only if the value
+    // moved. Saving on every `change` wrote each valid date a browser passes
+    // through while a year is typed (0002, 0020, 0202, 2026).
+    let committed = item.dueAt || '';
+    const commit = () => {
+      const value = date.value || '';
+      if (value === committed) return;
+      committed = value;
+      save({ dueAt: value || null });
+    };
+    date.addEventListener('blur', commit);
+    date.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(); });
+
+    const pl = document.createElement('label');
+    pl.className = 'lbl';
+    pl.setAttribute('for', 'prio-' + item.id);
+    pl.textContent = 'Priority';
+    const sel = document.createElement('select');
+    sel.id = 'prio-' + item.id;
+    sel.className = 'plan-prio';
+    for (const value of [''].concat(PRIORITIES)) {
+      const o = document.createElement('option');
+      o.value = value;
+      o.textContent = value ? PRIORITY_LABELS[value] : 'None';
+      if ((item.priority || '') === value) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => save({ priority: sel.value || null }));
+
+    wrap.append(dl, date, pl, sel);
+    return wrap;
+  }
+
   return {
+    DUE_BANDED_STATUSES,
+    TODO_STATUSES,
+    DUE_BANDS,
+    PRIORITIES,
+    PRIORITY_LABELS,
+    localToday,
+    daysUntil,
+    dueBand,
+    dueText,
+    dueChip,
+    priorityChip,
+    byDue,
+    byPriority,
+    planControls,
+    serialPatch,
     STATUS_LABELS,
     WAITING_ON_YOU,
     QA_LABELS,

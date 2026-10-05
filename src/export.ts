@@ -60,7 +60,20 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
         description: raw.project.description,
         repos: raw.project.repos,
         key: raw.project.key ?? undefined,
+        // Before the items, because the mode decides what kind each item
+        // lands as: a to-do restored into a board would become an issue and
+        // lose its dates. An export from before modes existed is a board.
+        mode: raw.project.mode === 'todo' ? 'todo' : 'board',
       });
+      // createProject returns an existing project of the same slug as it is,
+      // so the file's mode may not be the project's. Converting would turn
+      // to-dos into decisions nobody asked (or decisions into to-dos), so a
+      // mismatch restores nothing into that project and says so.
+      const fileMode = raw.project.mode === 'todo' ? 'todo' : 'board';
+      if (project.mode !== fileMode) {
+        log(`${file}: skipped — the file is a ${fileMode} project but "${project.slug}" here is a ${project.mode} project (mode differs); items are never converted. Import into an empty database, or rename one of them.`);
+        continue;
+      }
       const existing = new Set(store.listItems(project.id, 'none').map((item) => item.title));
       let added = 0;
       for (const item of raw.items || []) {
@@ -83,6 +96,10 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
           kind: item.kind,
           section: item.section,
           blockedBy: item.blockedBy,
+          // An export from before these fields carries neither; the store
+          // reads a missing or malformed value as none rather than refusing.
+          dueAt: item.dueAt,
+          priority: item.priority,
           labels: item.labels,
           body: item.body,
           bodyFormat: item.bodyFormat,
@@ -125,8 +142,8 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
       const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string');
       take('sectionMode', ['adhoc', 'declared'].includes(rp.sectionMode));
       take('sections', strings(rp.sections));
-      take('groupBy', ['section', 'status', 'move'].includes(rp.groupBy));
-      take('sortBy', ['activity', 'ref'].includes(rp.sortBy));
+      take('groupBy', ['section', 'status', 'move', 'due', 'priority'].includes(rp.groupBy));
+      take('sortBy', ['activity', 'ref', 'due', 'priority'].includes(rp.sortBy));
       take('color', (PROJECT_COLORS as readonly string[]).includes(rp.color));
       if (Object.keys(layout).length) store.setProjectSections(project.slug, layout as any);
       // Archived last, so the colour above is set before archiving frees it,
