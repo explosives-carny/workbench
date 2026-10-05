@@ -57,7 +57,7 @@ wb reply <id> "Landed: …" --status complete        …same, with "status" — 
 wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
 wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
 wb due <id|ref> 2026-10-31|none                    PATCH /api/items/<id> {"dueAt":"2026-10-31"}   — to-do projects only; null clears
-wb priority <id|ref> p1|p2|p3|none                 PATCH /api/items/<id> {"priority":"p1"}        — to-do projects only; null clears
+wb priority <id|ref> high|medium|low|none          PATCH /api/items/<id> {"priority":"p1"}        — to-do projects only; high=p1 medium=p2 low=p3; null clears
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
                                                    — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
 wb export                                          bun run export — the server also exports on its own after every change
@@ -538,7 +538,8 @@ above holds there unchanged.
 - **`dueAt` and `priority` exist on to-dos only.** `dueAt` is a calendar day,
   `"YYYY-MM-DD"` (`"2026-10-31"`), never a timestamp; anything else — a
   date-time, `"10/31/2026"`, `"2026-02-30"` — is a `400` naming the shape.
-  `priority` is `"p1"` (most urgent), `"p2"`, `"p3"`, any case. `null` or `""`
+  `priority` is `"p1"` (most urgent), `"p2"`, `"p3"`, any case; the page and
+  `wb` show them as High, Medium and Low. `null` or `""`
   clears; left out keeps. On a board item either field is a `400` saying they
   belong to to-do projects; board items carry neither field at all.
 - **Dates never move a status.** The page highlights an open to-do by due band

@@ -160,6 +160,10 @@ function label(i: any): string {
   return i.ref || String(i.id).slice(0, 8);
 }
 
+// Priority is stored as p1/p2/p3 and read as words, as on the page.
+const PRIORITY_WORDS: Record<string, string> = { p1: 'High', p2: 'Medium', p3: 'Low' };
+const priorityWord = (p: unknown) => (typeof p === 'string' && PRIORITY_WORDS[p]) || p;
+
 function row(i: any): string {
   const last = i.messages?.length ? i.messages[i.messages.length - 1] : null;
   const tag = (who: string, s?: string) => (s ? `${who}·${s}` : who);
@@ -167,7 +171,7 @@ function row(i: any): string {
   return [
     `${label(i)}  ${i.status.padEnd(14)} v${i.version}  by ${tag(i.updatedBy || '-', i.updatedSession)}  ${i.updatedAt}  id ${i.id}`,
     `  ${i.title}`,
-    i.dueAt || i.priority ? `  ${[i.priority, i.dueAt ? `due ${i.dueAt}` : null].filter(Boolean).join('  ')}` : null,
+    i.dueAt || i.priority ? `  ${[i.priority ? priorityWord(i.priority) : null, i.dueAt ? `due ${i.dueAt}` : null].filter(Boolean).join('  ')}` : null,
     i.choice ? `  choice: ${i.choice}` : null,
     `  last: ${lastLine}`,
   ].filter(Boolean).join('\n');
@@ -187,7 +191,7 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb status <id|ref> <status>              change the status (reads the version, retries once on 409)
   wb block <id|ref> <what it waits on>     set status blocked and blockedBy (reads the version, retries once on 409)
   wb due <id|ref> <YYYY-MM-DD|none>        to-dos only: set or clear the due date (status is untouched)
-  wb priority <id|ref> <p1|p2|p3|none>     to-dos only: set or clear the priority, p1 most urgent
+  wb priority <id|ref> <high|medium|low|none>  to-dos only: set or clear the priority (p1|p2|p3 also work)
   wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
   wb export [dir]                          write one JSON per project to the content directory
   wb archive <slug>                        archive a project (its colour frees for reuse)
@@ -286,7 +290,7 @@ async function main() {
       `title:   ${i.title}`,
       i.labels?.length ? `labels:  ${i.labels.join(', ')}` : null,
       i.dueAt ? `due:     ${i.dueAt}` : null,
-      i.priority ? `priority: ${i.priority}` : null,
+      i.priority ? `priority: ${priorityWord(i.priority)}` : null,
       i.options?.length ? `options: ${i.options.join(' | ')}` : null,
       i.recommended?.length ? `recommended: ${i.recommended.join(' | ')}` : null,
       i.choice ? `choice:  ${i.choice}` : null,
@@ -357,12 +361,13 @@ async function main() {
   // and leave the item where it is. "none" (or "-") clears; the server refuses
   // anything that is not YYYY-MM-DD or p1/p2/p3 and says which shape to send.
   if (cmd === 'due' || cmd === 'priority') {
-    const id = args[0] || fail(`usage: wb ${cmd} <id|ref> ${cmd === 'due' ? '<YYYY-MM-DD|none>' : '<p1|p2|p3|none>'}`);
-    const raw = args[1] || fail(cmd === 'due' ? 'give a date as YYYY-MM-DD, or none to clear it' : 'give p1, p2 or p3, or none to clear it');
-    const value = ['none', '-', 'null'].includes(raw.toLowerCase()) ? null : raw;
+    const id = args[0] || fail(`usage: wb ${cmd} <id|ref> ${cmd === 'due' ? '<YYYY-MM-DD|none>' : '<high|medium|low|none>'}`);
+    const raw = args[1] || fail(cmd === 'due' ? 'give a date as YYYY-MM-DD, or none to clear it' : 'give high, medium or low, or none to clear it');
+    const words: Record<string, string> = { high: 'p1', medium: 'p2', low: 'p3' };
+    const value = ['none', '-', 'null'].includes(raw.toLowerCase()) ? null : cmd === 'priority' ? (words[raw.toLowerCase()] ?? raw) : raw;
     const field = cmd === 'due' ? 'dueAt' : 'priority';
     const item = await patchItem(id, { [field]: value }, await actor(flags));
-    out(flags, `${label(item)}  ${cmd}: ${item[field] ?? 'none'}  ${item.status} v${item.version}  ${item.title}`, item);
+    out(flags, `${label(item)}  ${cmd}: ${(cmd === 'priority' ? priorityWord(item[field]) : item[field]) ?? 'none'}  ${item.status} v${item.version}  ${item.title}`, item);
     return;
   }
 

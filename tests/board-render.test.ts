@@ -47,13 +47,14 @@ describe('a to-do project renders its open to-dos', () => {
       if (groupBy === 'status') expect(heads(items)).toEqual(['Open']);
       if (groupBy === 'move') expect(heads(items)).toEqual(['Your move']);
       if (groupBy === 'due') expect(heads(items)).toEqual(['Overdue', 'No due date']);
+      if (groupBy === 'priority') expect(heads(items)).toEqual(['High', 'No priority']);
     });
   }
 
   test('shows the to-do chips and the to-do filters, and counts what is left', async () => {
     const page = await renderPage(handler, 'project.html', '/p/errands');
     const items = page.byId('items');
-    expect(items.byClass('prio').map((c) => c.textContent)).toEqual(['P1']);
+    expect(items.byClass('prio').map((c) => c.textContent)).toEqual(['High']);
     expect(items.byClass('due').length).toBe(1);
     expect(page.byId('eyebrow').textContent).toBe('2 to do · 3 items');
     expect(page.byId('filters').byClass('filterset-label').map((l) => l.textContent)).toContain('To-dos');

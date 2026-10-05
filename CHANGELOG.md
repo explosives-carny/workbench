@@ -21,6 +21,9 @@
   none of this. A project's kind can change only while it holds no decisions
   or to-dos, and restoring a backup never turns to-dos into decisions or the
   other way round (contract v18).
+- To-do priorities now read High, Medium and Low on the page and in `wb`,
+  instead of P1, P2 and P3. `wb priority` takes the words too. Nothing
+  stored or sent through the API changes.
 - A decision now shows which answer the agent recommends: that button carries
   a "Recommended" tag and a heavier border, instead of the agent writing
   "(Recommended)" into the answer text. Agents are expected to name at least one
