@@ -1831,6 +1831,16 @@ export class Store {
   }
 
   /**
+   * Run `fn` as one transaction: everything it writes lands, or nothing does
+   * if it throws. Nested store transactions inside become savepoints. Used by
+   * a project PATCH, which touches mode, key, archive and layout in turn and
+   * must never leave half of them applied after a refusal.
+   */
+  atomically<T>(fn: () => T): T {
+    return this.db.transaction(fn).immediate();
+  }
+
+  /**
    * Switch a project between board and to-do mode — only while it holds no
    * work. Converting a decision into a to-do (or back) would have to invent a
    * status for it: a `received` decision has no to-do equivalent, and a `todo`

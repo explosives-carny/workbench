@@ -89,6 +89,24 @@ describe('the project mode', () => {
     expect(store.getProject('board')!.mode).toBe('board');
   });
 
+  // Review finding 2: the mode used to switch before the key was checked, so
+  // a request refused over its key still changed the mode.
+  test('a request refused over its key leaves the mode unchanged', async () => {
+    await api('POST', '/api/projects', { name: 'Fresh' });
+    const res = await api('PATCH', '/api/projects/fresh', { mode: 'todo', key: 'list', name: 'Renamed' });
+    expect(res.status).toBe(409);
+    const after = store.getProject('fresh')!;
+    expect([after.mode, after.key, after.name]).toEqual(['board', null, 'Fresh']);
+  });
+
+  test('a request refused over its mode leaves the key and name unchanged', async () => {
+    await ask();
+    const res = await api('PATCH', '/api/projects/board', { mode: 'todo', key: 'newk', name: 'Renamed' });
+    expect(res.status).toBe(409);
+    const after = store.getProject('board')!;
+    expect([after.mode, after.key, after.name]).toEqual(['board', 'BOARD', 'Board']);
+  });
+
   test('switching back to board resets a due or priority layout', async () => {
     await api('PATCH', '/api/projects/list', { groupBy: 'due', sortBy: 'priority' });
     const res = await api('PATCH', '/api/projects/list', { mode: 'board' });

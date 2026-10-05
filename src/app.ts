@@ -548,37 +548,42 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (body.color !== undefined && !(PROJECT_COLORS as readonly string[]).includes(body.color)) {
             return badRequest(ctx, `color must be one of: ${PROJECT_COLORS.join(', ')}`);
           }
-          // Mode before anything else, so a refused switch leaves the whole
-          // request unapplied. Refused once the project holds work; see
-          // Store.setProjectMode for why it never converts items.
-          let updated = project;
-          if (body.mode !== undefined && body.mode !== project.mode) {
-            const switched = store.setProjectMode(project.slug, body.mode);
-            if (switched.blocking) {
-              return json(ctx, {
-                ok: false,
-                conflict: 'mode',
-                error: `"${project.slug}" holds ${switched.blocking} ${project.mode === 'todo' ? 'to-do(s)' : 'decision(s) or work item(s)'}, so its mode cannot change: items are never converted between a board and a to-do list. Create a new project with the mode you want.`,
-              }, 409);
-            }
-            ctx.wrote = true;
-            updated = switched.project!;
-          }
+          // All or nothing: every write below runs in one transaction, so a
+          // refusal anywhere (the mode once the project holds work, a key
+          // another project holds) leaves the whole request unapplied. Review
+          // found the mode switching and then surviving a refused key.
           ctx.wrote = true;
-          // Key first: the rest of this request may rename project metadata,
-          // but a rejected public-reference change must leave it all untouched.
-          let warning: string | undefined;
-          if (typeof body.key === 'string') {
-            const changed = store.setProjectKey(updated.slug, body.key)!;
-            updated = changed.project;
-            if (changed.changed && changed.previousKey) {
-              warning = `refs quoted as WB-${changed.previousKey}-<n> keep resolving here, but this project now displays WB-${updated.key}-<n>`;
+          const outcome = store.atomically(() => {
+            let updated = project;
+            if (body.mode !== undefined && body.mode !== project.mode) {
+              // Refused once the project holds work; see Store.setProjectMode
+              // for why it never converts items.
+              const switched = store.setProjectMode(project.slug, body.mode);
+              if (switched.blocking) return { blocking: switched.blocking };
+              updated = switched.project!;
             }
+            let warning: string | undefined;
+            if (typeof body.key === 'string') {
+              const changed = store.setProjectKey(updated.slug, body.key)!;
+              updated = changed.project;
+              if (changed.changed && changed.previousKey) {
+                warning = `refs quoted as WB-${changed.previousKey}-<n> keep resolving here, but this project now displays WB-${updated.key}-<n>`;
+              }
+            }
+            if (typeof body.archived === 'boolean') updated = store.archiveProject(updated.slug, body.archived)!;
+            if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
+              updated = store.setProjectSections(updated.slug, body)!;
+            }
+            return { updated, warning };
+          });
+          if ('blocking' in outcome) {
+            return json(ctx, {
+              ok: false,
+              conflict: 'mode',
+              error: `"${project.slug}" holds ${outcome.blocking} ${project.mode === 'todo' ? 'to-do(s)' : 'decision(s) or work item(s)'}, so its mode cannot change: items are never converted between a board and a to-do list. Create a new project with the mode you want.`,
+            }, 409);
           }
-          if (typeof body.archived === 'boolean') updated = store.archiveProject(updated.slug, body.archived)!;
-          if (body.name !== undefined || body.description !== undefined || body.sectionMode !== undefined || body.sections !== undefined || body.groupBy !== undefined || body.sortBy !== undefined || body.repos !== undefined || body.color !== undefined) {
-            updated = store.setProjectSections(updated.slug, body)!;
-          }
+          const { updated, warning } = outcome;
           return json(ctx, { ok: true, project: updated, sections: store.sectionsInUse(updated), labels: store.labelsInUse(updated.id), ...(warning ? { warning } : {}) });
         }
         return badRequest(ctx, 'nothing to update; supported: archived, key, name, description, sectionMode, mode, sections, groupBy, sortBy, repos, color');
