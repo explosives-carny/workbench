@@ -27,7 +27,7 @@ import {
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '18';
+export const CONTRACT_VERSION = '19';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -194,7 +194,7 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     );
   }
   if (body.priority !== undefined && body.priority !== null && body.priority !== '' && !normalisePriority(body.priority)) {
-    throw new Error(`priority must be one of ${PRIORITIES.join(', ')} (p1 is the most urgent), or null to clear it; got ${JSON.stringify(body.priority)}`);
+    throw new Error(`priority must be high, medium or low (or ${PRIORITIES.join(', ')}, p1 = high), or null to clear it; got ${JSON.stringify(body.priority)}`);
   }
   if (body.bodyFormat !== undefined && !['text', 'markdown', 'html'].includes(body.bodyFormat)) {
     throw new Error('bodyFormat must be text, markdown or html');

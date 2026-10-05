@@ -24,6 +24,12 @@
 - To-do priorities now read High, Medium and Low on the page and in `wb`,
   instead of P1, P2 and P3. `wb priority` takes the words too. Nothing
   stored or sent through the API changes.
+- Agents can now keep a to-do list for you: `wb todo` adds one in your
+  words, `wb todos` lists what is open, due first, with how many days are left
+  or overdue, and `wb projects` shows a to-do list by what it holds. The rules
+  say an agent touches your list only on your word, turns "Friday" into a real
+  date and says it back, and never closes a to-do because its date passed.
+  Priority can be sent as high, medium or low (contract v19).
 - A decision now shows which answer the agent recommends: that button carries
   a "Recommended" tag and a heavier border, instead of the agent writing
   "(Recommended)" into the answer text. Agents are expected to name at least one

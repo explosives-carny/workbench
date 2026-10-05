@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v18.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `18`,
+**Contract v19.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `19`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -57,7 +57,9 @@ wb reply <id> "Landed: …" --status complete        …same, with "status" — 
 wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
 wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
 wb due <id|ref> 2026-10-31|none                    PATCH /api/items/<id> {"dueAt":"2026-10-31"}   — to-do projects only; null clears
-wb priority <id|ref> high|medium|low|none          PATCH /api/items/<id> {"priority":"p1"}        — to-do projects only; high=p1 medium=p2 low=p3; null clears
+wb priority <id|ref> high|medium|low|none          PATCH /api/items/<id> {"priority":"high"}      — to-do projects only; stored and returned as p1/p2/p3; null clears
+wb todo <slug> "title" --due 2026-10-31 --priority high   POST /api/projects/<slug>/items {"title":"…","kind":"todo","dueAt":"…","priority":"…"} — to-do projects only
+wb todos [slug] [--all]                            open to-dos on every to-do project (or one), due first — what `wb board` cannot show
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
                                                    — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
 wb export                                          bun run export — the server also exports on its own after every change
@@ -538,8 +540,9 @@ above holds there unchanged.
 - **`dueAt` and `priority` exist on to-dos only.** `dueAt` is a calendar day,
   `"YYYY-MM-DD"` (`"2026-10-31"`), never a timestamp; anything else — a
   date-time, `"10/31/2026"`, `"2026-02-30"` — is a `400` naming the shape.
-  `priority` is `"p1"` (most urgent), `"p2"`, `"p3"`, any case; the page and
-  `wb` show them as High, Medium and Low. `null` or `""`
+  `priority` is sent as `"high"`, `"medium"` or `"low"` (or `"p1"`–`"p3"`),
+  any case, and stored and returned as `"p1"` (high), `"p2"`, `"p3"`; the page
+  and `wb` show the words (v19). `null` or `""`
   clears; left out keeps. On a board item either field is a `400` saying they
   belong to to-do projects; board items carry neither field at all.
 - **Dates never move a status.** The page highlights an open to-do by due band
@@ -558,6 +561,46 @@ above holds there unchanged.
 Set a date or priority only when the person gave one; an invented deadline
 reads exactly like a real one. To-dos are theirs: do not file your own work as
 to-dos to get it off a board — that is what the board's statuses are for (v18).
+
+#### Working a to-do list (v19)
+
+An agent works a to-do list only on the person's word: "add …", "what is on
+my list", "that's done", "push it to Friday". A to-do is never a request to
+you. If they want an agent to do the thing, it is work, and it goes on a board
+as an issue.
+
+- **Which list.** `wb projects` (`GET /api/projects`, each with `mode`)
+  names the to-do lists. Use the one the person named. If they named none and
+  there is exactly one, use that one. If there are several, use the one whose
+  name matches what the to-do is about, and say which one in your answer. If
+  there is none, do not create one for them: tell them the board has no to-do
+  list, and `wb project <slug> --mode todo` makes a new, empty project into one.
+- **Adding.** Use `wb todo <slug> "title"`, or POST with `"kind":"todo"`
+  (named, so that a board refuses the write instead of filing a decision). The
+  title is in the person's words, short, and a headline (rule 7). If they gave
+  more, it goes in `context`. Give a `clientId` when you might retry. Several
+  at once go as one array.
+- **Dates come from the person, resolved by you.** Turn "Friday", "next week"
+  or "the 31st" into a `YYYY-MM-DD` day against the person's own today, in
+  their time zone, not the server's and not UTC. Say the day back to them
+  ("due Fri 2026-10-09"), so a wrong guess is caught while they are still
+  there. If a word does not name a day ("soon", "later"), set no date. Never
+  invent one.
+- **Priority is high, medium or low** when they say so ("urgent" and "ASAP"
+  mean high), and none otherwise.
+- **Reading the list.** `wb todos [slug]` lists open to-dos due first, then by
+  priority, with "overdue 2d" or "due in 3d" against today. `wb board` shows
+  nothing here: it lists `received` and `in-progress`, and a to-do holds
+  neither. Over HTTP, use `GET /api/projects/<slug>?status=todo`.
+- **Changing one.** Mark it done (`wb reply <ref> "Done" --status complete`),
+  drop it (`cancelled`), park it (`deferred`), or move its date or priority
+  only when the person says so. "Done" with no item named is the one they
+  were just talking about; if it could be either of two, name both refs and
+  ask. Never close a to-do because its date passed or because it looks stale.
+- **On a check-in round** a to-do project has no actionable set, and the round
+  changes nothing on it. If the session is scoped to that project, or the
+  person asked about it, the report may add one line: the refs that are
+  overdue or due within 3 days.
 
 ### Payload
 

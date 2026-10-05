@@ -192,6 +192,8 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb block <id|ref> <what it waits on>     set status blocked and blockedBy (reads the version, retries once on 409)
   wb due <id|ref> <YYYY-MM-DD|none>        to-dos only: set or clear the due date (status is untouched)
   wb priority <id|ref> <high|medium|low|none>  to-dos only: set or clear the priority (p1|p2|p3 also work)
+  wb todo <slug> <title> [--due YYYY-MM-DD] [--priority high|medium|low]   add a to-do to a to-do project
+  wb todos [slug] [--all]                  open to-dos on every to-do project (or one), due first; --all adds deferred
   wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
   wb export [dir]                          write one JSON per project to the content directory
   wb archive <slug>                        archive a project (its colour frees for reuse)
@@ -226,7 +228,9 @@ async function main() {
   if (cmd === 'projects') {
     const { json } = await call('GET', '/api/projects');
     if (!json.ok) fail(json.error);
-    const lines = json.projects.map((p: any) => `${p.slug.padEnd(24)} ${(p.key || '-').padEnd(6)} decision ${p.counts['needs-decision']}  qa ${p.counts['needs-qa']}  received ${p.counts.received}  working ${p.counts['in-progress']}  ${p.repos?.length ? `repos: ${p.repos.join(', ')}` : ''}`);
+    const lines = json.projects.map((p: any) => p.mode === 'todo'
+      ? `${p.slug.padEnd(24)} ${(p.key || '-').padEnd(6)} to-do list  open ${p.counts.todo}  deferred ${p.counts.deferred}`
+      : `${p.slug.padEnd(24)} ${(p.key || '-').padEnd(6)} decision ${p.counts['needs-decision']}  qa ${p.counts['needs-qa']}  received ${p.counts.received}  working ${p.counts['in-progress']}  ${p.repos?.length ? `repos: ${p.repos.join(', ')}` : ''}`);
     out(flags, lines.join('\n') || '(no projects)', json.projects);
     return;
   }
@@ -303,6 +307,57 @@ async function main() {
     return;
   }
 
+  // To-do lists (v19). `wb todo` adds one to-do in the person's words; `wb todos`
+  // is the read an agent needs before answering "what is on my list": open
+  // to-dos across every to-do project (or one), due first. `wb board` cannot
+  // serve here: it shows received and in-progress, which a to-do never holds.
+  if (cmd === 'todo') {
+    const slug = args[0] || fail('usage: wb todo <slug> <title> [--due YYYY-MM-DD] [--priority high|medium|low] [--client-id id]');
+    const title = args.slice(1).join(' ').trim() || fail('a to-do needs a title, in the words the person used');
+    // kind is named so a board refuses it (400) instead of filing a decision.
+    const body: any = { title, kind: 'todo', actor: await actor(flags), session: session() };
+    if (typeof flags.due === 'string') body.dueAt = flags.due;
+    if (typeof flags.priority === 'string') body.priority = flags.priority;
+    if (typeof flags['client-id'] === 'string') body.clientId = flags['client-id'];
+    const { status, json } = await call('POST', `/api/projects/${slug}/items`, body);
+    if (!json.ok) fail(`${status}: ${json.error}`);
+    if (json.warnings) for (const w of json.warnings) console.error(`wb: warning: ${w}`);
+    const i = json.items[0];
+    out(flags, `${i.ref || i.id}  ${i.status}  ${[i.priority ? priorityWord(i.priority) : null, i.dueAt ? `due ${i.dueAt}` : null].filter(Boolean).join('  ')}  ${i.title}`.replace(/  +/g, '  '), i);
+    return;
+  }
+
+  if (cmd === 'todos') {
+    const { json: all } = await call('GET', '/api/projects');
+    if (!all.ok) fail(all.error);
+    const lists = all.projects.filter((p: any) => p.mode === 'todo' && (!args[0] || p.slug === args[0]));
+    if (args[0] && !lists.length) fail(`${args[0]} is not a to-do project (wb projects lists them)`);
+    if (!lists.length) { out(flags, 'no to-do projects on this board', []); return; }
+    const status = flags.all ? 'todo,deferred' : 'todo';
+    const rows: any[] = [];
+    for (const p of lists) {
+      const { json } = await call('GET', `/api/projects/${p.slug}?status=${status}&messages=none`);
+      if (!json.ok) fail(json.error);
+      for (const i of json.items) rows.push({ ...i, project: p.slug });
+    }
+    // The person's today, on this machine: a due date is a calendar day, not an instant.
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000;
+    const dayOf = (d: string) => { const [y, m, dd] = d.split('-').map(Number); return Date.UTC(y, m - 1, dd) / 86400000; };
+    const when = (i: any) => {
+      if (!i.dueAt) return 'no date';
+      const n = dayOf(i.dueAt) - today;
+      return n < 0 ? `overdue ${-n}d` : n === 0 ? 'due today' : `due in ${n}d`;
+    };
+    const rank = (p: any) => ({ p1: 1, p2: 2, p3: 3 } as any)[p] ?? 4;
+    rows.sort((a, b) => (a.dueAt ? dayOf(a.dueAt) : Infinity) - (b.dueAt ? dayOf(b.dueAt) : Infinity) || rank(a.priority) - rank(b.priority));
+    const human = rows.length
+      ? rows.map((i) => `${label(i).padEnd(12)}  ${when(i).padEnd(12)}  ${(i.priority ? priorityWord(i.priority) : '').padEnd(6)}  ${i.status === 'deferred' ? '(deferred) ' : ''}${i.title}${lists.length > 1 ? `  [${i.project}]` : ''}`).join('\n')
+      : `nothing open on ${lists.map((p: any) => p.slug).join(', ')}`;
+    out(flags, human, rows);
+    return;
+  }
+
   if (cmd === 'ask') {
     const slug = args[0] || fail('usage: wb ask <slug> <json|file|->');
     const body = await readBodyArg(args[1]);
@@ -363,8 +418,7 @@ async function main() {
   if (cmd === 'due' || cmd === 'priority') {
     const id = args[0] || fail(`usage: wb ${cmd} <id|ref> ${cmd === 'due' ? '<YYYY-MM-DD|none>' : '<high|medium|low|none>'}`);
     const raw = args[1] || fail(cmd === 'due' ? 'give a date as YYYY-MM-DD, or none to clear it' : 'give high, medium or low, or none to clear it');
-    const words: Record<string, string> = { high: 'p1', medium: 'p2', low: 'p3' };
-    const value = ['none', '-', 'null'].includes(raw.toLowerCase()) ? null : cmd === 'priority' ? (words[raw.toLowerCase()] ?? raw) : raw;
+    const value = ['none', '-', 'null'].includes(raw.toLowerCase()) ? null : raw;
     const field = cmd === 'due' ? 'dueAt' : 'priority';
     const item = await patchItem(id, { [field]: value }, await actor(flags));
     out(flags, `${label(item)}  ${cmd}: ${(cmd === 'priority' ? priorityWord(item[field]) : item[field]) ?? 'none'}  ${item.status} v${item.version}  ${item.title}`, item);
