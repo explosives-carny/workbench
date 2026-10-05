@@ -302,3 +302,72 @@ describe('wb due / wb priority', () => {
     expect(shown.stdout).toContain('mode: todo');
   });
 });
+
+describe('wb todo / wb todos (v19)', () => {
+  // A local calendar day `n` days from today, as the person would say it.
+  const day = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  beforeAll(() => {
+    store.createProject({ name: 'Chores', key: 'CHO', mode: 'todo' });
+  });
+
+  test('wb todo adds a to-do with the date and priority given', async () => {
+    const res = await wb('todo', 'chores', 'Return', 'the', 'library', 'books', '--due', day(3), '--priority', 'high');
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('WB-CHO-1  todo  High  due ' + day(3) + '  Return the library books');
+    const item = store.resolveItem('WB-CHO-1')!;
+    expect([item.kind, item.status, item.dueAt, item.priority]).toEqual(['todo', 'todo', day(3), 'p1']);
+  });
+
+  test('wb todo on a board is refused and files nothing', async () => {
+    const before = store.counts(store.getProject('demo')!.id);
+    const res = await wb('todo', 'demo', 'Not a decision');
+    expect(res.code).not.toBe(0);
+    expect(res.stderr).toContain('to-do projects');
+    expect(store.counts(store.getProject('demo')!.id)).toEqual(before);
+  });
+
+  test('wb todos lists open to-dos due first, then priority, with the day against today', async () => {
+    expect((await wb('todo', 'chores', 'Pay the water bill', '--due', day(-2), '--priority', 'low')).code).toBe(0);
+    expect((await wb('todo', 'chores', 'Book a dentist', '--priority', 'medium')).code).toBe(0);
+    expect((await wb('todo', 'chores', 'Water plants', '--due', day(0))).code).toBe(0);
+    const parked = (await wb('todo', 'chores', 'Clean the garage')).stdout.split(/\s+/)[0];
+    expect((await wb('status', parked, 'deferred')).code).toBe(0);
+
+    const res = await wb('todos', 'chores');
+    expect(res.code).toBe(0);
+    const lines = res.stdout.trim().split('\n');
+    expect(lines.map((l) => l.split(/\s{2,}/).pop())).toEqual(['Pay the water bill', 'Water plants', 'Return the library books', 'Book a dentist']);
+    expect(lines[0]).toContain('overdue 2d');
+    expect(lines[1]).toContain('due today');
+    expect(lines[2]).toContain('due in 3d');
+    expect(lines[3]).toContain('no date');
+    expect(res.stdout).not.toContain('Clean the garage');
+
+    const withParked = await wb('todos', 'chores', '--all');
+    expect(withParked.stdout).toContain('(deferred) Clean the garage');
+  });
+
+  test('wb todos with no slug covers every to-do project and tags each row', async () => {
+    const res = await wb('todos');
+    expect(res.stdout).toContain('[chores]');
+    expect(res.stdout).toContain('[errands]');
+  });
+
+  test('wb todos on a board says it is not a to-do project', async () => {
+    const res = await wb('todos', 'demo');
+    expect(res.code).not.toBe(0);
+    expect(res.stderr).toContain('not a to-do project');
+  });
+
+  test('wb projects shows a to-do list by what it holds, not decision counts', async () => {
+    const res = await wb('projects');
+    const line = res.stdout.split('\n').find((l) => l.startsWith('chores'))!;
+    expect(line).toContain('to-do list  open 4');
+    expect(line).not.toContain('decision');
+  });
+});

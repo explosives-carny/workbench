@@ -222,13 +222,21 @@ describe('dueAt and priority', () => {
     });
   }
 
-  for (const bad of ['p0', 'p4', 'high', 1, 'P 1']) {
+  for (const bad of ['p0', 'p4', 'urgent', 'hi', 1, 'P 1']) {
     test(`refuses priority ${JSON.stringify(bad)} with a 400 listing the values`, async () => {
       const res = await todo({ priority: bad });
       expect(res.status).toBe(400);
       expect(res.json.error).toContain('p1, p2, p3');
     });
   }
+
+  test('priority takes the words a person says and stores p1/p2/p3 (v19)', async () => {
+    for (const [word, stored] of [['High', 'p1'], ['medium', 'p2'], [' LOW ', 'p3']]) {
+      const res = await todo({ priority: word });
+      expect(res.status).toBe(201);
+      expect(res.json.items[0].priority).toBe(stored);
+    }
+  });
 
   test('accepts 29 February only in a leap year', async () => {
     expect((await todo({ dueAt: '2028-02-29' })).status).toBe(201);

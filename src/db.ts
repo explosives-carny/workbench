@@ -242,11 +242,19 @@ export function normaliseDueAt(value: unknown): string | null {
   return isDueDate(value) ? value : null;
 }
 
-/** A priority from any writer (case-insensitive), or null. */
+/**
+ * The words a person says for each priority, and the page shows (v19). Stored
+ * and returned as p1/p2/p3 either way; the words are accepted so a writer that
+ * heard "make it high" does not have to translate.
+ */
+export const PRIORITY_WORDS: Record<string, Priority> = { high: 'p1', medium: 'p2', low: 'p3' };
+
+/** A priority from any writer (case-insensitive; p1/p2/p3 or high/medium/low), or null. */
 export function normalisePriority(value: unknown): Priority | null {
   if (typeof value !== 'string') return null;
   const v = value.trim().toLowerCase();
-  return (PRIORITIES as readonly string[]).includes(v) ? (v as Priority) : null;
+  if ((PRIORITIES as readonly string[]).includes(v)) return v as Priority;
+  return PRIORITY_WORDS[v] ?? null;
 }
 
 /**
