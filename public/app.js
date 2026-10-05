@@ -357,6 +357,13 @@ window.WB = (function () {
     if (db === null) return -1;
     return da - db;
   }
+  // The page's "due" order, and the order `wb todos` prints: soonest due first,
+  // undated last, then high priority before low on the same day (or no day).
+  function byDueThenPriority(a, b) {
+    const pa = PRIORITIES.indexOf(a.priority);
+    const pb = PRIORITIES.indexOf(b.priority);
+    return byDue(a, b) || (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
+  }
   function byPriority(a, b) {
     const pa = PRIORITIES.indexOf(a.priority);
     const pb = PRIORITIES.indexOf(b.priority);
@@ -425,6 +432,7 @@ window.WB = (function () {
     dueChip,
     priorityChip,
     byDue,
+    byDueThenPriority,
     byPriority,
     planControls,
     serialPatch,

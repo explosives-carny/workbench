@@ -462,6 +462,19 @@ describe('due bands and ordering on the page (public/app.js)', () => {
     expect(WB.dueText('2026-12-25', TODAY)).toMatch(/^Due /);
   });
 
+  test('the due order breaks ties by priority, like wb todos', () => {
+    const rows = [
+      { id: 'undated-low', priority: 'p3' },
+      { id: 'today-low', dueAt: '2026-10-05', priority: 'p3' },
+      { id: 'undated-high', priority: 'p1' },
+      { id: 'today-high', dueAt: '2026-10-05', priority: 'p1' },
+      { id: 'undated-none' },
+      { id: 'later', dueAt: '2026-10-09' },
+    ];
+    expect([...rows].sort(WB.byDueThenPriority).map((r) => r.id))
+      .toEqual(['today-high', 'today-low', 'later', 'undated-high', 'undated-low', 'undated-none']);
+  });
+
   test("today is the viewer's local calendar day", () => {
     expect(WB.localToday(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05');
     expect(WB.localToday(new Date(2026, 11, 31, 0, 1))).toBe('2026-12-31');

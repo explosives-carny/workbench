@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A to-do list sorted by due date now puts high priority before low among
+  to-dos due the same day, and among those with no date, the same order
+  `wb todos` already prints. Before, those ties fell back to most recent
+  activity.
 - Items waiting on QA now say who does it: each step is marked for a person
   or an agent, and the board shows the item as Human QA, Agent QA or Mixed QA,
   with each step tagged. The QA filter counts each kind, and the "whose move"

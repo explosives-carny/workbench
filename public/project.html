@@ -796,7 +796,7 @@
     const sortBy = project && project.sortBy;
     const rowOrder =
       sortBy === 'ref' ? byRef
-      : sortBy === 'due' ? (a, b) => WB.byDue(a, b) || byActivity(a, b)
+      : sortBy === 'due' ? (a, b) => WB.byDueThenPriority(a, b) || byActivity(a, b)
       : sortBy === 'priority' ? (a, b) => WB.byPriority(a, b) || byActivity(a, b)
       : byActivity;
     const groupBy = project && project.groupBy;
