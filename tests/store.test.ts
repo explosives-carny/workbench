@@ -475,24 +475,17 @@ describe('grouping by whose move it is', () => {
   });
 });
 
-// The board is a static page with no build step, so public/project.html mirrors
-// these tables by hand. A mirror nobody checks is the thing that drifts.
-describe('the board page mirrors the grouping tables', () => {
+// The board page used to mirror these tables by hand, and the copy drifted
+// (open to-dos vanished from the default layout). It now loads them from the
+// server; tests/board-render.test.ts renders the page against them.
+describe('the board page takes its grouping tables from the server', () => {
   const page = readFileSync(new URL('../public/project.html', import.meta.url), 'utf8');
 
-  function mirrored(name: string) {
-    const start = page.indexOf('const ' + name + ' = [');
-    expect(start).toBeGreaterThan(-1);
-    const body = page.slice(start, page.indexOf('];', start));
-    return [...body.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
-  }
-
-  it('carries the same status groups, in order', () => {
-    expect(mirrored('STATUS_GROUPS')).toEqual(STATUS_GROUPS.map((g) => g.label));
-  });
-
-  it('carries the same move groups, in order', () => {
-    expect(mirrored('MOVE_GROUPS')).toEqual(MOVE_GROUPS.map((g) => g.label));
+  it('loads /groups.js and keeps no copy of its own', () => {
+    expect(page).toContain('<script src="/groups.js"></script>');
+    expect(page).toContain('WB_GROUPS.status');
+    expect(page).toContain('WB_GROUPS.move');
+    expect(page).not.toMatch(/const (STATUS|MOVE)_GROUPS = \[/);
   });
 });
 

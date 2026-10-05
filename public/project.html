@@ -145,6 +145,7 @@
   </footer>
 </div>
 <script src="/app.js"></script>
+<script src="/groups.js"></script>
 <script>
 (function () {
   const slug = decodeURIComponent(location.pathname.replace(/^\/p\//, '').replace(/\/$/, ''));
@@ -468,36 +469,20 @@
     return Number.isFinite(when) ? when : 0;
   }
 
-  // The status groups, when the project groups by status. Open holds every live
-  // TASK state: splitting them would move a piece of work between groups every
-  // time it changed hands, and the per-row chip already says which it is.
-  const STATUS_GROUPS = [
-    // Blocked is open work that will be done; it stays in Open, and its chip
-    // and Blocked by line say what it waits on.
-    { label: 'Open', statuses: ['needs-decision', 'needs-qa', 'received', 'in-progress', 'blocked'] },
-    { label: 'Deferred', statuses: ['deferred'] },
-    // Documents above Archived: a current reference is something you reach for
-    // while working, not something waiting on you. An archived one joins
-    // finished work, because both are kept rather than current.
-    { label: 'Documents', statuses: ['active'] },
-    { label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
-  ];
-
-  // `move` grouping: the same rows as `status`, with Open split the way the
-  // contract's status table already reads it — whose move is it. The three
-  // Open statuses that are theirs come first, because a board is opened to
-  // find out what is waiting on YOU, and a single Open group mixing your
-  // decisions with the agent's in-flight work does not answer that.
-  const MOVE_GROUPS = [
-    // QA whose open steps are all the agent's is the agent's move, not yours;
-    // a mixed item comes back to you as soon as a step of yours is open.
-    { label: 'Your move', statuses: ['needs-decision', 'needs-qa'], unless: (i) => i.status === 'needs-qa' && i.qaWaitingOn === 'agent' },
-    { label: 'With your agent', statuses: ['received', 'in-progress'], also: (i) => i.status === 'needs-qa' && i.qaWaitingOn === 'agent' },
-    { label: 'Waiting on something', statuses: ['blocked'] },
-    { label: 'Deferred', statuses: ['deferred'] },
-    { label: 'Documents', statuses: ['active'] },
-    { label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
-  ];
+  // The status and whose-move groups come from the server (/groups.js, built
+  // from STATUS_GROUPS and MOVE_GROUPS in src/db.ts), not a copy kept here. A
+  // hand-kept copy drifted once: `todo` was added to the server tables and not
+  // to this page, and a new to-do list showed none of its open to-dos.
+  const STATUS_GROUPS = WB_GROUPS.status;
+  // The one refinement that depends on the steps rather than the status, so
+  // it lives with the rows: QA whose open steps are all the agent's is the
+  // agent's move, not yours; a mixed item comes back to you as soon as a step
+  // of yours is open.
+  const MOVE_RULES = {
+    yours: { unless: (i) => i.status === 'needs-qa' && i.qaWaitingOn === 'agent' },
+    agent: { also: (i) => i.status === 'needs-qa' && i.qaWaitingOn === 'agent' },
+  };
+  const MOVE_GROUPS = WB_GROUPS.move.map((g) => Object.assign({}, g, MOVE_RULES[g.id] || {}));
 
   // `due` and `priority` grouping, on a to-do project only: open to-dos split
   // by due band (relative to the viewer's today) or by priority. Below them

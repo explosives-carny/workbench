@@ -399,20 +399,27 @@ describe('due bands and ordering on the page (public/app.js)', () => {
     expect(WB.DUE_BANDS.map((b: any) => b.id)).toEqual(['overdue', 'd3', 'd7', 'd30', 'later']);
   });
 
-  test('the board page keeps to-do controls to to-do projects', () => {
-    const page = readFileSync(new URL('../public/project.html', import.meta.url), 'utf8');
-    expect(page).toContain("label: 'No due date'");
-    expect(page).toContain("label: 'No priority'");
-    expect(page).toMatch(/isTodo\s*=/);
-    const item = readFileSync(new URL('../public/item.html', import.meta.url), 'utf8');
-    expect(item).toContain("item.kind === 'todo'");
-  });
+  // What the board and to-do pages actually draw is in tests/board-render.test.ts.
 
-  test('every band has its own style in both themes', () => {
+  test('every band has its own style, and every due token is set in each of the three theme blocks', () => {
     const css = readFileSync(new URL('../public/app.css', import.meta.url), 'utf8');
     for (const band of ['overdue', 'd3', 'd7', 'd30', 'later', 'settled']) expect(css).toContain(`.due.b-${band}`);
-    for (const token of ['--due-over', '--due-3', '--due-7', '--due-30']) {
-      expect(css.split(`${token}:`).length - 1).toBeGreaterThanOrEqual(3);
+    // The body of the first rule whose selector starts at `marker`.
+    const block = (marker: string) => {
+      const at = css.indexOf(marker);
+      expect(at).toBeGreaterThan(-1);
+      const open = css.indexOf('{', at + marker.length - 1);
+      return css.slice(open + 1, css.indexOf('}', open));
+    };
+    const blocks = {
+      light: block(':root {'),
+      systemDark: block(':root:not([data-theme="light"]) {'),
+      forcedDark: block(':root[data-theme="dark"] {'),
+    };
+    for (const [name, body] of Object.entries(blocks)) {
+      for (const token of ['--due-over', '--due-3', '--due-3-soft', '--due-7', '--due-7-soft', '--due-30']) {
+        expect([name, token, new RegExp(`${token}:`).test(body)]).toEqual([name, token, true]);
+      }
     }
   });
 });

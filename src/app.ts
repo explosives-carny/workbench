@@ -9,7 +9,7 @@
 // `Request` and read the `Response` in-process.
 import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
-  ProjectKeyTaken, PROJECT_COLORS,
+  ProjectKeyTaken, PROJECT_COLORS, STATUS_GROUPS, MOVE_GROUPS,
   isStatusAllowed, statusesFor, KINDS, defaultStatusFor, normaliseRecommended, CHECK_OWNERS,
   isDueDate, normalisePriority, PRIORITIES, kindFor, PROJECT_MODES, TODO_STATUSES,
   type Status, type ItemInput, type Project, type Kind,
@@ -924,6 +924,13 @@ export function createHandler(store: Store, opts: HandlerOptions): (req: Request
     // update, and the footer link pointed at a page that did not exist at all.
     if (url.pathname === '/agents.html') {
       return new Response(Bun.file(join(opts.publicDir, 'agents.html')));
+    }
+    // The board's group tables, built from the server's own, so the page never
+    // keeps a second copy to forget to update.
+    if (url.pathname === '/groups.js') {
+      return new Response(`window.WB_GROUPS = ${JSON.stringify({ status: STATUS_GROUPS, move: MOVE_GROUPS })};\n`, {
+        headers: { 'content-type': 'text/javascript; charset=utf-8' },
+      });
     }
     if (url.pathname === '/api-doc') {
       return new Response(Bun.file(opts.agentsMdPath), { headers: { 'content-type': 'text/plain; charset=utf-8' } });
