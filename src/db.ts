@@ -151,7 +151,7 @@ export function asStatusValue(value: unknown): Status | null {
 
 export type SectionMode = 'adhoc' | 'declared';
 
-export type GroupBy = 'section' | 'status' | 'move';
+export type GroupBy = 'section' | 'status' | 'move' | 'due' | 'priority';
 
 /**
  * How rows are ordered inside whichever group they land in.
@@ -164,8 +164,54 @@ export type GroupBy = 'section' | 'status' | 'move';
  * are still thinking about. `ref` is for reading a group as a list you work
  * top to bottom: the order never changes under you as you reply, which is what
  * you want when a group is a queue rather than a feed.
+ *
+ *   due      — earliest due date first; items with no due date last
+ *   priority — p1, then p2, then p3, then none; ties broken by due date
+ *
+ * The last two exist for a board used as a to-do list, where "what is due
+ * next" or "what matters most" is the order you work in. Ties inside either
+ * fall back to activity, so two undated items still read newest first.
  */
-export type SortBy = 'activity' | 'ref';
+export type SortBy = 'activity' | 'ref' | 'due' | 'priority';
+
+/**
+ * An item's priority: p1 is the most urgent. Three levels and "none" (null),
+ * deliberately few — a scale with more steps than people can tell apart gets
+ * every item filed in its middle.
+ */
+export const PRIORITIES = ['p1', 'p2', 'p3'] as const;
+export type Priority = typeof PRIORITIES[number];
+
+// A calendar date with no time and no zone: the day something is due, not an
+// instant. A timestamp would make "due on the 31st" depend on whose clock read
+// it, and a person setting a deadline means a day.
+const DUE_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** True for a real calendar day written YYYY-MM-DD (2026-02-30 is not one). */
+export function isDueDate(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const m = value.match(DUE_DATE);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const at = new Date(Date.UTC(y, mo - 1, d));
+  return at.getUTCFullYear() === y && at.getUTCMonth() === mo - 1 && at.getUTCDate() === d;
+}
+
+/**
+ * A stored or imported due date, or null. The API refuses a bad one with a 400
+ * before it gets here; this is the store's own guard, for an import or a
+ * hand-edited row, where a bad date is dropped rather than losing the item.
+ */
+export function normaliseDueAt(value: unknown): string | null {
+  return isDueDate(value) ? value : null;
+}
+
+/** A priority from any writer (case-insensitive), or null. */
+export function normalisePriority(value: unknown): Priority | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().toLowerCase();
+  return (PRIORITIES as readonly string[]).includes(v) ? (v as Priority) : null;
+}
 
 /**
  * Twelve distinct hues a project's colour is drawn from — a fixed, closed
@@ -273,6 +319,15 @@ export type Project = {
    *   section — one group per area of work (the original behaviour)
    *   status  — Open, Deferred, Documents, Archived
    *   move    — Open split by whose move it is, then Deferred/Documents/Archived
+   *   due     — Open split by due date: Overdue, within 3 / 7 / 30 days, Later,
+   *             No due date; then Deferred/Documents/Archived
+   *   priority — Open split into P1, P2, P3, No priority; then the same tail
+   *
+   * `due` and `priority` divide only Open, like `move`, for the same reason:
+   * a finished item that was due last week is not overdue, and filing it under
+   * Overdue would make the board shout about work that is done. The bands are
+   * relative to the viewer's today, so they are computed on the page
+   * (public/app.js, WB.dueBand), never stored.
    *
    * `move` is `status` with its Open group divided the way the contract's own
    * status table already reads: the statuses that are theirs to answer, then
@@ -511,6 +566,14 @@ export type Item = {
    * on", still has the answer. Only an explicit empty string clears it.
    */
   blockedBy: string;
+  /**
+   * The day this is due, YYYY-MM-DD, or null. A calendar date rather than an
+   * instant (see isDueDate). Optional and independent of status: a due date
+   * never moves an item, it only orders and highlights it on the board.
+   */
+  dueAt: string | null;
+  /** p1 (most urgent), p2, p3, or null for none. Never moves an item either. */
+  priority: Priority | null;
   position: number;
   version: number;
   updatedBy: string;
@@ -544,6 +607,10 @@ export type ItemInput = {
   section?: string;
   /** See Item.blockedBy. Trimmed and capped at 200 characters on write. */
   blockedBy?: string;
+  /** See Item.dueAt. null clears it; anything that is not a real YYYY-MM-DD day is stored as null. */
+  dueAt?: string | null;
+  /** See Item.priority. null clears it; matched case-insensitively. */
+  priority?: string | null;
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
   checks?: Check[];
@@ -734,6 +801,10 @@ export function openDb(path: string): Database {
       -- history when the status moves off blocked rather than cleared, so
       -- re-blocking or asking "what was this stuck on" still has the answer.
       blocked_by  TEXT NOT NULL DEFAULT '',
+      -- The day this is due, YYYY-MM-DD, and p1/p2/p3. Both optional (NULL is
+      -- none) and neither touches status: they order and highlight, nothing more.
+      due_at      TEXT,
+      priority    TEXT,
       seq         INTEGER,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -820,6 +891,8 @@ export function openDb(path: string): Database {
   if (!columns.has('labels')) db.exec("ALTER TABLE items ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('blocked_by')) db.exec("ALTER TABLE items ADD COLUMN blocked_by TEXT NOT NULL DEFAULT ''");
   if (!columns.has('recommended')) db.exec("ALTER TABLE items ADD COLUMN recommended TEXT NOT NULL DEFAULT '[]'");
+  if (!columns.has('due_at')) db.exec('ALTER TABLE items ADD COLUMN due_at TEXT');
+  if (!columns.has('priority')) db.exec('ALTER TABLE items ADD COLUMN priority TEXT');
   if (!columns.has('kind')) {
     db.exec("ALTER TABLE items ADD COLUMN kind TEXT NOT NULL DEFAULT 'issue'");
     // Backfill: anything carrying long-form content is a document. That is the
@@ -917,8 +990,8 @@ function rowToProject(r: any): Project {
         return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
       } catch { return []; }
     })(),
-    groupBy: (r.group_by === 'status' || r.group_by === 'move' ? r.group_by : 'section') as GroupBy,
-    sortBy: (r.sort_by === 'ref' ? 'ref' : 'activity') as SortBy,
+    groupBy: (['status', 'move', 'due', 'priority'].includes(r.group_by) ? r.group_by : 'section') as GroupBy,
+    sortBy: (['ref', 'due', 'priority'].includes(r.sort_by) ? r.sort_by : 'activity') as SortBy,
     repos: (() => {
       try {
         const parsed = JSON.parse(r.repos ?? '[]');
@@ -985,6 +1058,8 @@ function rowToItem(r: any): Item {
     status: r.status as Status,
     section: r.section,
     blockedBy: r.blocked_by ?? '',
+    dueAt: normaliseDueAt(r.due_at),
+    priority: normalisePriority(r.priority),
     position: r.position,
     version: r.version ?? 1,
     updatedBy: r.updated_by ?? '',
@@ -1383,8 +1458,8 @@ export class Store {
       const id = randomUUID();
       this.db
         .query(
-          `INSERT INTO items (id, project_id, title, context, options, recommended, choice, status, section, blocked_by, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO items (id, project_id, title, context, options, recommended, choice, status, section, blocked_by, due_at, priority, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -1397,6 +1472,8 @@ export class Store {
           status,
           input.section || '',
           normaliseBlockedBy(input.blockedBy),
+          normaliseDueAt(input.dueAt),
+          normalisePriority(input.priority),
           position,
           input.body || '',
           input.bodyFormat || inferBodyFormat(input.body),
@@ -1450,6 +1527,10 @@ export class Store {
       kind,
       section: patch.section ?? current.section,
       blockedBy: patch.blockedBy === undefined ? current.blockedBy : normaliseBlockedBy(patch.blockedBy),
+      // Left out keeps what is there; null (or anything the API let through as
+      // "clear") removes it.
+      dueAt: patch.dueAt === undefined ? current.dueAt : normaliseDueAt(patch.dueAt),
+      priority: patch.priority === undefined ? current.priority : normalisePriority(patch.priority),
       position: patch.position ?? current.position,
       body: patch.body ?? current.body,
       // A new body with no format named, on an item still stored as plain text,
@@ -1463,13 +1544,13 @@ export class Store {
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
-      next.title, next.context, next.options, next.recommended, next.choice, next.status, next.kind, next.section, next.blockedBy, next.position,
+      next.title, next.context, next.options, next.recommended, next.choice, next.status, next.kind, next.section, next.blockedBy, next.dueAt, next.priority, next.position,
       next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', opts.session || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
-        `UPDATE items SET title = ?, context = ?, options = ?, recommended = ?, choice = ?, status = ?, kind = ?, section = ?, blocked_by = ?, position = ?,
+        `UPDATE items SET title = ?, context = ?, options = ?, recommended = ?, choice = ?, status = ?, kind = ?, section = ?, blocked_by = ?, due_at = ?, priority = ?, position = ?,
            body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1
          WHERE id = ?${guard}`
       )

@@ -11,6 +11,15 @@
   with no recommendation, QA with no steps or unmarked steps, blocked items that
   do not say why — so each project's agent can tidy its own items after an
   update (`wb audit`, contract v17).
+- Items can carry a due date and a priority (P1, P2, P3), both optional. They
+  show on each row and on the item page, where both can be set or cleared; the
+  add-item form takes them too. A live item's due date is highlighted by how
+  close it is: overdue, due within 3 days, within 7 days, within 30 days, each
+  in its own style in both themes. Finished work shows its date plainly. A
+  project can now group its open work by due date or by priority, and order
+  rows by either. Setting or passing a due date never changes an item's
+  status. A badly written date is refused with a message saying the format to
+  use. Existing boards and backups open unchanged (contract v18).
 - A decision now shows which answer the agent recommends: that button carries
   a "Recommended" tag and a heavier border, instead of the agent writing
   "(Recommended)" into the answer text. Agents are expected to name at least one

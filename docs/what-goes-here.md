@@ -77,6 +77,18 @@ reference number ascending, so the list reads top to bottom and does not
 reshuffle as you reply down it. The default `activity` puts newest first, which
 is what you want while a board is a feed rather than a queue.
 
+### Deadlines and priorities, if the board is a to-do list
+
+`dueAt` (`"2026-10-31"`, a day, never a time) and `priority` (`p1`-`p3`) are
+plain optional fields on any item. A personal to-do list, or a decision that
+has to be made by a date, is the case they are for. Neither moves a status: a
+deadline passing makes the row louder, not different. `{"groupBy":"due"}`
+splits Open into Overdue / within 3, 7 and 30 days / later / no date, and
+`{"groupBy":"priority"}` into P1-P3 / none; `{"sortBy":"due"}` or
+`{"sortBy":"priority"}` orders rows inside any grouping. Put a date on an item
+only when the person gave one: an invented deadline reads exactly like a real
+one, and the board will shout about it.
+
 ### Sections, if you want the board grouped by area of work instead
 
 Fully supported, and the right answer for some work — an agency board where the

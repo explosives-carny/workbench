@@ -241,3 +241,35 @@ describe('wb settings', () => {
     expect(result.stderr).toContain('needs a value');
   });
 });
+
+describe('wb due / wb priority', () => {
+  test('set, show and clear a due date and a priority without moving the status', async () => {
+    const before = store.resolveItem('WB-DEMO-2')!.status;
+    const due = await wb('due', 'WB-DEMO-2', '2026-10-31');
+    expect(due.code).toBe(0);
+    expect(due.stdout).toContain('due: 2026-10-31');
+    const prio = await wb('priority', 'wb-demo-2', 'P1');
+    expect(prio.code).toBe(0);
+    expect(prio.stdout).toContain('priority: p1');
+    const item = store.resolveItem('WB-DEMO-2')!;
+    expect([item.dueAt, item.priority, item.status]).toEqual(['2026-10-31', 'p1', before]);
+
+    const shown = await wb('show', 'WB-DEMO-2');
+    expect(shown.stdout).toContain('due:     2026-10-31');
+    expect(shown.stdout).toContain('priority: p1');
+    const board = await wb('board', 'demo', '--all');
+    expect(board.stdout).toContain('p1  due 2026-10-31');
+
+    expect((await wb('due', 'WB-DEMO-2', 'none')).code).toBe(0);
+    expect((await wb('priority', 'WB-DEMO-2', 'none')).code).toBe(0);
+    const cleared = store.resolveItem('WB-DEMO-2')!;
+    expect([cleared.dueAt, cleared.priority]).toEqual([null, null]);
+  });
+
+  test('a malformed date is refused with what to send, and nothing changes', async () => {
+    const result = await wb('due', 'WB-DEMO-2', '31/10/2026');
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('YYYY-MM-DD');
+    expect(store.resolveItem('WB-DEMO-2')!.dueAt).toBeNull();
+  });
+});

@@ -167,6 +167,7 @@ function row(i: any): string {
   return [
     `${label(i)}  ${i.status.padEnd(14)} v${i.version}  by ${tag(i.updatedBy || '-', i.updatedSession)}  ${i.updatedAt}  id ${i.id}`,
     `  ${i.title}`,
+    i.dueAt || i.priority ? `  ${[i.priority, i.dueAt ? `due ${i.dueAt}` : null].filter(Boolean).join('  ')}` : null,
     i.choice ? `  choice: ${i.choice}` : null,
     `  last: ${lastLine}`,
   ].filter(Boolean).join('\n');
@@ -185,12 +186,15 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb claim <id|ref> [<text>]               set in-progress with your name and say what you are about to do
   wb status <id|ref> <status>              change the status (reads the version, retries once on 409)
   wb block <id|ref> <what it waits on>     set status blocked and blockedBy (reads the version, retries once on 409)
+  wb due <id|ref> <YYYY-MM-DD|none>        set or clear the due date (status is untouched)
+  wb priority <id|ref> <p1|p2|p3|none>     set or clear the priority, p1 most urgent (status is untouched)
   wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
   wb export [dir]                          write one JSON per project to the content directory
   wb archive <slug>                        archive a project (its colour frees for reuse)
   wb restore <slug>                        restore an archived project (reclaims its colour if still free)
   wb project <slug> [flags]                print the project, or set any subset of:
-                                              --group section|status|move   --sort activity|ref
+                                              --group section|status|move|due|priority
+                                              --sort activity|ref|due|priority
                                               --color '#rrggbb'             --name <name>
                                               --description <text>         --key <KEY>
                                               --section-mode adhoc|declared --sections a,b,c
@@ -280,6 +284,8 @@ async function main() {
       `id:      ${i.id}`,
       `title:   ${i.title}`,
       i.labels?.length ? `labels:  ${i.labels.join(', ')}` : null,
+      i.dueAt ? `due:     ${i.dueAt}` : null,
+      i.priority ? `priority: ${i.priority}` : null,
       i.options?.length ? `options: ${i.options.join(' | ')}` : null,
       i.recommended?.length ? `recommended: ${i.recommended.join(' | ')}` : null,
       i.choice ? `choice:  ${i.choice}` : null,
@@ -342,6 +348,20 @@ async function main() {
     const blockedBy = args.slice(1).join(' ') || fail('say what it is waiting on: an item ref, a PR, or "deploy of X"');
     const item = await patchItem(id, { status: 'blocked', blockedBy }, await actor(flags));
     out(flags, `${item.status} v${item.version}  ${item.title}  blocked by: ${item.blockedBy}`, item);
+    return;
+  }
+
+  // Due date and priority are plain fields, not moves: neither changes the
+  // status, so these go through the same versioned PATCH as everything else
+  // and leave the item where it is. "none" (or "-") clears; the server refuses
+  // anything that is not YYYY-MM-DD or p1/p2/p3 and says which shape to send.
+  if (cmd === 'due' || cmd === 'priority') {
+    const id = args[0] || fail(`usage: wb ${cmd} <id|ref> ${cmd === 'due' ? '<YYYY-MM-DD|none>' : '<p1|p2|p3|none>'}`);
+    const raw = args[1] || fail(cmd === 'due' ? 'give a date as YYYY-MM-DD, or none to clear it' : 'give p1, p2 or p3, or none to clear it');
+    const value = ['none', '-', 'null'].includes(raw.toLowerCase()) ? null : raw;
+    const field = cmd === 'due' ? 'dueAt' : 'priority';
+    const item = await patchItem(id, { [field]: value }, await actor(flags));
+    out(flags, `${label(item)}  ${cmd}: ${item[field] ?? 'none'}  ${item.status} v${item.version}  ${item.title}`, item);
     return;
   }
 

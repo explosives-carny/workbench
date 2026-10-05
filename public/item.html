@@ -42,7 +42,9 @@
   const pendingResult = {};
 
   function sig() {
+    // The viewer's today is part of it so the due chip re-bands at midnight.
     return JSON.stringify([
+      WB.localToday(), item.dueAt, item.priority,
       item.ref, item.version, item.status, item.choice, (item.messages || []).length, item.body.length,
       (item.checks || []).map((c) => c.id + c.result + c.note).join('|'),
     ]);
@@ -367,7 +369,9 @@
       sel.appendChild(o);
     }
     sel.addEventListener('change', () => setStatus(sel.value));
-    bar.append(lbl, sel);
+    // Due date and priority beside the status: plain fields, saved on change,
+    // and neither one moves the status.
+    bar.append(lbl, sel, WB.planControls(item, setPlan));
     card.appendChild(bar);
 
     const saved = document.createElement('div');
@@ -387,7 +391,8 @@
     const s = sig();
     if (!force && s === lastSig) return;
     const live = document.activeElement;
-    if (live && (live.id === 'ta-main' || live.classList.contains('ck-note'))) {
+    // A date being picked is held the same way: a repaint mid-pick would drop it.
+    if (live && (live.id === 'ta-main' || live.classList.contains('ck-note') || live.classList.contains('plan-date'))) {
       clearTimeout(deferred);
       deferred = setTimeout(() => paint(true), 2500);
       return;
@@ -433,6 +438,12 @@
     const host = document.getElementById('labels');
     host.innerHTML = '';
     const current = item.labels || [];
+    // Priority and due date head the row of chips under the title: the two
+    // facts about an item a to-do list is read for.
+    const prio = WB.priorityChip(item.priority);
+    if (prio) host.appendChild(prio);
+    const due = WB.dueChip(item, WB.localToday());
+    if (due) host.appendChild(due);
     for (const label of current) {
       const chip = document.createElement('span');
       chip.className = 'lr-label mono';
@@ -510,6 +521,11 @@
   async function setStatus(status) {
     note('saving…');
     try { await WB.patch('/api/items/' + itemId, { status }); await load(); note('saved'); }
+    catch (e) { note(e.message, true); }
+  }
+  async function setPlan(patch) {
+    note('saving…');
+    try { await WB.patch('/api/items/' + itemId, patch); await load(); note('saved'); }
     catch (e) { note(e.message, true); }
   }
   async function send() {

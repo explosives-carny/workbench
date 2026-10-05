@@ -60,9 +60,11 @@ describe('project settings panel (public/project.html)', () => {
     );
   });
 
-  it('hides the Add-item Section box for status AND move, not status alone', () => {
+  // Every grouping except section has no section headings (status, move, and
+  // since v18 due and priority), so the box would file into something unseen.
+  it('hides the Add-item Section box for every grouping but section', () => {
     expect(projectHtml).toContain(
-      "document.getElementById('isection').hidden = project.groupBy === 'status' || project.groupBy === 'move';"
+      "document.getElementById('isection').hidden = project.groupBy !== 'section';"
     );
   });
 

@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v17.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `17`,
+**Contract v18.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `18`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -54,13 +54,15 @@ wb reply <id> "…"                                  POST /api/items/<id>/messag
 wb reply <id> "Landed: …" --status complete        …same, with "status" — a reply that FINISHES work must carry one
 wb status <id> <status>                            PATCH /api/items/<id> {"status":"…","actor":"<you>","ifVersion":N}
 wb block <id|ref> "what it waits on"               PATCH /api/items/<id> {"status":"blocked","blockedBy":"…","actor":"<you>","ifVersion":N}
+wb due <id|ref> 2026-10-31|none                    PATCH /api/items/<id> {"dueAt":"2026-10-31"}   — null clears; never moves the status
+wb priority <id|ref> p1|p2|p3|none                 PATCH /api/items/<id> {"priority":"p1"}        — null clears; never moves the status
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
                                                    — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
 wb export                                          bun run export — the server also exports on its own after every change
 wb archive <slug>                                  PATCH /api/projects/<slug> {"archived":true,"actor":"<you>"}
 wb restore <slug>                                  PATCH /api/projects/<slug> {"archived":false,"actor":"<you>"} — reclaims its colour if still free
 wb project <slug>                                  GET  /api/projects/<slug> — prints name, key, groupBy, sortBy, sectionMode, color, sections, repos
-wb project <slug> --group s|status|move --sort activity|ref --color '#…' --name … --description … --key … --section-mode adhoc|declared --sections a,b --repos a,b
+wb project <slug> --group s|status|move|due|priority --sort activity|ref|due|priority --color '#…' --name … --description … --key … --section-mode adhoc|declared --sections a,b --repos a,b
                                                    PATCH /api/projects/<slug> {…whichever flags were given…} — any subset, one call
 wb settings                                        GET  /api/settings — prints every key, including its onboarding default when unset
 wb settings --default-project <slug> --backup-plan … --auto-capture --check-in-on-start --post-findings --summarise-on-exit --agent-name tool=name
@@ -503,13 +505,38 @@ like a duplicate of one in use — case, punctuation, a trailing plural — come
 back as a `warning` on the write, naming the existing label: reuse it, or merge
 the two. Repairs: `PATCH …/labels` and `PATCH …/sections` `{"from","to","actor"}`
 (empty `to` removes a label). `project.groupBy`
-(`status`, the default, `section`, or `move` — Open split into Your move /
-With your agent / Waiting on something), `project.sortBy` (`activity`, the
-default, newest first; or `ref` to order every group by reference number
-ascending) and `project.sectionMode` (`adhoc`
+(`status`, the default, `section`, `move` — Open split into Your move /
+With your agent / Waiting on something — or `due` / `priority`, Open split by
+due band or P1/P2/P3; see **Due dates and priority**), `project.sortBy`
+(`activity`, the default, newest first; `ref` to order every group by
+reference number ascending; `due`, earliest due date first; `priority`, p1
+first) and `project.sectionMode` (`adhoc`
 warns on near-duplicates, `declared` refuses unlisted sections) are the
 human's calls; never switch them yourself. No good fit → leave `section`
 empty. Reasoning and failure modes: `docs/what-goes-here.md`.
+
+### Due dates and priority
+
+Two optional item fields, for a board used as a to-do list or a decision with
+a deadline. Both are settable on create and by `PATCH /api/items/<id>`, come
+back on every item and list row, and round-trip through export and import.
+
+- `dueAt` — a calendar day, `"YYYY-MM-DD"` (`"2026-10-31"`), not a timestamp:
+  "due on the 31st" must not depend on whose clock reads it. Anything else —
+  a date-time, `"10/31/2026"`, `"2026-02-30"` — is a `400` saying the shape to
+  send. `null` (or `""`) clears it.
+- `priority` — `"p1"` (most urgent), `"p2"`, `"p3"`, or `null` for none;
+  matched case-insensitively. Anything else is a `400`.
+
+Neither touches status or any rule above: a due date passing does not move
+an item, and a status change leaves both alone. Left out of a write, they keep
+their value. The board highlights a live item's due date
+by band relative to the viewer's today — overdue, within 3, 7 and 30 days —
+and `groupBy: "due"` / `"priority"` split Open into those bands or P1/P2/P3
+the way `move` splits it by whose move (below Open nothing changes). The bands
+are computed on the page and never stored. Set these when the person gives a
+deadline or a priority; do not invent one, and do not change one they set
+without saying so in the thread (v18).
 
 ### Payload
 

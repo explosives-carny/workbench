@@ -32,6 +32,8 @@
           <option value="section">Section</option>
           <option value="status">Status</option>
           <option value="move">Whose move</option>
+          <option value="due">Due date</option>
+          <option value="priority">Priority</option>
         </select>
         <p class="hint">Which heading each row sits under on this board.</p>
 
@@ -39,8 +41,10 @@
         <select id="set-sortBy" data-field="sortBy">
           <option value="activity">Latest activity</option>
           <option value="ref">Reference number</option>
+          <option value="due">Due date</option>
+          <option value="priority">Priority</option>
         </select>
-        <p class="hint">Newest-first, or a stable queue ordered by reference number.</p>
+        <p class="hint">Newest-first, a stable queue by reference number, soonest due first, or most urgent first.</p>
       </fieldset>
 
       <fieldset>
@@ -111,6 +115,13 @@
       <input type="text" id="ititle" placeholder="What needs deciding or doing" aria-label="Item title" required>
       <input type="text" id="isection" placeholder="Section (optional)" aria-label="Section">
       <input type="text" id="ilabels" placeholder="Labels, comma separated (optional)" aria-label="Labels" list="labellist" autocomplete="off">
+      <input type="date" id="idue" aria-label="Due date (optional)" title="Due date (optional)">
+      <select id="ipriority" aria-label="Priority (optional)">
+        <option value="">No priority</option>
+        <option value="p1">P1</option>
+        <option value="p2">P2</option>
+        <option value="p3">P3</option>
+      </select>
       <datalist id="labellist"></datalist>
       <button type="submit">Add</button>
     </form>
@@ -140,6 +151,9 @@
   let items = [];
   // The project itself, for groupBy. Held rather than re-read per render.
   let project = null;
+  // The viewer's calendar day, refreshed with every signature check; due bands
+  // are measured from it.
+  let today = WB.localToday();
 
   // Project settings panel. Closed by default, remembered per project — a
   // setting nobody opens yet must not clutter the page, but somebody who opens
@@ -459,6 +473,21 @@
     { label: 'Archived', statuses: ['archived', 'complete', 'cancelled'] },
   ];
 
+  // `due` and `priority` grouping: Open divided by due band (relative to the
+  // viewer's today) or by priority, the way `move` divides it by whose move.
+  // Below Open nothing changes — the same Deferred / Documents / Archived tail
+  // as STATUS_GROUPS — because a finished item is never "overdue".
+  function planGroups(groupBy) {
+    const live = (i) => WB.LIVE_STATUSES.includes(i.status);
+    const head = groupBy === 'due'
+      ? WB.DUE_BANDS.map((b) => ({ label: b.label, match: (i) => live(i) && WB.dueBand(i.dueAt, today) === b.id }))
+          .concat([{ label: 'No due date', match: (i) => live(i) && !i.dueAt }])
+      : WB.PRIORITIES.map((p) => ({ label: WB.PRIORITY_LABELS[p], match: (i) => live(i) && i.priority === p }))
+          .concat([{ label: 'No priority', match: (i) => live(i) && !i.priority }]);
+    const tail = STATUS_GROUPS.slice(1).map((g) => ({ label: g.label, match: (i) => g.statuses.includes(i.status) }));
+    return head.concat(tail);
+  }
+
   function renderRow(item) {
     const wrap = document.createElement('div');
     wrap.className = 'rowwrap';
@@ -505,6 +534,13 @@
 
     const meta = document.createElement('div');
     meta.className = 'lr-meta';
+
+    // Priority and due date lead the meta cluster: on a to-do board they are
+    // what you scan the rows for. Both are absent (no empty chip) when unset.
+    const prio = WB.priorityChip(item.priority);
+    if (prio) meta.appendChild(prio);
+    const due = WB.dueChip(item, today);
+    if (due) meta.appendChild(due);
 
     // A document behind the row is worth saying so, because the row cannot show
     // it and the only way in is to open the item.
@@ -713,7 +749,7 @@
       sel.appendChild(o);
     }
     sel.addEventListener('change', () => setStatus(item.id, sel.value));
-    bar.append(lbl, sel);
+    bar.append(lbl, sel, WB.planControls(item, (patch) => setPlan(item.id, patch)));
     card.appendChild(bar);
 
     const saved = document.createElement('div');
@@ -742,10 +778,23 @@
     const byRef = (a, b) =>
       (a.seq ?? Infinity) - (b.seq ?? Infinity) ||
       String(a.createdAt).localeCompare(String(b.createdAt));
-    const rowOrder = project && project.sortBy === 'ref' ? byRef : byActivity;
+    // Due and priority orders fall back to activity on a tie, so two undated
+    // items still read newest first.
+    const sortBy = project && project.sortBy;
+    const rowOrder =
+      sortBy === 'ref' ? byRef
+      : sortBy === 'due' ? (a, b) => WB.byDue(a, b) || byActivity(a, b)
+      : sortBy === 'priority' ? (a, b) => WB.byPriority(a, b) || byActivity(a, b)
+      : byActivity;
+    const groupBy = project && project.groupBy;
+    if (groupBy === 'due' || groupBy === 'priority') {
+      return planGroups(groupBy)
+        .map((g) => ({ label: g.label, items: shown.filter(g.match).sort(rowOrder) }))
+        .filter((g) => g.items.length);
+    }
     const statusGroups =
-      project && project.groupBy === 'move' ? MOVE_GROUPS
-      : project && project.groupBy === 'status' ? STATUS_GROUPS
+      groupBy === 'move' ? MOVE_GROUPS
+      : groupBy === 'status' ? STATUS_GROUPS
       : null;
     if (statusGroups) {
       return statusGroups
@@ -803,13 +852,17 @@
   // nothing. Redrawing only on a real change removes that window entirely
   // instead of trying to dodge it.
   function signature() {
+    // `today` rides along so a board left open overnight re-bands its due
+    // dates at midnight even when nothing else changed.
+    today = WB.localToday();
     return JSON.stringify([
+      today,
       [...expanded].sort(),
       [...hidden].sort(),
       labelFilter,
       project && project.groupBy,
       project && project.sortBy,
-      items.map((i) => [i.id, i.ref, i.version, i.status, i.choice, i.title, i.context, i.section, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
+      items.map((i) => [i.id, i.ref, i.version, i.status, i.choice, i.title, i.context, i.section, i.dueAt, i.priority, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
         (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
     ]);
   }
@@ -829,7 +882,8 @@
 
   function doRender() {
     const live = document.activeElement;
-    const typing = live && live.tagName === 'TEXTAREA' && live.id && live.id.indexOf('ta-') === 0;
+    // A due date half-picked in an expanded row is held back the same way.
+    const typing = live && ((live.tagName === 'TEXTAREA' && live.id && live.id.indexOf('ta-') === 0) || live.classList.contains('plan-date'));
     if (typing) {
       clearTimeout(deferred);
       deferred = setTimeout(function () { doRender(); }, 2500);
@@ -856,7 +910,7 @@
     // headings, so the section box would file things somewhere nothing
     // displays. Hide it rather than keep a field whose value is invisible.
     project = data.project;
-    document.getElementById('isection').hidden = project.groupBy === 'status' || project.groupBy === 'move';
+    document.getElementById('isection').hidden = project.groupBy !== 'section';
     fillSettings(project);
     document.getElementById('pname').textContent = data.project.name;
     const keyEl = document.getElementById('pkey');
@@ -950,6 +1004,16 @@
     } catch (e) { note(id, e.message, true); }
   }
 
+  // Due date or priority from an expanded row. Neither moves the status.
+  async function setPlan(id, patch) {
+    note(id, 'saving…');
+    try {
+      await WB.patch('/api/items/' + id, patch);
+      await load();
+      note(id, 'saved');
+    } catch (e) { note(id, e.message, true); }
+  }
+
   async function send(id) {
     const text = (drafts[id] || '').trim();
     if (!text) return;
@@ -970,9 +1034,13 @@
       title,
       section: document.getElementById('isection').value.trim(),
       labels: document.getElementById('ilabels').value.split(',').map((l) => l.trim()).filter(Boolean),
+      dueAt: document.getElementById('idue').value || null,
+      priority: document.getElementById('ipriority').value || null,
     });
     document.getElementById('ititle').value = '';
     document.getElementById('ilabels').value = '';
+    document.getElementById('idue').value = '';
+    document.getElementById('ipriority').value = '';
     await load();
   });
 

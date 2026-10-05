@@ -11,6 +11,7 @@ import {
   Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
   ProjectKeyTaken, PROJECT_COLORS,
   isStatusAllowed, statusesFor, KINDS, defaultStatusFor, normaliseRecommended, CHECK_OWNERS,
+  isDueDate, normalisePriority, PRIORITIES,
   type Status, type ItemInput, type Project, type Kind,
 } from './db.ts';
 import { join } from 'path';
@@ -26,7 +27,7 @@ import {
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '17';
+export const CONTRACT_VERSION = '18';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -110,7 +111,7 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // caller believed the label had landed until the board looked wrong. Refusing
 // would break older writers sending fields since retired; naming the drop is
 // enough for a writer to notice and fix itself.
-const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
+const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'dueAt', 'priority', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
 const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
 const CHECK_FIELDS = new Set(['result', 'note', 'owner', 'actor', 'by', 'session']);
 
@@ -183,6 +184,18 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
   if (Array.isArray(body.checks) && body.checks.some((c: any) => c?.owner !== undefined && c.owner !== '' && !CHECK_OWNERS.includes(c.owner))) {
     throw new Error('check owner must be human or agent');
   }
+  // A due date is a calendar day, and a malformed one is refused rather than
+  // dropped: a deadline the writer believes they set and the board silently
+  // discarded is the worst outcome a deadline field can have. null (or "")
+  // clears it.
+  if (body.dueAt !== undefined && body.dueAt !== null && body.dueAt !== '' && !isDueDate(body.dueAt)) {
+    throw new Error(
+      `dueAt must be a calendar date written YYYY-MM-DD, e.g. "2026-10-31", or null to clear it; got ${JSON.stringify(body.dueAt)}`
+    );
+  }
+  if (body.priority !== undefined && body.priority !== null && body.priority !== '' && !normalisePriority(body.priority)) {
+    throw new Error(`priority must be one of ${PRIORITIES.join(', ')} (p1 is the most urgent), or null to clear it; got ${JSON.stringify(body.priority)}`);
+  }
   if (body.bodyFormat !== undefined && !['text', 'markdown', 'html'].includes(body.bodyFormat)) {
     throw new Error('bodyFormat must be text, markdown or html');
   }
@@ -208,6 +221,9 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     status: asStatus(body.status),
     section: typeof body.section === 'string' ? body.section : undefined,
     blockedBy: typeof body.blockedBy === 'string' ? body.blockedBy : undefined,
+    // Left out → unchanged; null or "" → cleared (validated above).
+    dueAt: body.dueAt === undefined ? undefined : (body.dueAt === null || body.dueAt === '' ? null : body.dueAt),
+    priority: body.priority === undefined ? undefined : (body.priority === null || body.priority === '' ? null : normalisePriority(body.priority)),
     kind: body.kind === undefined ? undefined : body.kind,
     // These were added to the store and forgotten here, so every document
     // imported as an empty one and the API cheerfully reported success. A
@@ -472,11 +488,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (body.sections !== undefined && (!Array.isArray(body.sections) || body.sections.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'sections must be an array of strings');
           }
-          if (body.groupBy !== undefined && !['section', 'status', 'move'].includes(body.groupBy)) {
-            return badRequest(ctx, "groupBy must be 'section', 'status' or 'move'");
+          if (body.groupBy !== undefined && !['section', 'status', 'move', 'due', 'priority'].includes(body.groupBy)) {
+            return badRequest(ctx, "groupBy must be 'section', 'status', 'move', 'due' or 'priority'");
           }
-          if (body.sortBy !== undefined && !['activity', 'ref'].includes(body.sortBy)) {
-            return badRequest(ctx, "sortBy must be 'activity' or 'ref'");
+          if (body.sortBy !== undefined && !['activity', 'ref', 'due', 'priority'].includes(body.sortBy)) {
+            return badRequest(ctx, "sortBy must be 'activity', 'ref', 'due' or 'priority'");
           }
           if (body.repos !== undefined && (!Array.isArray(body.repos) || body.repos.some((x: unknown) => typeof x !== 'string'))) {
             return badRequest(ctx, 'repos must be an array of strings');

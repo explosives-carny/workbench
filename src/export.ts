@@ -83,6 +83,10 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
           kind: item.kind,
           section: item.section,
           blockedBy: item.blockedBy,
+          // An export from before these fields carries neither; the store
+          // reads a missing or malformed value as none rather than refusing.
+          dueAt: item.dueAt,
+          priority: item.priority,
           labels: item.labels,
           body: item.body,
           bodyFormat: item.bodyFormat,
@@ -125,8 +129,8 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
       const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string');
       take('sectionMode', ['adhoc', 'declared'].includes(rp.sectionMode));
       take('sections', strings(rp.sections));
-      take('groupBy', ['section', 'status', 'move'].includes(rp.groupBy));
-      take('sortBy', ['activity', 'ref'].includes(rp.sortBy));
+      take('groupBy', ['section', 'status', 'move', 'due', 'priority'].includes(rp.groupBy));
+      take('sortBy', ['activity', 'ref', 'due', 'priority'].includes(rp.sortBy));
       take('color', (PROJECT_COLORS as readonly string[]).includes(rp.color));
       if (Object.keys(layout).length) store.setProjectSections(project.slug, layout as any);
       // Archived last, so the colour above is set before archiving frees it,

@@ -31,6 +31,15 @@
   --gone-soft: #ececea;
   --ok: #216c43;         /* complete — green */
   --ok-soft: #e6f2ea;
+  /* Due bands, nearest first. Each is told apart by more than its hue — the
+     chip's words say the band, and overdue is the only filled one — so they
+     can sit near the status colours without being mistaken for one. */
+  --due-over: #b42318;   /* overdue — red, filled */
+  --due-3: #c2410c;      /* within 3 days — orange */
+  --due-3-soft: #fdecdf;
+  --due-7: #8a5c00;      /* within 7 days — amber */
+  --due-7-soft: #fbf1d6;
+  --due-30: #2f6f8f;     /* within 30 days — steel blue, outline only */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -51,9 +60,13 @@
     --live: #6ec4b8; --live-soft: #142826;
   --gone: #9aa0a8; --gone-soft: #24262a;
   --ok: #6fc292; --ok-soft: #17291f;
+    --due-over: #f2786b; --due-3: #f59e5b; --due-3-soft: #33200f;
+    --due-7: #e0b341; --due-7-soft: #2b2412; --due-30: #8cbad6;
   }
 }
 :root[data-theme="dark"] {
+  --due-over: #f2786b; --due-3: #f59e5b; --due-3-soft: #33200f;
+  --due-7: #e0b341; --due-7-soft: #2b2412; --due-30: #8cbad6;
   --ground: #17181a; --panel: #1f2124; --ink: #ecedee; --ink-2: #c9ccd0;
   --soft: #9aa0a8; --faint: #71767d; --rule: #32353a; --rule-2: #26282c;
   --accent: #e8825a; --accent-soft: #2e2019;
@@ -305,6 +318,32 @@ button.labelfilter:focus-visible { outline: 2px solid var(--accent); outline-off
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .lr-meta .chip { margin-left: 0; }
+
+/* Due date and priority chips. Same small mono chip as the status one, so the
+   row reads as one vocabulary. The due chip's band is in its words ("Overdue
+   2d", "Due in 5d") as well as its colour; overdue alone is filled, so the one
+   that needs action now is the heaviest thing on the row. A settled item
+   (done, deferred, a document) shows its date in grey. */
+.due, .prio {
+  font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+  padding: 2px 7px; border-radius: 3px; border: 1px solid currentColor; flex: none; line-height: 1.4;
+}
+.due.b-overdue { color: #fff; background: var(--due-over); border-color: var(--due-over); font-weight: 650; }
+.due.b-d3 { color: var(--due-3); background: var(--due-3-soft); font-weight: 600; }
+.due.b-d7 { color: var(--due-7); background: var(--due-7-soft); }
+.due.b-d30 { color: var(--due-30); background: transparent; }
+.due.b-later { color: var(--soft); background: transparent; border-color: var(--rule); }
+.due.b-settled { color: var(--faint); background: transparent; border-color: var(--rule); }
+/* Priority: p1 is solid ink, p2 an outline, p3 faint — urgency by weight, so
+   it never competes with the status and due colours. */
+.prio.p-p1 { color: var(--panel); background: var(--ink); border-color: var(--ink); font-weight: 650; }
+.prio.p-p2 { color: var(--ink-2); background: transparent; }
+.prio.p-p3 { color: var(--faint); background: transparent; border-color: var(--rule); }
+:root[data-theme="dark"] .due.b-overdue { color: #1b0f0d; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .due.b-overdue { color: #1b0f0d; }
+}
+.labelrow .due, .labelrow .prio { cursor: default; }
 @media (max-width: 620px) {
   /* The meta cluster (labels, time, author, status) moves to its own line
      under the title rather than squeezing it — the row's flex-wrap already
@@ -404,7 +443,7 @@ button[aria-pressed="true"] .rec-tag { background: rgba(255, 255, 255, .22); col
    for it. Without this the outline ran underneath the status control and looked
    clipped on every focus. */
 .replybox { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 14px; }
-textarea, input[type="text"], select {
+textarea, input[type="text"], input[type="date"], select {
   font: inherit; font-size: 14px; width: 100%; padding: 9px 11px; border-radius: 5px;
   border: 1px solid var(--rule); background: var(--ground); color: var(--ink);
 }
@@ -435,6 +474,11 @@ select.status.s-complete { color: var(--ok); background: var(--ok-soft); }
 
 .statusbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .statusbar .lbl { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+/* Due date and priority beside the status select, on the same line when it
+   fits and wrapping under it when it does not. */
+.planbar { display: inline-flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.planbar input[type="date"], .planbar select { width: auto; padding: 5px 9px; font-size: 13.5px; }
+.newproj input[type="date"], .newproj select { flex: 0 1 auto; width: auto; }
 
 footer {
   margin-top: 52px; border-top: 1px solid var(--rule); padding-top: 14px;
