@@ -44,6 +44,22 @@ describe('context and message mode (breaks)', () => {
   });
 });
 
+describe('lists, links and stray bytes', () => {
+  test('bullets nest by indent', () => {
+    expect(MD('- a\n  - detail\n- b', { breaks: true })).toBe('<ul><li>a<ul><li>detail</li></ul></li><li>b</li></ul>');
+  });
+  test('a bullet list nests inside a numbered step', () => {
+    expect(MD('1. one\n2. two\n   - sub')).toBe('<ol><li>one</li><li>two<ul><li>sub</li></ul></li></ol>');
+  });
+  test('a protocol-relative link is not an anchor', () => {
+    expect(MD('[x](//elsewhere.example)')).not.toContain('<a');
+    expect(MD('[x](/p/demo)')).toContain('<a href="/p/demo"');
+  });
+  test('a NUL byte in the text cannot break the render', () => {
+    expect(() => MD('a \0 7\0 b `c`', { breaks: true })).not.toThrow();
+  });
+});
+
 describe('document mode (default)', () => {
   test('a single newline only wraps the source, as Markdown does', () => {
     expect(MD('one\ntwo')).toBe('<p>one two</p>');
