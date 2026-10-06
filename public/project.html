@@ -144,6 +144,7 @@
     <a href="/agents.html">How agents use this</a>
   </footer>
 </div>
+<script src="/md.js"></script>
 <script src="/app.js"></script>
 <script src="/groups.js"></script>
 <script>
@@ -660,9 +661,10 @@
     card.appendChild(head);
 
     if (item.context) {
-      const ctx = document.createElement('p');
-      ctx.className = 'ctx';
-      ctx.textContent = item.context;
+      // Markdown, a newline is a line break (contract v20); md.js escapes first.
+      const ctx = document.createElement('div');
+      ctx.className = 'ctx md';
+      ctx.innerHTML = MD(item.context, { breaks: true });
       card.appendChild(ctx);
     }
 
@@ -682,8 +684,9 @@
         const who = document.createElement('div');
         who.className = 'who';
         who.textContent = m.who === 'you' ? 'You' : (m.author || 'Agent') + (m.session ? '·' + m.session : '');
-        const p = document.createElement('p');
-        p.textContent = m.text;
+        const p = document.createElement('div');
+        p.className = 'md';
+        p.innerHTML = MD(m.text, { breaks: true });
         const when = document.createElement('div');
         when.className = 'when';
         when.textContent = WB.fmt(m.createdAt);
@@ -701,7 +704,8 @@
       for (const o of item.options) {
         const b = document.createElement('button');
         b.type = 'button';
-        b.textContent = o;
+        // Inline formatting only; the value sent on click is the raw option text.
+        b.innerHTML = MD.inline(o);
         // The agent's recommendation, marked by the board rather than written
         // into the option text (which would end up in `choice` when clicked).
         if ((item.recommended || []).includes(o)) {
