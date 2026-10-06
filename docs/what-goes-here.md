@@ -594,6 +594,16 @@ They may open this hours later, on a phone, having forgotten the conversation.
 - Recommend something. "Here are four options" moves the work to them; "B,
   because X, unless you care about Y" leaves them a decision rather than a
   research task. Put B in `recommended` and the because in the context.
+- Format for the page. Context, replies and document bodies render as Markdown:
+  lead with one sentence, then short paragraphs, lists and tables. A single
+  2,000-character paragraph is a wall, and the board warns about it.
+- An option stands on its own. Never "the table above" or "see below": name the
+  thing, and keep what it cites in the context, formatted. Over about 1,500
+  characters of reference goes in a document.
+- The failure this answers (2026-10-06): a decision about which review outcomes
+  post an adjustment arrived as one paragraph of pipes and asterisks, and its
+  recommended option pointed at "the table above". The person: "I never want to
+  see this kind of unformatted response again."
 - Say what it costs to be wrong. That is usually the only thing that determines
   how long they think about it.
 - Do not write "let me know if you have questions." They know.
