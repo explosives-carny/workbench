@@ -53,6 +53,17 @@ describe('create', () => {
     expect(warned(await create({ context: 'short' }))).not.toContain('paragraph');
     expect(warned(await create({ context: wall.replace(/ /g, '\n') }))).not.toContain('paragraph');
   });
+  test('one newline in front of a wall does not hide it', async () => {
+    const res = await create({ context: `Lead.\n${wall}` });
+    expect(warned(res)).toContain(`context has a ${wall.length}-character paragraph`);
+  });
+  test('a wide table row is not a wall', async () => {
+    const row = `| ${'cell '.repeat(50)} | ${'cell '.repeat(50)} |`;
+    expect(warned(await create({ context: `Lead.\n\n| a | b |\n|---|---|\n${row}` }))).not.toContain('paragraph');
+  });
+  test('the escaped-newline check names the field', async () => {
+    expect(warned(await create({ context: 'a\\nb\\nc' }))).toContain('context contains literal');
+  });
   test('escaped newlines warn only when twice and no real newline', async () => {
     expect(warned(await create({ context: 'a\\nb\\nc' }))).toContain('literal "\\n"');
     expect(warned(await create({ context: 'a\\nb' }))).not.toContain('literal');
@@ -89,7 +100,7 @@ describe('patch', () => {
     expect(warned(ctx)).toContain('character paragraph');
     expect(warned(ctx)).not.toContain('points');
     const opts = await api('PATCH', `/api/items/${id}`, { options: ['A below', 'B'], recommended: ['B'] });
-    expect(warned(opts)).toContain('points "above"');
+    expect(warned(opts)).toContain('points "below"');
     expect(opts.json.item.options).toEqual(['A below', 'B']);
   });
 });

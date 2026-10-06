@@ -117,9 +117,16 @@ export function unownedStepsWarning(item: { kind: Kind; status: Status; checks: 
 // Formatting (AGENTS.md rule 12, contract v20). Context, messages and bodies
 // render as Markdown, so one long paragraph with a table squashed into it shows
 // as a wall of pipes. Warned, never refused: the text is still the record.
+// Judged per line, not on the whole text: one newline in front of a
+// 2,000-character paragraph is still a wall. Table rows are exempt; a wide
+// table is formatted already.
+export const WALL_LIMIT = 400;
 export function wallOfTextWarning(field: string, text: string | undefined): string | undefined {
-  if (!text || text.length <= 400 || /\n/.test(text)) return undefined;
-  return `${field} is one ${text.length}-character paragraph — it renders as Markdown: break it into short paragraphs, a list or a table`;
+  if (!text) return undefined;
+  const longest = text.split('\n').filter((l) => !l.trim().startsWith('|')).reduce((n, l) => Math.max(n, l.trim().length), 0);
+  if (longest <= WALL_LIMIT) return undefined;
+  const one = !/\n/.test(text);
+  return `${field} ${one ? 'is one' : 'has a'} ${longest}-character paragraph — it renders as Markdown: break it into short paragraphs, a list or a table`;
 }
 
 // Two or more literal backslash-n pairs and no real break: the writer
@@ -146,7 +153,8 @@ export function pointerOptionWarnings(options: string[] | undefined, context: st
   const opts = options || [];
   const pointer = opts.find((o) => /\b(above|below)\b/i.test(o));
   if (pointer) {
-    out.push({ rule: 'option-points-elsewhere', message: `option "${pointer}" points "above" — an option is read on its own, apart from the context; name what it means (for example "the posting table") and keep that content in the context` });
+    const word = pointer.match(/\b(above|below)\b/i)![1].toLowerCase();
+    out.push({ rule: 'option-points-elsewhere', message: `option "${pointer}" points "${word}" — an option is read on its own, apart from the context; name what it means (for example "the posting table") and keep that content in the context` });
   }
   const tabled = opts.find((o) => /\btable\b/i.test(o));
   if (tabled && !hasMarkdownTable(context) && !hasMarkdownTable(body)) {
