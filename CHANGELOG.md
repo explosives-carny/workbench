@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Decision explanations and replies now show formatted (lists, tables, bold),
+  and the board warns agents who write a wall of text or an option that points
+  at "the table above"; the audit lists the same (contract v20).
 - Items waiting on QA now say who does it: each step is marked for a person
   or an agent, and the board shows the item as Human QA, Agent QA or Mixed QA,
   with each step tagged. The QA filter counts each kind, and the "whose move"

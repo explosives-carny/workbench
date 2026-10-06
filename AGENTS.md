@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v19.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `19`,
+**Contract v20.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `20`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -145,6 +145,11 @@ understood — usually a typo).
     `key`, every item on it has a `ref` — say `WB-DEMO-14`, never the UUID and
     never a truncated one. Fall back to the UUID's first eight characters only
     when the project has no key at all. See **References** below.
+12. **Write for the page.** Context, messages and document bodies render as
+    Markdown. Lead with one sentence, then short paragraphs, bullet lists and
+    tables. A wall of text is a warning. An option stands on its own — never
+    "the table above"; what an option cites is in the context, formatted. See
+    **Formatting** below.
 
 **When they correct you against this contract, keep the correction.** A
 correction is a fact about how you work, and it is the one fact most likely to
@@ -601,6 +606,55 @@ as an issue.
   changes nothing on it. If the session is scoped to that project, or the
   person asked about it, the report may add one line: the refs that are
   overdue or due within 3 days.
+
+### Formatting — what the page renders (v20)
+
+`context`, every message and a `markdown` body render as Markdown on the item
+page and the project page: headings, bold, italic, `code`, links (http/https or
+board paths only), bullet and numbered lists, tables (a header row plus a
+`|---|` separator row), quotes and fenced code. HTML is escaped, never
+rendered. A single newline in a context or message is a line break, as in a
+chat reply; a document body joins lines into paragraphs as Markdown does.
+
+The shape of a decision context:
+
+```markdown
+Which review outcomes should post an adjustment?
+
+- **What:** two outcomes can post today; the third waits for a person.
+- **Why:** posting without review has twice written a wrong count.
+
+| Outcome | Posts? | Reviewed by |
+|---|---|---|
+| Matches | No | n/a |
+| Differs | Yes | A person |
+
+**Recommendation:** B — post only reviewed differences.
+**Cost of being wrong:** one wrong adjustment, reversible in a minute.
+```
+
+- **Options** are short, self-contained, and the answer itself. Inline Markdown
+  is allowed. Never positional ("above", "below", "the table"): name the thing.
+- Over about 1,500 characters of reference material goes in a document
+  (`kind:"document"`, `bodyFormat:"markdown"`), with its ref linked from the
+  context.
+
+The write still lands; the warning rides in `warning`/`warnings`, and the audit
+lists live items that break the same rules.
+
+| Warning | Trigger | Fix |
+|---|---|---|
+| Wall of text | `context` or an agent message over 400 characters with no newline | Short paragraphs, a list or a table |
+| Escaped newlines | two or more literal `\n` and no real line break | Send real line breaks |
+| Pointer option | an option says "above" or "below" | Name what it means; keep that content in the context |
+| Table option | an option names a table and no Markdown table is in the context or body | Put the table in the context, formatted |
+
+Why: on 2026-10-06 a 2,128-character decision context with a nine-row table and
+bulleted reasons was shown as one paragraph of pipes and asterisks, and its
+recommended option pointed at "the table above". The person: "I never want to
+see this kind of unformatted response again." Under "When the contract version
+moves" nothing changes; the audit now also lists formatting findings, so v20
+makes every session clean up its own walls.
 
 ### Payload
 
