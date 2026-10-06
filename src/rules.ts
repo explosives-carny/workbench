@@ -118,12 +118,19 @@ export function unownedStepsWarning(item: { kind: Kind; status: Status; checks: 
 // render as Markdown, so one long paragraph with a table squashed into it shows
 // as a wall of pipes. Warned, never refused: the text is still the record.
 // Judged per line, not on the whole text: one newline in front of a
-// 2,000-character paragraph is still a wall. Table rows are exempt; a wide
-// table is formatted already.
+// 2,000-character paragraph is still a wall. Table rows and fenced code are
+// exempt; a wide table or a long log line is formatted already.
 export const WALL_LIMIT = 400;
 export function wallOfTextWarning(field: string, text: string | undefined): string | undefined {
   if (!text) return undefined;
-  const longest = text.split('\n').filter((l) => !l.trim().startsWith('|')).reduce((n, l) => Math.max(n, l.trim().length), 0);
+  let fenced = false;
+  let longest = 0;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('```')) { fenced = !fenced; continue; }
+    if (fenced || line.startsWith('|')) continue;
+    longest = Math.max(longest, line.length);
+  }
   if (longest <= WALL_LIMIT) return undefined;
   const one = !/\n/.test(text);
   return `${field} ${one ? 'is one' : 'has a'} ${longest}-character paragraph — it renders as Markdown: break it into short paragraphs, a list or a table`;
@@ -151,12 +158,18 @@ function hasMarkdownTable(text: string | undefined): boolean {
 export function pointerOptionWarnings(options: string[] | undefined, context: string | undefined, body: string | undefined): { rule: string; message: string }[] {
   const out: { rule: string; message: string }[] = [];
   const opts = options || [];
-  const pointer = opts.find((o) => /\b(above|below)\b/i.test(o));
+  // Positional only: "the table above;", "(see below)". A comparison —
+  // "falls below 10", "raise the cap above 500" — is the answer itself.
+  const POINTER = /\bsee\s+(above|below)\b|\b(above|below)\b(?=\s*(?:[).,;:\u2014\u2013-]|$))/i;
+  const pointer = opts.find((o) => POINTER.test(o));
   if (pointer) {
-    const word = pointer.match(/\b(above|below)\b/i)![1].toLowerCase();
+    const m = pointer.match(POINTER)!;
+    const word = (m[1] || m[2]).toLowerCase();
     out.push({ rule: 'option-points-elsewhere', message: `option "${pointer}" points "${word}" — an option is read on its own, apart from the context; name what it means (for example "the posting table") and keep that content in the context` });
   }
-  const tabled = opts.find((o) => /\btable\b/i.test(o));
+  // Only a table the option points at: "drop the users table" is about a
+  // table, not a reference to one in this item.
+  const tabled = opts.find((o) => /\btable\b/i.test(o) && POINTER.test(o));
   if (tabled && !hasMarkdownTable(context) && !hasMarkdownTable(body)) {
     out.push({ rule: 'option-names-missing-table', message: `option "${tabled}" names a table, but this item has no Markdown table in its context or body` });
   }

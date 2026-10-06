@@ -644,10 +644,10 @@ lists live items that break the same rules.
 
 | Warning | Trigger | Fix |
 |---|---|---|
-| Wall of text | a paragraph over 400 characters in `context` or an agent message (table rows excepted) | Short paragraphs, a list or a table |
+| Wall of text | any line — paragraph, bullet or heading — over 400 characters in `context` or an agent message (table rows and fenced code excepted) | Short paragraphs, a list or a table |
 | Escaped newlines | two or more literal `\n` and no real line break | Send real line breaks |
-| Pointer option | an option says "above" or "below" | Name what it means; keep that content in the context |
-| Table option | an option names a table and no Markdown table is in the context or body | Put the table in the context, formatted |
+| Pointer option | an option points by position: "(see below)", "the table above;" — not a comparison like "below 10" | Name what it means; keep that content in the context |
+| Table option | an option points at a table and no Markdown table is in the context or body | Put the table in the context, formatted |
 
 Why: on 2026-10-06 a 2,128-character decision context with a nine-row table and
 bulleted reasons was shown as one paragraph of pipes and asterisks, and its

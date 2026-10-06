@@ -76,10 +76,24 @@ describe('create', () => {
     expect(warned(await create({ options: ['A', 'B'], recommended: ['A'] }))).not.toContain('points');
   });
   test('table option needs a Markdown table in context or body', async () => {
-    const bare = await create({ options: ['Use the table', 'B'], recommended: ['B'] });
+    const bare = await create({ options: ['Use the table above', 'B'], recommended: ['B'] });
     expect(warned(bare)).toContain('names a table, but this item has no Markdown table');
-    const ok = await create({ context: `x\n${TABLE}`, options: ['Use the table', 'B'], recommended: ['B'] });
+    const ok = await create({ context: `x\n${TABLE}`, options: ['Use the table above', 'B'], recommended: ['B'] });
     expect(warned(ok)).not.toContain('names a table');
+  });
+  test('comparisons and talk about a table are not pointers', async () => {
+    const res = await create({ options: ['Alert when stock falls below 10', 'Raise the cap above 500', 'Drop the users table'], recommended: ['Drop the users table'] });
+    expect(warned(res)).not.toContain('points');
+    expect(warned(res)).not.toContain('names a table');
+  });
+  test('positional forms are caught', async () => {
+    for (const o of ['A (see below)', 'Per the list above.', 'A. Adjust where it is wrong (the table above); holds post nothing']) {
+      expect(warned(await create({ options: [o, 'B'], recommended: ['B'] }))).toContain('points');
+    }
+  });
+  test('a long line inside fenced code is not a wall', async () => {
+    const res = await create({ context: `Log:\n\`\`\`\n${wall}\n\`\`\`` });
+    expect(warned(res)).not.toContain('paragraph');
   });
   test('batch create warns per item', async () => {
     const res = await api('POST', '/api/projects/demo/items', [{ title: 'One', context: wall }, { title: 'Two' }]);
