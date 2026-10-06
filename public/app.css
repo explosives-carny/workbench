@@ -422,7 +422,7 @@ pre.doc {
   font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
   color: var(--faint); margin-bottom: 3px;
 }
-.msg p { margin: 0; font-size: 14px; color: var(--ink-2); white-space: pre-wrap; }
+.msg > p { margin: 0; font-size: 14px; color: var(--ink-2); white-space: pre-wrap; }
 .msg .when { font-family: var(--mono); font-size: 10px; color: var(--faint); margin-top: 3px; }
 
 .opts { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 11px; }
@@ -501,37 +501,53 @@ footer {
 /* A long unbroken token (a URL, a route path in inline code, a token name) is
    wider than a phone. Without this the article grows past its column and the
    whole page scrolls sideways; tables already scroll inside .tablewrap. */
-.mddoc { overflow-wrap: anywhere; }
-.mddoc code { overflow-wrap: anywhere; }
-.mddoc h1 { font-size: 26px; margin: 34px 0 10px; }
-.mddoc h2 { font-size: 20px; margin: 30px 0 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
-.mddoc h3 { font-size: 16px; margin: 22px 0 6px; }
-.mddoc h4 { font-size: 14px; margin: 18px 0 6px; color: var(--soft); }
-.mddoc p { margin: 0 0 13px; }
-.mddoc ul, .mddoc ol { margin: 0 0 13px; padding-left: 22px; }
-.mddoc li { margin-bottom: 5px; }
-.mddoc code {
+:is(.mddoc, .md) { overflow-wrap: anywhere; }
+:is(.mddoc, .md) code { overflow-wrap: anywhere; }
+:is(.mddoc, .md) h1 { font-size: 26px; margin: 34px 0 10px; }
+:is(.mddoc, .md) h2 { font-size: 20px; margin: 30px 0 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
+:is(.mddoc, .md) h3 { font-size: 16px; margin: 22px 0 6px; }
+:is(.mddoc, .md) h4 { font-size: 14px; margin: 18px 0 6px; color: var(--soft); }
+:is(.mddoc, .md) p { margin: 0 0 13px; }
+:is(.mddoc, .md) ul, :is(.mddoc, .md) ol { margin: 0 0 13px; padding-left: 22px; }
+:is(.mddoc, .md) li { margin-bottom: 5px; }
+:is(.mddoc, .md) code {
   font-family: var(--mono); font-size: .88em; background: var(--rule-2);
   padding: 1px 5px; border-radius: 3px;
 }
-.mddoc pre {
+:is(.mddoc, .md) pre {
   background: var(--panel); border: 1px solid var(--rule); border-radius: 5px;
   padding: 13px 15px; overflow-x: auto; margin: 0 0 15px;
 }
-.mddoc pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.55; }
-.mddoc blockquote {
+:is(.mddoc, .md) pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.55; }
+:is(.mddoc, .md) blockquote {
   margin: 0 0 14px; padding: 2px 0 2px 14px; border-left: 3px solid var(--accent);
   color: var(--soft);
 }
-.mddoc hr { border: 0; border-top: 1px solid var(--rule); margin: 24px 0; }
-.mddoc .tablewrap { overflow-x: auto; margin: 0 0 16px; border: 1px solid var(--rule); border-radius: 5px; }
-.mddoc table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
-.mddoc th, .mddoc td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
-.mddoc th {
+:is(.mddoc, .md) hr { border: 0; border-top: 1px solid var(--rule); margin: 24px 0; }
+:is(.mddoc, .md) .tablewrap { overflow-x: auto; margin: 0 0 16px; border: 1px solid var(--rule); border-radius: 5px; }
+:is(.mddoc, .md) table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+:is(.mddoc, .md) th, :is(.mddoc, .md) td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+:is(.mddoc, .md) th {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
   color: var(--soft); font-weight: 500; background: var(--ground);
 }
 .mddoc tr:last-child td { border-bottom: 0; }
+
+/* Context and messages render the same Markdown as a document (v20), in a
+   tighter frame: they sit inside a card, so headings stay small and nothing
+   adds trailing space after the last block. */
+.md { overflow-wrap: anywhere; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 10px; }
+.md h1, .md h2, .md h3, .md h4 {
+  font-size: 14.5px; margin: 14px 0 6px; padding-top: 0; border-top: 0; color: var(--ink);
+}
+.md > :first-child { margin-top: 0; }
+.lede.md { max-width: 82ch; color: var(--ink-2); }
+.msg .md { font-size: 14px; color: var(--ink-2); }
+.msg .md p { margin: 0 0 8px; }
+.md li > ul, .md li > ol { margin: 4px 0 0; }
+.item .ctx.md { max-width: 82ch; }
 
 /* ---- settings panel ---- */
 /* A collapsed control by default: these are the human's calls (groupBy,
