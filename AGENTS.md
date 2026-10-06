@@ -644,7 +644,7 @@ lists live items that break the same rules.
 
 | Warning | Trigger | Fix |
 |---|---|---|
-| Wall of text | `context` or an agent message over 400 characters with no newline | Short paragraphs, a list or a table |
+| Wall of text | a paragraph over 400 characters in `context` or an agent message (table rows excepted) | Short paragraphs, a list or a table |
 | Escaped newlines | two or more literal `\n` and no real line break | Send real line breaks |
 | Pointer option | an option says "above" or "below" | Name what it means; keep that content in the context |
 | Table option | an option names a table and no Markdown table is in the context or body | Put the table in the context, formatted |
@@ -652,9 +652,9 @@ lists live items that break the same rules.
 Why: on 2026-10-06 a 2,128-character decision context with a nine-row table and
 bulleted reasons was shown as one paragraph of pipes and asterisks, and its
 recommended option pointed at "the table above". The person: "I never want to
-see this kind of unformatted response again." Under "When the contract version
-moves" nothing changes; the audit now also lists formatting findings, so v20
-makes every session clean up its own walls.
+see this kind of unformatted response again." The page renders it now; the
+warnings stop the next one at write time; and because `wb audit` lists the
+same findings, the move to v20 has every session reformat its own live items.
 
 ### Payload
 
