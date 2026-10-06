@@ -113,6 +113,53 @@ export function unownedStepsWarning(item: { kind: Kind; status: Status; checks: 
 }
 
 
+
+// Formatting (AGENTS.md rule 12, contract v20). Context, messages and bodies
+// render as Markdown, so one long paragraph with a table squashed into it shows
+// as a wall of pipes. Warned, never refused: the text is still the record.
+export function wallOfTextWarning(field: string, text: string | undefined): string | undefined {
+  if (!text || text.length <= 400 || /\n/.test(text)) return undefined;
+  return `${field} is one ${text.length}-character paragraph — it renders as Markdown: break it into short paragraphs, a list or a table`;
+}
+
+// Two or more literal backslash-n pairs and no real break: the writer
+// double-escaped, and the page would show the escapes instead of lines.
+export function escapedNewlineWarning(field: string, text: string | undefined): string | undefined {
+  if (!text || /\n/.test(text)) return undefined;
+  if ((text.match(/\\n/g) || []).length < 2) return undefined;
+  return `${field} contains literal "\\n" — send real line breaks; the escapes show on the page`;
+}
+
+function hasMarkdownTable(text: string | undefined): boolean {
+  if (!text) return false;
+  const lines = text.split('\n').map((l) => l.trim());
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (lines[i].startsWith('|') && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?$/.test(lines[i + 1]) && lines[i + 1].includes('|')) return true;
+  }
+  return false;
+}
+
+// An option is read on its own, so it cannot point at its neighbours. Returns
+// every finding; callers that want one warning take the first of each kind.
+export function pointerOptionWarnings(options: string[] | undefined, context: string | undefined, body: string | undefined): { rule: string; message: string }[] {
+  const out: { rule: string; message: string }[] = [];
+  const opts = options || [];
+  const pointer = opts.find((o) => /\b(above|below)\b/i.test(o));
+  if (pointer) {
+    out.push({ rule: 'option-points-elsewhere', message: `option "${pointer}" points "above" — an option is read on its own, apart from the context; name what it means (for example "the posting table") and keep that content in the context` });
+  }
+  const tabled = opts.find((o) => /\btable\b/i.test(o));
+  if (tabled && !hasMarkdownTable(context) && !hasMarkdownTable(body)) {
+    out.push({ rule: 'option-names-missing-table', message: `option "${tabled}" names a table, but this item has no Markdown table in its context or body` });
+  }
+  return out;
+}
+
+export function pointerOptionWarning(options: string[] | undefined, context: string | undefined, body: string | undefined): string | undefined {
+  const found = pointerOptionWarnings(options, context, body);
+  return found.length ? found.map((f) => f.message).join(' | ') : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Audit: the same rules, applied to what is already on the board.
 //
@@ -137,6 +184,9 @@ export function auditItem(item: Item): Finding[] {
   add('qa-unowned-steps', unownedStepsWarning(item));
   add('blocked-without-reason', blockedWithoutReason(item));
   add('title-reads-like-a-body', titleWarning(item));
+  add('context-wall-of-text', wallOfTextWarning('context', item.context));
+  add('context-escaped-newlines', escapedNewlineWarning('context', item.context));
+  for (const f of pointerOptionWarnings(item.options, item.context, item.body)) add(f.rule, f.message);
   return out;
 }
 

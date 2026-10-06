@@ -18,6 +18,7 @@ import { join } from 'path';
 import {
   blockedWithoutReason, titleWarning, recommendationRefusal, lacksRecommendation, MISSING_RECOMMENDATION,
   convertRecommendedSuffix, noOptionsWarning, recommendedInTextWarning, unownedStepsWarning, auditItems,
+  wallOfTextWarning, escapedNewlineWarning, pointerOptionWarning,
 } from './rules.ts';
 
 /**
@@ -27,7 +28,7 @@ import {
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '19';
+export const CONTRACT_VERSION = '20';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -705,6 +706,9 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           const askedForDecision = parsed[created.indexOf(item)]?.status === 'needs-decision';
           const optionsWarn = askedForDecision ? noOptionsWarning(item) : undefined;
           if (optionsWarn) warnings.push(parsed.length > 1 ? `"${item.title}": ${optionsWarn}` : optionsWarn);
+          for (const w of [wallOfTextWarning('context', item.context), escapedNewlineWarning('context', item.context), pointerOptionWarning(item.options, item.context, item.body)]) {
+            if (w) warnings.push(parsed.length > 1 ? `"${item.title}": ${w}` : w);
+          }
         }
         return json(ctx, withIgnored({ ok: true, items: created, ...(warnings.length ? { warnings } : {}) }, ignored), 201);
       }
@@ -785,6 +789,12 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (ownerWarn) warnings.push(ownerWarn);
           const optionsWarn = updated && (movesIntoDecision || patch.options !== undefined) ? noOptionsWarning(updated) : undefined;
           if (optionsWarn) warnings.push(optionsWarn);
+          if (updated) {
+            const sent: (string | undefined)[] = [];
+            if (patch.context !== undefined) sent.push(wallOfTextWarning('context', updated.context), escapedNewlineWarning('context', updated.context));
+            if (patch.options !== undefined) sent.push(pointerOptionWarning(updated.options, updated.context, updated.body));
+            for (const w of sent) if (w) warnings.push(w);
+          }
           return json(ctx, withIgnored({ ok: true, item: updated, ...(warnings.length ? { warning: warnings.join(' | ') } : {}) }, ignored));
         } catch (error) {
           if (error instanceof VersionConflict) {
@@ -884,8 +894,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           status,
         });
         const after = store.getItem(item.id)!;
+        // Only an agent is held to the format: a person types the way they type.
+        const formatWarnings = who === 'agent' ? [wallOfTextWarning('message', body.text), escapedNewlineWarning('message', body.text)] : [];
         const warnings = [
           finishedWithoutStatus(who, body.text, status, after.status),
+          ...formatWarnings,
           archivedProjectWarning(owner),
           reopensWithout ? `this decision has options and no recommended — PATCH /api/items/${item.id} {"recommended":["<one of the options>"]}` : undefined,
           // The message lands (it never conflicts), but a status this kind of
