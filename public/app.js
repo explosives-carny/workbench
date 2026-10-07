@@ -255,12 +255,18 @@ window.WB = (function () {
   const DUE_BANDED_STATUSES = ['todo'];
 
   // The bands, nearest first. `max` is the last day-count (from today) a band
-  // holds: overdue is anything before today, then within 3, 7 and 30 days.
+  // holds: overdue is anything before today, then today, tomorrow, the rest of
+  // the coming week (2 to 6 days out), and everything later. The near three
+  // are what a person acts on, so each gets its own look; "within 3 days" used
+  // to put today and the day after next in one band, and a to-do due today
+  // looked the same as one that could wait until Thursday. The week band is a
+  // rolling seven days, not the calendar week, so it means the same thing on
+  // a Friday as on a Monday.
   const DUE_BANDS = [
     { id: 'overdue', label: 'Overdue', max: -1 },
-    { id: 'd3', label: 'Due within 3 days', max: 3 },
-    { id: 'd7', label: 'Due within 7 days', max: 7 },
-    { id: 'd30', label: 'Due within 30 days', max: 30 },
+    { id: 'today', label: 'Due today', max: 0 },
+    { id: 'tomorrow', label: 'Due tomorrow', max: 1 },
+    { id: 'week', label: 'Due within a week', max: 6 },
     { id: 'later', label: 'Due later', max: Infinity },
   ];
 
@@ -333,9 +339,31 @@ window.WB = (function () {
     const band = live ? dueBand(item.dueAt, today) : 'settled';
     const chip = document.createElement('span');
     chip.className = 'due mono b-' + band;
-    chip.textContent = live ? dueText(item.dueAt, today) : 'Due ' + dueDateLabel(item.dueAt);
     chip.title = 'Due ' + dueDateLabel(item.dueAt, true) + ' (' + item.dueAt + ')';
+    // Overdue carries a mark as well as its colour and fill, so the one that
+    // is late reads as late in greyscale and to anybody who cannot tell red
+    // from orange. The mark is decoration; the words still say "Overdue".
+    if (band === 'overdue') {
+      const mark = document.createElement('span');
+      mark.className = 'due-mark';
+      mark.setAttribute('aria-hidden', 'true');
+      mark.textContent = '!';
+      chip.appendChild(mark);
+    }
+    chip.appendChild(document.createTextNode(live ? dueText(item.dueAt, today) : 'Due ' + dueDateLabel(item.dueAt)));
     return chip;
+  }
+
+  // The band a row is highlighted by, or null. Only an open to-do that is
+  // overdue, due today or due tomorrow: those three are what a person acts on,
+  // so the row's edge and tint carry them before the chip is read. A to-do due
+  // later in the week, or later still, leaves the row alone and lets the chip
+  // speak.
+  const ROW_BANDS = ['overdue', 'today', 'tomorrow'];
+  function dueRowBand(item, today) {
+    if (!item || !item.dueAt || DUE_BANDED_STATUSES.indexOf(item.status) === -1) return null;
+    const band = dueBand(item.dueAt, today);
+    return ROW_BANDS.indexOf(band) === -1 ? null : band;
   }
 
   function priorityChip(priority) {
@@ -423,6 +451,7 @@ window.WB = (function () {
     dueBand,
     dueText,
     dueChip,
+    dueRowBand,
     priorityChip,
     byDue,
     byPriority,

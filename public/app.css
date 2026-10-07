@@ -31,15 +31,18 @@
   --gone-soft: #ececea;
   --ok: #216c43;         /* complete — green */
   --ok-soft: #e6f2ea;
-  /* Due bands, nearest first. Each is told apart by more than its hue — the
-     chip's words say the band, and overdue is the only filled one — so they
-     can sit near the status colours without being mistaken for one. */
-  --due-over: #b42318;   /* overdue — red, filled */
-  --due-3: #c2410c;      /* within 3 days — orange */
-  --due-3-soft: #fdecdf;
-  --due-7: #8a5c00;      /* within 7 days — amber */
-  --due-7-soft: #fbf1d6;
-  --due-30: #2f6f8f;     /* within 30 days — steel blue, outline only */
+  /* Due bands, nearest first. Each is told apart by more than its hue: the
+     chip's words say the band, overdue alone is filled and carries a "!",
+     and the row's left edge and tint mark only the three a person acts on
+     (overdue, today, tomorrow). That keeps them from being mistaken for a
+     status colour sitting nearby. */
+  --due-over: #b42318;       /* overdue — red, filled chip, tinted row */
+  --due-over-soft: #fcebea;
+  --due-today: #c2410c;      /* today — orange, bold chip, tinted row */
+  --due-today-soft: #fdecdf;
+  --due-tmrw: #8a5c00;       /* tomorrow — amber chip, row edge only */
+  --due-tmrw-soft: #fbf1d6;
+  --due-week: #2f6f8f;       /* within a week — steel blue, outline only */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -60,13 +63,13 @@
     --live: #6ec4b8; --live-soft: #142826;
   --gone: #9aa0a8; --gone-soft: #24262a;
   --ok: #6fc292; --ok-soft: #17291f;
-    --due-over: #f2786b; --due-3: #f59e5b; --due-3-soft: #33200f;
-    --due-7: #e0b341; --due-7-soft: #2b2412; --due-30: #8cbad6;
+    --due-over: #f2786b; --due-over-soft: #2f1a18; --due-today: #f59e5b; --due-today-soft: #33200f;
+    --due-tmrw: #e0b341; --due-tmrw-soft: #2b2412; --due-week: #8cbad6;
   }
 }
 :root[data-theme="dark"] {
-  --due-over: #f2786b; --due-3: #f59e5b; --due-3-soft: #33200f;
-  --due-7: #e0b341; --due-7-soft: #2b2412; --due-30: #8cbad6;
+  --due-over: #f2786b; --due-over-soft: #2f1a18; --due-today: #f59e5b; --due-today-soft: #33200f;
+  --due-tmrw: #e0b341; --due-tmrw-soft: #2b2412; --due-week: #8cbad6;
   --ground: #17181a; --panel: #1f2124; --ink: #ecedee; --ink-2: #c9ccd0;
   --soft: #9aa0a8; --faint: #71767d; --rule: #32353a; --rule-2: #26282c;
   --accent: #e8825a; --accent-soft: #2e2019;
@@ -325,19 +328,28 @@ button.labelfilter:focus-visible { outline: 2px solid var(--accent); outline-off
 
 /* Due date and priority chips. Same small mono chip as the status one, so the
    row reads as one vocabulary. The due chip's band is in its words ("Overdue
-   2d", "Due in 5d") as well as its colour; overdue alone is filled, so the one
-   that needs action now is the heaviest thing on the row. A settled item
-   (done, deferred, a document) shows its date in grey. */
+   2d", "Due today", "Due tomorrow", "Due in 5d") as well as its colour, and
+   the weight steps down with the urgency: overdue is filled and marked "!",
+   today is bold on a tint, tomorrow a tint, the week an outline, and anything
+   later is plain. A settled item (done, deferred, cancelled) shows its date
+   in grey. Filled text uses --panel, so it stays dark-on-light in dark mode
+   instead of white on a pale red. */
 .due, .prio {
   font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
   padding: 2px 7px; border-radius: 3px; border: 1px solid currentColor; flex: none; line-height: 1.4;
 }
-.due.b-overdue { color: #fff; background: var(--due-over); border-color: var(--due-over); font-weight: 650; }
-.due.b-d3 { color: var(--due-3); background: var(--due-3-soft); font-weight: 600; }
-.due.b-d7 { color: var(--due-7); background: var(--due-7-soft); }
-.due.b-d30 { color: var(--due-30); background: transparent; }
+.due.b-overdue { color: var(--panel); background: var(--due-over); border-color: var(--due-over); font-weight: 700; }
+.due-mark { display: inline-block; margin-right: 5px; font-weight: 800; }
+.due.b-today { color: var(--due-today); background: var(--due-today-soft); font-weight: 700; }
+.due.b-tomorrow { color: var(--due-tmrw); background: var(--due-tmrw-soft); font-weight: 600; }
+.due.b-week { color: var(--due-week); background: transparent; }
 .due.b-later { color: var(--soft); background: transparent; border-color: var(--rule); }
 .due.b-settled { color: var(--faint); background: transparent; border-color: var(--rule); }
+/* The row carries the near bands as well, by its left edge (the slot the
+   status colour uses on a board) and, for the two that are due now, a tint. */
+.listrow.s-todo.due-overdue { border-left: 5px solid var(--due-over); background: var(--due-over-soft); }
+.listrow.s-todo.due-today { border-left: 4px solid var(--due-today); background: var(--due-today-soft); }
+.listrow.s-todo.due-tomorrow { border-left: 3px solid var(--due-tmrw); }
 /* Priority: p1 is solid ink, p2 an outline, p3 faint — urgency by weight, so
    it never competes with the status and due colours. */
 .prio.p-p1 { color: var(--panel); background: var(--ink); border-color: var(--ink); font-weight: 650; }

@@ -507,6 +507,10 @@
 
     const a = document.createElement('div');
     a.className = 'listrow s-' + item.status + (expanded.has(item.id) ? ' open' : '');
+    // An open to-do's due band rides on the row too (edge and tint), so what
+    // is late or due today stands out before any chip is read.
+    const rowBand = isTodo() ? WB.dueRowBand(item, today) : null;
+    if (rowBand) a.classList.add('due-' + rowBand);
 
     // The disclosure is a real button so it is reachable by keyboard and
     // announces its state; the title beside it is a link to the item's own page,

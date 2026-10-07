@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- To-do lists tell overdue, today and tomorrow apart at a glance. Overdue is
+  a filled red chip marked "!" on a red-tinted row; due today is a bold orange
+  chip on an orange-tinted row; due tomorrow is an amber chip with an amber
+  row edge; due within the week is an outlined chip; anything later is plain.
+  The due layout groups by the same bands. Done, cancelled and deferred to-dos
+  show their date without any alarm. Nothing stored or sent changes.
+- The board has a favicon: a rust tile with a checked list, in the board's
+  own accent colour, with a lighter version for a dark browser.
+
 - Decision explanations and replies now show formatted (lists, tables, bold),
   and the board warns agents who write a wall of text or an option that points
   at "the table above"; the audit lists the same (contract v20).
