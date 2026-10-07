@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A to-do list sorted by due date now puts high priority before low among
+  to-dos due the same day, and among those with no date, the same order
+  `wb todos` already prints. Before, those ties fell back to most recent
+  activity.
 - To-do lists tell overdue, today and tomorrow apart at a glance. Overdue is
   a filled red chip marked "!" on a red-tinted row; due today is a bold orange
   chip on an orange-tinted row; due tomorrow is an amber chip with an amber
