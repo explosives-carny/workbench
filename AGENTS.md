@@ -551,7 +551,8 @@ above holds there unchanged.
   clears; left out keeps. On a board item either field is a `400` saying they
   belong to to-do projects; board items carry neither field at all.
 - **Dates never move a status.** The page highlights an open to-do by due band
-  against the viewer's today — overdue, within 3, 7 and 30 days — and
+  against the viewer's today — overdue, today, tomorrow, within a week (2 to
+  6 days out), later — and
   `groupBy`/`sortBy` take `due` and `priority` on a to-do project (a board
   refuses them). Bands are computed on the page, never stored.
 - **The mode changes only while the project holds no work.** Once it holds an

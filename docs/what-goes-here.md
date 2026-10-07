@@ -86,8 +86,12 @@ same place, rather than in a second tool they have to remember to open. So a
 project can be created with `"mode":"todo"`, and only that project behaves
 like a to-do list: its items are to-dos (`todo`, `deferred`, `complete`,
 `cancelled`), they can carry a due date (`"2026-10-31"`, a day, never a time)
-and a priority (`p1`-`p3`), and the page highlights what is overdue or due
-within 3, 7 or 30 days and can group or order by either.
+and a priority (`p1`-`p3`), and the page highlights what is overdue, due
+today, due tomorrow or due within the week, and can group or order by either.
+The near three are marked on the row as well as the chip. The first release
+banded by "within 3 days", which put a to-do due today in the same colour as
+one due the day after tomorrow, and the person asked for what is due tomorrow
+and what is past due to be told apart at a glance.
 
 Nothing about any other project changes. A board keeps whose-move statuses,
 refuses due dates and priorities, and never shows a to-do control. The rules
