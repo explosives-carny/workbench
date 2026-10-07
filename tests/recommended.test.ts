@@ -196,6 +196,26 @@ describe('changing an item', () => {
     expect(res.json.items[0].choice).toBe('B');
   });
 
+  // The choice sent in the write outranks the stored one (`input.choice ??
+  // currentChoice`): these two pin both sides of that precedence.
+  test('a PATCH that sends the suffixed text as its choice stores the plain text', async () => {
+    const project = store.getProject('demo')!;
+    const old = store.createItem(project.id, { title: 'Old', options: ['A', 'B (Recommended)'], choice: 'A', status: 'received' });
+    const res = await api('PATCH', `/api/items/${old.id}`, { options: ['A', 'B (Recommended)'], choice: 'B (Recommended)' });
+    expect(res.status).toBe(200);
+    expect(res.json.item.options).toEqual(['A', 'B']);
+    expect(res.json.item.choice).toBe('B');
+  });
+
+  test('a PATCH that sends a different choice keeps it over the stored suffixed answer', async () => {
+    const project = store.getProject('demo')!;
+    const old = store.createItem(project.id, { title: 'Old', options: ['A', 'B (Recommended)'], choice: 'B (Recommended)', status: 'received' });
+    const res = await api('PATCH', `/api/items/${old.id}`, { options: ['A', 'B (Recommended)'], choice: 'A' });
+    expect(res.status).toBe(200);
+    expect(res.json.item.options).toEqual(['A', 'B']);
+    expect(res.json.item.choice).toBe('A');
+  });
+
   test('turning a document with options into an issue is checked like a move into needs-decision', async () => {
     const project = store.getProject('demo')!;
     const doc = store.createItem(project.id, { title: 'Spec', kind: 'document', options: ['A', 'B'] });

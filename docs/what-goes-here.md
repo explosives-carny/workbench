@@ -86,8 +86,12 @@ same place, rather than in a second tool they have to remember to open. So a
 project can be created with `"mode":"todo"`, and only that project behaves
 like a to-do list: its items are to-dos (`todo`, `deferred`, `complete`,
 `cancelled`), they can carry a due date (`"2026-10-31"`, a day, never a time)
-and a priority (`p1`-`p3`), and the page highlights what is overdue or due
-within 3, 7 or 30 days and can group or order by either.
+and a priority (`p1`-`p3`), and the page highlights what is overdue, due
+today, due tomorrow or due within the week, and can group or order by either.
+The near three are marked on the row as well as the chip. The first release
+banded by "within 3 days", which put a to-do due today in the same colour as
+one due the day after tomorrow, and the person asked for what is due tomorrow
+and what is past due to be told apart at a glance.
 
 Nothing about any other project changes. A board keeps whose-move statuses,
 refuses due dates and priorities, and never shows a to-do control. The rules
@@ -594,6 +598,16 @@ They may open this hours later, on a phone, having forgotten the conversation.
 - Recommend something. "Here are four options" moves the work to them; "B,
   because X, unless you care about Y" leaves them a decision rather than a
   research task. Put B in `recommended` and the because in the context.
+- Format for the page. Context, replies and document bodies render as Markdown:
+  lead with one sentence, then short paragraphs, lists and tables. A single
+  2,000-character paragraph is a wall, and the board warns about it.
+- An option stands on its own. Never "the table above" or "see below": name the
+  thing, and keep what it cites in the context, formatted. Over about 1,500
+  characters of reference goes in a document.
+- The failure this answers (2026-10-06): a decision about which review outcomes
+  post an adjustment arrived as one paragraph of pipes and asterisks, and its
+  recommended option pointed at "the table above". The person: "I never want to
+  see this kind of unformatted response again."
 - Say what it costs to be wrong. That is usually the only thing that determines
   how long they think about it.
 - Do not write "let me know if you have questions." They know.

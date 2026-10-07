@@ -31,15 +31,18 @@
   --gone-soft: #ececea;
   --ok: #216c43;         /* complete — green */
   --ok-soft: #e6f2ea;
-  /* Due bands, nearest first. Each is told apart by more than its hue — the
-     chip's words say the band, and overdue is the only filled one — so they
-     can sit near the status colours without being mistaken for one. */
-  --due-over: #b42318;   /* overdue — red, filled */
-  --due-3: #c2410c;      /* within 3 days — orange */
-  --due-3-soft: #fdecdf;
-  --due-7: #8a5c00;      /* within 7 days — amber */
-  --due-7-soft: #fbf1d6;
-  --due-30: #2f6f8f;     /* within 30 days — steel blue, outline only */
+  /* Due bands, nearest first. Each is told apart by more than its hue: the
+     chip's words say the band, overdue alone is filled and carries a "!",
+     and the row's left edge and tint mark only the three a person acts on
+     (overdue, today, tomorrow). That keeps them from being mistaken for a
+     status colour sitting nearby. */
+  --due-over: #b42318;       /* overdue — red, filled chip, tinted row */
+  --due-over-soft: #fcebea;
+  --due-today: #c2410c;      /* today — orange, bold chip, tinted row */
+  --due-today-soft: #fdecdf;
+  --due-tmrw: #8a5c00;       /* tomorrow — amber chip, row edge only */
+  --due-tmrw-soft: #fbf1d6;
+  --due-week: #2f6f8f;       /* within a week — steel blue, outline only */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -60,13 +63,13 @@
     --live: #6ec4b8; --live-soft: #142826;
   --gone: #9aa0a8; --gone-soft: #24262a;
   --ok: #6fc292; --ok-soft: #17291f;
-    --due-over: #f2786b; --due-3: #f59e5b; --due-3-soft: #33200f;
-    --due-7: #e0b341; --due-7-soft: #2b2412; --due-30: #8cbad6;
+    --due-over: #f2786b; --due-over-soft: #2f1a18; --due-today: #f59e5b; --due-today-soft: #33200f;
+    --due-tmrw: #e0b341; --due-tmrw-soft: #2b2412; --due-week: #8cbad6;
   }
 }
 :root[data-theme="dark"] {
-  --due-over: #f2786b; --due-3: #f59e5b; --due-3-soft: #33200f;
-  --due-7: #e0b341; --due-7-soft: #2b2412; --due-30: #8cbad6;
+  --due-over: #f2786b; --due-over-soft: #2f1a18; --due-today: #f59e5b; --due-today-soft: #33200f;
+  --due-tmrw: #e0b341; --due-tmrw-soft: #2b2412; --due-week: #8cbad6;
   --ground: #17181a; --panel: #1f2124; --ink: #ecedee; --ink-2: #c9ccd0;
   --soft: #9aa0a8; --faint: #71767d; --rule: #32353a; --rule-2: #26282c;
   --accent: #e8825a; --accent-soft: #2e2019;
@@ -325,19 +328,28 @@ button.labelfilter:focus-visible { outline: 2px solid var(--accent); outline-off
 
 /* Due date and priority chips. Same small mono chip as the status one, so the
    row reads as one vocabulary. The due chip's band is in its words ("Overdue
-   2d", "Due in 5d") as well as its colour; overdue alone is filled, so the one
-   that needs action now is the heaviest thing on the row. A settled item
-   (done, deferred, a document) shows its date in grey. */
+   2d", "Due today", "Due tomorrow", "Due in 5d") as well as its colour, and
+   the weight steps down with the urgency: overdue is filled and marked "!",
+   today is bold on a tint, tomorrow a tint, the week an outline, and anything
+   later is plain. A settled item (done, deferred, cancelled) shows its date
+   in grey. Filled text uses --panel, so it stays dark-on-light in dark mode
+   instead of white on a pale red. */
 .due, .prio {
   font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
   padding: 2px 7px; border-radius: 3px; border: 1px solid currentColor; flex: none; line-height: 1.4;
 }
-.due.b-overdue { color: #fff; background: var(--due-over); border-color: var(--due-over); font-weight: 650; }
-.due.b-d3 { color: var(--due-3); background: var(--due-3-soft); font-weight: 600; }
-.due.b-d7 { color: var(--due-7); background: var(--due-7-soft); }
-.due.b-d30 { color: var(--due-30); background: transparent; }
+.due.b-overdue { color: var(--panel); background: var(--due-over); border-color: var(--due-over); font-weight: 700; }
+.due-mark { display: inline-block; margin-right: 5px; font-weight: 800; }
+.due.b-today { color: var(--due-today); background: var(--due-today-soft); font-weight: 700; }
+.due.b-tomorrow { color: var(--due-tmrw); background: var(--due-tmrw-soft); font-weight: 600; }
+.due.b-week { color: var(--due-week); background: transparent; }
 .due.b-later { color: var(--soft); background: transparent; border-color: var(--rule); }
 .due.b-settled { color: var(--faint); background: transparent; border-color: var(--rule); }
+/* The row carries the near bands as well, by its left edge (the slot the
+   status colour uses on a board) and, for the two that are due now, a tint. */
+.listrow.s-todo.due-overdue { border-left: 5px solid var(--due-over); background: var(--due-over-soft); }
+.listrow.s-todo.due-today { border-left: 4px solid var(--due-today); background: var(--due-today-soft); }
+.listrow.s-todo.due-tomorrow { border-left: 3px solid var(--due-tmrw); }
 /* Priority: p1 is solid ink, p2 an outline, p3 faint — urgency by weight, so
    it never competes with the status and due colours. */
 .prio.p-p1 { color: var(--panel); background: var(--ink); border-color: var(--ink); font-weight: 650; }
@@ -422,7 +434,7 @@ pre.doc {
   font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
   color: var(--faint); margin-bottom: 3px;
 }
-.msg p { margin: 0; font-size: 14px; color: var(--ink-2); white-space: pre-wrap; }
+.msg > p { margin: 0; font-size: 14px; color: var(--ink-2); white-space: pre-wrap; }
 .msg .when { font-family: var(--mono); font-size: 10px; color: var(--faint); margin-top: 3px; }
 
 .opts { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 11px; }
@@ -501,37 +513,53 @@ footer {
 /* A long unbroken token (a URL, a route path in inline code, a token name) is
    wider than a phone. Without this the article grows past its column and the
    whole page scrolls sideways; tables already scroll inside .tablewrap. */
-.mddoc { overflow-wrap: anywhere; }
-.mddoc code { overflow-wrap: anywhere; }
-.mddoc h1 { font-size: 26px; margin: 34px 0 10px; }
-.mddoc h2 { font-size: 20px; margin: 30px 0 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
-.mddoc h3 { font-size: 16px; margin: 22px 0 6px; }
-.mddoc h4 { font-size: 14px; margin: 18px 0 6px; color: var(--soft); }
-.mddoc p { margin: 0 0 13px; }
-.mddoc ul, .mddoc ol { margin: 0 0 13px; padding-left: 22px; }
-.mddoc li { margin-bottom: 5px; }
-.mddoc code {
+:is(.mddoc, .md) { overflow-wrap: anywhere; }
+:is(.mddoc, .md) code { overflow-wrap: anywhere; }
+:is(.mddoc, .md) h1 { font-size: 26px; margin: 34px 0 10px; }
+:is(.mddoc, .md) h2 { font-size: 20px; margin: 30px 0 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
+:is(.mddoc, .md) h3 { font-size: 16px; margin: 22px 0 6px; }
+:is(.mddoc, .md) h4 { font-size: 14px; margin: 18px 0 6px; color: var(--soft); }
+:is(.mddoc, .md) p { margin: 0 0 13px; }
+:is(.mddoc, .md) ul, :is(.mddoc, .md) ol { margin: 0 0 13px; padding-left: 22px; }
+:is(.mddoc, .md) li { margin-bottom: 5px; }
+:is(.mddoc, .md) code {
   font-family: var(--mono); font-size: .88em; background: var(--rule-2);
   padding: 1px 5px; border-radius: 3px;
 }
-.mddoc pre {
+:is(.mddoc, .md) pre {
   background: var(--panel); border: 1px solid var(--rule); border-radius: 5px;
   padding: 13px 15px; overflow-x: auto; margin: 0 0 15px;
 }
-.mddoc pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.55; }
-.mddoc blockquote {
+:is(.mddoc, .md) pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.55; }
+:is(.mddoc, .md) blockquote {
   margin: 0 0 14px; padding: 2px 0 2px 14px; border-left: 3px solid var(--accent);
   color: var(--soft);
 }
-.mddoc hr { border: 0; border-top: 1px solid var(--rule); margin: 24px 0; }
-.mddoc .tablewrap { overflow-x: auto; margin: 0 0 16px; border: 1px solid var(--rule); border-radius: 5px; }
-.mddoc table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
-.mddoc th, .mddoc td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
-.mddoc th {
+:is(.mddoc, .md) hr { border: 0; border-top: 1px solid var(--rule); margin: 24px 0; }
+:is(.mddoc, .md) .tablewrap { overflow-x: auto; margin: 0 0 16px; border: 1px solid var(--rule); border-radius: 5px; }
+:is(.mddoc, .md) table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+:is(.mddoc, .md) th, :is(.mddoc, .md) td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+:is(.mddoc, .md) th {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
   color: var(--soft); font-weight: 500; background: var(--ground);
 }
 .mddoc tr:last-child td { border-bottom: 0; }
+
+/* Context and messages render the same Markdown as a document (v20), in a
+   tighter frame: they sit inside a card, so headings stay small and nothing
+   adds trailing space after the last block. */
+.md { overflow-wrap: anywhere; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 10px; }
+.md h1, .md h2, .md h3, .md h4 {
+  font-size: 14.5px; margin: 14px 0 6px; padding-top: 0; border-top: 0; color: var(--ink);
+}
+.md > :first-child { margin-top: 0; }
+.lede.md { max-width: 82ch; color: var(--ink-2); }
+.msg .md { font-size: 14px; color: var(--ink-2); }
+.msg .md p { margin: 0 0 8px; }
+.md li > ul, .md li > ol { margin: 4px 0 0; }
+.item .ctx.md { max-width: 82ch; }
 
 /* ---- settings panel ---- */
 /* A collapsed control by default: these are the human's calls (groupBy,

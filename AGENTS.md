@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v19.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `19`,
+**Contract v20.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `20`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -145,6 +145,11 @@ understood — usually a typo).
     `key`, every item on it has a `ref` — say `WB-DEMO-14`, never the UUID and
     never a truncated one. Fall back to the UUID's first eight characters only
     when the project has no key at all. See **References** below.
+12. **Write for the page.** Context, messages and document bodies render as
+    Markdown. Lead with one sentence, then short paragraphs, bullet lists and
+    tables. A wall of text is a warning. An option stands on its own — never
+    "the table above"; what an option cites is in the context, formatted. See
+    **Formatting** below.
 
 **When they correct you against this contract, keep the correction.** A
 correction is a fact about how you work, and it is the one fact most likely to
@@ -546,7 +551,8 @@ above holds there unchanged.
   clears; left out keeps. On a board item either field is a `400` saying they
   belong to to-do projects; board items carry neither field at all.
 - **Dates never move a status.** The page highlights an open to-do by due band
-  against the viewer's today — overdue, within 3, 7 and 30 days — and
+  against the viewer's today — overdue, today, tomorrow, within a week (2 to
+  6 days out), later — and
   `groupBy`/`sortBy` take `due` and `priority` on a to-do project (a board
   refuses them). Bands are computed on the page, never stored.
 - **The mode changes only while the project holds no work.** Once it holds an
@@ -601,6 +607,55 @@ as an issue.
   changes nothing on it. If the session is scoped to that project, or the
   person asked about it, the report may add one line: the refs that are
   overdue or due within 3 days.
+
+### Formatting — what the page renders (v20)
+
+`context`, every message and a `markdown` body render as Markdown on the item
+page and the project page: headings, bold, italic, `code`, links (http/https or
+board paths only), bullet and numbered lists, tables (a header row plus a
+`|---|` separator row), quotes and fenced code. HTML is escaped, never
+rendered. A single newline in a context or message is a line break, as in a
+chat reply; a document body joins lines into paragraphs as Markdown does.
+
+The shape of a decision context:
+
+```markdown
+Which review outcomes should post an adjustment?
+
+- **What:** two outcomes can post today; the third waits for a person.
+- **Why:** posting without review has twice written a wrong count.
+
+| Outcome | Posts? | Reviewed by |
+|---|---|---|
+| Matches | No | n/a |
+| Differs | Yes | A person |
+
+**Recommendation:** B — post only reviewed differences.
+**Cost of being wrong:** one wrong adjustment, reversible in a minute.
+```
+
+- **Options** are short, self-contained, and the answer itself. Inline Markdown
+  is allowed. Never positional ("above", "below", "the table"): name the thing.
+- Over about 1,500 characters of reference material goes in a document
+  (`kind:"document"`, `bodyFormat:"markdown"`), with its ref linked from the
+  context.
+
+The write still lands; the warning rides in `warning`/`warnings`, and the audit
+lists live items that break the same rules.
+
+| Warning | Trigger | Fix |
+|---|---|---|
+| Wall of text | any line — paragraph, bullet or heading — over 400 characters in `context` or an agent message (table rows and fenced code excepted) | Short paragraphs, a list or a table |
+| Escaped newlines | two or more literal `\n` and no real line break | Send real line breaks |
+| Pointer option | an option points by position: "(see below)", "the table above;" — not a comparison like "below 10" | Name what it means; keep that content in the context |
+| Table option | an option points at a table and no Markdown table is in the context or body | Put the table in the context, formatted |
+
+Why: on 2026-10-06 a 2,128-character decision context with a nine-row table and
+bulleted reasons was shown as one paragraph of pipes and asterisks, and its
+recommended option pointed at "the table above". The person: "I never want to
+see this kind of unformatted response again." The page renders it now; the
+warnings stop the next one at write time; and because `wb audit` lists the
+same findings, the move to v20 has every session reformat its own live items.
 
 ### Payload
 

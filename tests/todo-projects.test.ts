@@ -436,17 +436,62 @@ describe('due bands and ordering on the page (public/app.js)', () => {
   const WB = win.WB;
   const TODAY = '2026-10-04';
 
-  test('bands by whole days from today: overdue, 3, 7, 30, later', () => {
+  test('bands by whole days from today: overdue, today, tomorrow, within a week, later', () => {
     const cases: [string, string][] = [
       ['2025-12-31', 'overdue'], ['2026-10-03', 'overdue'],
-      ['2026-10-04', 'd3'], ['2026-10-07', 'd3'],
-      ['2026-10-08', 'd7'], ['2026-10-11', 'd7'],
-      ['2026-10-12', 'd30'], ['2026-11-03', 'd30'],
-      ['2026-11-04', 'later'],
+      ['2026-10-04', 'today'],
+      ['2026-10-05', 'tomorrow'],
+      ['2026-10-06', 'week'], ['2026-10-10', 'week'],
+      ['2026-10-11', 'later'], ['2027-01-01', 'later'],
     ];
     for (const [due, band] of cases) expect([due, WB.dueBand(due, TODAY)]).toEqual([due, band]);
     expect(WB.dueBand(null, TODAY)).toBeNull();
     expect(WB.dueBand('garbage', TODAY)).toBeNull();
+  });
+
+  // The boundaries the highlight is judged on. Each is a day either side of
+  // an edge, so a band that moved by one day fails here.
+  describe('due state at each boundary', () => {
+    const at = (h: number, m = 0) => WB.localToday(new Date(2026, 9, 7, h, m));
+    test('yesterday is overdue by 1 day, today is today, tomorrow is tomorrow', () => {
+      expect([WB.dueBand('2026-10-06', '2026-10-07'), WB.dueText('2026-10-06', '2026-10-07')]).toEqual(['overdue', 'Overdue 1d']);
+      expect([WB.dueBand('2026-10-07', '2026-10-07'), WB.dueText('2026-10-07', '2026-10-07')]).toEqual(['today', 'Due today']);
+      expect([WB.dueBand('2026-10-08', '2026-10-07'), WB.dueText('2026-10-08', '2026-10-07')]).toEqual(['tomorrow', 'Due tomorrow']);
+    });
+    test('+6 days is still within a week; +7 is later', () => {
+      expect([WB.dueBand('2026-10-13', '2026-10-07'), WB.dueText('2026-10-13', '2026-10-07')]).toEqual(['week', 'Due in 6d']);
+      expect([WB.dueBand('2026-10-14', '2026-10-07'), WB.dueText('2026-10-14', '2026-10-07')]).toEqual(['later', 'Due in 7d']);
+    });
+    test('midnight: one minute either side moves today, and the band with it', () => {
+      expect(at(0, 0)).toBe('2026-10-07');
+      expect(at(23, 59)).toBe('2026-10-07');
+      expect(WB.dueBand('2026-10-07', at(23, 59))).toBe('today');
+      const nextMorning = WB.localToday(new Date(2026, 9, 8, 0, 0));
+      expect(nextMorning).toBe('2026-10-08');
+      expect(WB.dueBand('2026-10-07', nextMorning)).toBe('overdue');
+      expect(WB.dueBand('2026-10-08', at(23, 59))).toBe('tomorrow');
+      expect(WB.dueBand('2026-10-08', nextMorning)).toBe('today');
+    });
+    test('across a month and a year end', () => {
+      expect(WB.dueBand('2026-11-01', '2026-10-31')).toBe('tomorrow');
+      expect(WB.dueBand('2026-12-31', '2027-01-01')).toBe('overdue');
+    });
+    test('no date has no band and no row highlight', () => {
+      expect(WB.dueBand(undefined, '2026-10-07')).toBeNull();
+      expect(WB.dueRowBand({ status: 'todo' }, '2026-10-07')).toBeNull();
+      expect(WB.dueRowBand({ status: 'todo', dueAt: null }, '2026-10-07')).toBeNull();
+    });
+    test('the row carries only the near bands: overdue, today, tomorrow', () => {
+      const row = (dueAt: string) => WB.dueRowBand({ status: 'todo', dueAt }, '2026-10-07');
+      expect(['2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-13', '2026-10-14'].map(row))
+        .toEqual(['overdue', 'today', 'tomorrow', null, null, null]);
+    });
+    test('only an open to-do is highlighted: complete, cancelled and deferred get no alarm', () => {
+      expect(WB.dueRowBand({ status: 'todo', dueAt: '2026-10-01' }, '2026-10-07')).toBe('overdue');
+      for (const status of ['complete', 'cancelled', 'deferred']) {
+        expect([status, WB.dueRowBand({ status, dueAt: '2026-10-01' }, '2026-10-07')]).toEqual([status, null]);
+      }
+    });
   });
 
   test('counts calendar days across a daylight-saving change', () => {
@@ -496,14 +541,15 @@ describe('due bands and ordering on the page (public/app.js)', () => {
     expect(WB.statusesFor('todo')).toEqual(['todo', 'deferred', 'complete', 'cancelled']);
     expect(WB.statusesFor('issue')).not.toContain('todo');
     expect(WB.DUE_BANDED_STATUSES).toEqual(['todo']);
-    expect(WB.DUE_BANDS.map((b: any) => b.id)).toEqual(['overdue', 'd3', 'd7', 'd30', 'later']);
+    expect(WB.DUE_BANDS.map((b: any) => b.id)).toEqual(['overdue', 'today', 'tomorrow', 'week', 'later']);
   });
 
   // What the board and to-do pages actually draw is in tests/board-render.test.ts.
 
   test('every band has its own style, and every due token is set in each of the three theme blocks', () => {
     const css = readFileSync(new URL('../public/app.css', import.meta.url), 'utf8');
-    for (const band of ['overdue', 'd3', 'd7', 'd30', 'later', 'settled']) expect(css).toContain(`.due.b-${band}`);
+    for (const band of ['overdue', 'today', 'tomorrow', 'week', 'later', 'settled']) expect(css).toContain(`.due.b-${band}`);
+    for (const band of ['overdue', 'today', 'tomorrow']) expect(css).toContain(`.listrow.s-todo.due-${band}`);
     // The body of the first rule whose selector starts at `marker`.
     const block = (marker: string) => {
       const at = css.indexOf(marker);
@@ -517,7 +563,7 @@ describe('due bands and ordering on the page (public/app.js)', () => {
       forcedDark: block(':root[data-theme="dark"] {'),
     };
     for (const [name, body] of Object.entries(blocks)) {
-      for (const token of ['--due-over', '--due-3', '--due-3-soft', '--due-7', '--due-7-soft', '--due-30']) {
+      for (const token of ['--due-over', '--due-over-soft', '--due-today', '--due-today-soft', '--due-tmrw', '--due-tmrw-soft', '--due-week']) {
         expect([name, token, new RegExp(`${token}:`).test(body)]).toEqual([name, token, true]);
       }
     }

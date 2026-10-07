@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Workbench · item</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -16,7 +17,7 @@
       <span id="refslot"></span>
       <h1 id="title">…</h1>
     </div>
-    <p class="lede" id="ctx"></p>
+    <div class="lede md" id="ctx"></div>
     <p class="blocked-line" id="blocked" hidden></p>
     <div class="rule"></div>
   </header>
@@ -295,8 +296,9 @@
         const who = document.createElement('div');
         who.className = 'who';
         who.textContent = msg.who === 'you' ? 'You' : (msg.author || 'Agent') + (msg.session ? '·' + msg.session : '');
-        const p = document.createElement('p');
-        p.textContent = msg.text;
+        const p = document.createElement('div');
+        p.className = 'md';
+        p.innerHTML = MD(msg.text, { breaks: true });
         const when = document.createElement('div');
         when.className = 'when';
         when.textContent = WB.fmt(msg.createdAt);
@@ -314,7 +316,8 @@
       for (const o of item.options) {
         const b = document.createElement('button');
         b.type = 'button';
-        b.textContent = o;
+        // Inline formatting only; the value sent on click is the raw option text.
+        b.innerHTML = MD.inline(o);
         // The agent's recommendation, marked by the board rather than written
         // into the option text (which would end up in `choice` when clicked).
         if ((item.recommended || []).includes(o)) {
@@ -404,7 +407,9 @@
     const ref = WB.refChip(item.ref);
     if (ref) refslot.appendChild(ref);
     document.getElementById('title').textContent = item.title;
-    document.getElementById('ctx').textContent = item.context || '';
+    // Context is Markdown, written like a reply: a single newline is a line
+    // break (contract v20). md.js escapes everything before it formats.
+    document.getElementById('ctx').innerHTML = MD(item.context || '', { breaks: true });
     // Blocked by: the item key comes from this item's own ref (WB-<KEY>-<n>),
     // so only refs on this board are linked.
     const blockedEl = document.getElementById('blocked');

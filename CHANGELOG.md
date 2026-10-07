@@ -6,6 +6,18 @@
   to-dos due the same day, and among those with no date, the same order
   `wb todos` already prints. Before, those ties fell back to most recent
   activity.
+- To-do lists tell overdue, today and tomorrow apart at a glance. Overdue is
+  a filled red chip marked "!" on a red-tinted row; due today is a bold orange
+  chip on an orange-tinted row; due tomorrow is an amber chip with an amber
+  row edge; due within the week is an outlined chip; anything later is plain.
+  The due layout groups by the same bands. Done, cancelled and deferred to-dos
+  show their date without any alarm. Nothing stored or sent changes.
+- The board has a favicon: a rust tile with a checked list, in the board's
+  own accent colour, with a lighter version for a dark browser.
+
+- Decision explanations and replies now show formatted (lists, tables, bold),
+  and the board warns agents who write a wall of text or an option that points
+  at "the table above"; the audit lists the same (contract v20).
 - Items waiting on QA now say who does it: each step is marked for a person
   or an agent, and the board shows the item as Human QA, Agent QA or Mixed QA,
   with each step tagged. The QA filter counts each kind, and the "whose move"
