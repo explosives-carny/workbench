@@ -236,6 +236,47 @@ describe('secrets and home paths', () => {
     expect(text).not.toContain('someone');
     expect(text).toContain('_2 values that looked like a secret were replaced with [redacted]._');
   });
+
+  test('a secret longer than the cut, or straddling it, is redacted before the cut', () => {
+    const p = board();
+    const key = '-----BEGIN RSA PRIVATE KEY-----\n' + 'MIIEow'.repeat(300) + '\n-----END RSA PRIVATE KEY-----';
+    const token = 'ghp_' + 'Ab1'.repeat(12);
+    const item = store.createItem(p.id, { title: 'Key in the thread?', context: 'x'.repeat(BRIEF_LIMITS.section - 10) + ' ' + token });
+    store.addMessage(item.id, { who: 'agent', author: 'builder', text: key });
+    const text = briefOf(item.id);
+    expect(text).not.toContain('MIIEow');
+    expect(text).not.toContain('ghp_');
+    expect(text).not.toContain('Ab1Ab1');
+    expect(text).toContain('_2 values that looked like a secret were replaced with [redacted]._');
+    // A key block pasted without its END marker is redacted to the end.
+    expect(redactSecrets('-----BEGIN PRIVATE KEY-----\nMIIEvgIBADAN').text).toBe('[redacted]');
+  });
+
+  test('redaction runs in linear time on long runs any writer can store', () => {
+    for (const input of ['a-'.repeat(50_000), 'token'.repeat(20_000), 'Users/'.repeat(20_000), 'Basic '.repeat(20_000)]) {
+      const started = performance.now();
+      redactSecrets(shortenHomePaths(input));
+      expect(performance.now() - started).toBeLessThan(500);
+    }
+  });
+
+  test('prose is not mistaken for a credential, and a quoted password is taken whole', () => {
+    expect(redactSecrets('Basic responsibilities of the night shift').count).toBe(0);
+    expect(redactSecrets('Authorization: Basic ZGVwbG95OnMzY3JldHBhc3M=').text).toBe('Authorization: Basic [redacted]');
+    expect(redactSecrets('password: "hunter two words"').text).toBe('password: "[redacted]"');
+  });
+
+  test('a home path inside Markdown or a file URL loses the account name too', () => {
+    expect(shortenHomePaths('[/Users/someone/x] **/Users/someone/y** file:///Users/someone/z | /home/someone/q, ok'))
+      .toBe('[~/x] **~/y** file://~/z | ~/q, ok');
+    expect(shortenHomePaths('https://example.com/Users/someone/x')).toBe('https://example.com/Users/someone/x');
+  });
+
+  test('a cut never splits an emoji in half', () => {
+    const p = board();
+    const item = store.createItem(p.id, { title: 'Emoji at the edge?', context: 'x'.repeat(BRIEF_LIMITS.section - 1) + '🎆 tail' });
+    expect(briefOf(item.id)).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
 });
 
 describe('GET /api/items/<id-or-ref>/brief', () => {

@@ -422,7 +422,6 @@
     close.textContent = 'Close';
     close.addEventListener('click', () => { brief = null; paint(true); });
     box.append(msg, ta, close);
-    if (!brief.copied) setTimeout(() => { try { ta.focus(); ta.select(); } catch (e) { /* still readable */ } }, 0);
     return box;
   }
 
@@ -442,6 +441,12 @@
     brief = { text, copied };
     paint(true);
     note(copied ? 'brief copied' : 'copy it from the box below', !copied);
+    // Selected once, here: doing it in the panel would take focus away from
+    // whatever the reader is doing on every repaint after another session writes.
+    if (!copied) {
+      const ta = document.getElementById('brief-text');
+      if (ta) setTimeout(() => { try { ta.focus(); ta.select(); } catch (e) { /* still readable */ } }, 0);
+    }
   }
 
   function note(text, isErr) {

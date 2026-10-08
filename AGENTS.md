@@ -677,7 +677,9 @@ agent fetches never differ.
 - **What it leaves out:** the project's `repos`, the board's address, ids
   beyond the ref, and anything else about the installation. Values that look
   like credentials (API keys, tokens, `password=…`, `user:pass@` in a URL,
-  private keys) are replaced with `[redacted]` and counted in the footer, and
+  private keys) are replaced with `[redacted]` and counted in the footer (an
+  all-hex secret is caught only when its name says what it is, as in
+  `token=…`), and
   `/Users/<name>/` or `/home/<name>/` becomes `~/`. Long sections and messages
   are cut, and a thread over 12 messages keeps the first 2 and the newest 10.
 - **It reads, never writes.** Fetching a brief changes no status, version or

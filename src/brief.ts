@@ -50,50 +50,98 @@ const REDACTED = '[redacted]';
 // Specific vendor shapes first, then the generic `name = value` and long mixed
 // strings. A false positive costs a word in a brief; a false negative costs a
 // credential in somebody else's chat history, so the generic rules lean wide.
-const SECRET_PATTERNS: [RegExp, string][] = [
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, REDACTED],
-  [/\bsk-[A-Za-z0-9_-]{16,}/g, REDACTED],
-  [/\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}/g, REDACTED],
-  [/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/g, REDACTED],
-  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, REDACTED],
-  [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, REDACTED],
-  [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, REDACTED],
-  [/\bAIza[0-9A-Za-z_-]{35}/g, REDACTED],
-  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, REDACTED],
-  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}/gi, `$1 ${REDACTED}`],
-  // user:password@ in a URL keeps the user and the host.
-  [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+):[^\s@/]+@/gi, `$1:${REDACTED}@`],
+//
+// Every pattern must run in linear time: item text is written by any agent, and
+// a regex that backtracks over a long run blocks the server for every board.
+// The two generic rules therefore match a whole run once and decide in `keep`
+// whether it is a secret, instead of testing it with lookaheads at each start.
+type SecretRule = { re: RegExp; replace: (match: string, ...groups: string[]) => string | null };
+
+const always = (replacement: string): SecretRule['replace'] => () => replacement;
+const SECRET_NAME = /api[_-]?key|secret|token|passw(?:or)?d|pwd|access[_-]?key|private[_-]?key/i;
+
+const SECRET_RULES: SecretRule[] = [
+  // A key block with no END marker (pasted in part) is redacted to the end.
+  { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|[\s\S]*$)/g, replace: always(REDACTED) },
+  { re: /\bsk-[A-Za-z0-9_-]{16,}/g, replace: always(REDACTED) },
+  { re: /\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}/g, replace: always(REDACTED) },
+  { re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/g, replace: always(REDACTED) },
+  { re: /\bgithub_pat_[A-Za-z0-9_]{20,}/g, replace: always(REDACTED) },
+  { re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, replace: always(REDACTED) },
+  { re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, replace: always(REDACTED) },
+  { re: /\bAIza[0-9A-Za-z_-]{35}/g, replace: always(REDACTED) },
+  { re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, replace: always(REDACTED) },
+  { re: /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/gi, replace: (_m, word) => `${word} ${REDACTED}` },
+  // "Basic" is an ordinary word, so only a base64-looking value with a digit
+  // or padding in it counts ("Basic responsibilities" is prose).
+  { re: /\b(Basic)\s+([A-Za-z0-9+/]{16,}={0,2})(?![A-Za-z0-9+/=])/g, replace: (_m, word, value) => (/[0-9=]/.test(value) ? `${word} ${REDACTED}` : null) },
+  // user:password@ in a URL keeps the user and the host. The scheme starts only
+  // where a run of scheme characters starts (not `\b`, which also falls after
+  // every `-` and `.`, and would rescan the run from each one).
+  { re: /((?<![A-Za-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+):[^\s@/]+@/gi, replace: (_m, head) => `${head}:${REDACTED}@` },
   // api_key=…, "password": "…", ?access_token=…: the name stays, so the reader
-  // still knows a value was there.
-  [/\b([A-Za-z0-9_-]*(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|access[_-]?key|private[_-]?key)[A-Za-z0-9_-]*)(["']?\s*[:=]\s*)(["']?)([^\s"'&,;[]{6,})/gi, `$1$2$3${REDACTED}`],
+  // still knows a value was there. The name is taken as a whole run (the
+  // lookahead-and-backreference makes it atomic, so no backtracking into it)
+  // and checked for a secret-ish word afterwards. A quoted value is taken to
+  // its closing quote, spaces and all.
+  {
+    re: /(?<![A-Za-z0-9_-])(?=([A-Za-z0-9_-]+))\1(["']?\s*[:=]\s*)("[^"\n]+"|'[^'\n]+'|[^\s"'&,;[]{6,})/g,
+    replace: (_m, name, sep, value) => {
+      if (!SECRET_NAME.test(name)) return null;
+      const q = value[0] === '"' || value[0] === "'" ? value[0] : '';
+      return `${name}${sep}${q}${REDACTED}${q}`;
+    },
+  },
   // A long run of letters and digits in both cases is a key far more often
-  // than a word. Hex hashes and UUIDs are one case only and survive.
-  [/\b(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{40,}\b/g, REDACTED],
+  // than a word. Hex hashes and UUIDs are one case only and survive (so does an
+  // all-hex secret; only its name, by the rule above, catches that).
+  {
+    re: /[A-Za-z0-9_-]{40,}/g,
+    replace: (m) => (/[A-Z]/.test(m) && /[a-z]/.test(m) && /[0-9]/.test(m) ? REDACTED : null),
+  },
 ];
 
 /** Replace anything that looks like a credential. Returns the text and how many were replaced. */
 export function redactSecrets(text: string): { text: string; count: number } {
   let count = 0;
   let out = text;
-  for (const [pattern, replacement] of SECRET_PATTERNS) {
-    out = out.replace(pattern, (match) => {
+  for (const { re, replace } of SECRET_RULES) {
+    out = out.replace(re, (match: string, ...rest: unknown[]) => {
+      // replace() passes the groups, then the offset (the first number).
+      const groups = rest.slice(0, rest.findIndex((a) => typeof a === 'number')) as string[];
+      const replaced = replace(match, ...groups);
+      if (replaced === null) return match;
       count++;
-      return match.replace(new RegExp(pattern.source, pattern.flags.replace('g', '')), replacement);
+      return replaced;
     });
   }
   return { text: out, count };
 }
 
+// A home path starts anywhere a path can, but not inside a longer word or URL
+// path (`a/Users/x`, `example.com/Users/x`), and the account name ends at any
+// character Markdown or prose puts after a path.
+const PATH_END = '[\\s`\'"()\\[\\]<>|*,;]';
+
 /** `/Users/<name>/…` and `/home/<name>/…` become `~/…`: the reader needs the shape of a path, not the account name. */
 export function shortenHomePaths(text: string): string {
   return text
-    .replace(/(^|[\s(`'"=:])\/(?:Users|home)\/[^/\s`'")]+(?=\/|[\s`'")]|$)/g, '$1~')
-    .replace(/(^|[\s(`'"=:])[A-Za-z]:\\Users\\[^\\\s`'")]+(?=\\|[\s`'")]|$)/g, '$1~');
+    .replace(new RegExp(`(?<![A-Za-z0-9_.~-])\\/(?:Users|home)\\/(?:(?!${PATH_END})[^/])+(?=\\/|${PATH_END}|$)`, 'g'), '~')
+    .replace(new RegExp(`(?<![A-Za-z0-9_.~-])[A-Za-z]:\\\\Users\\\\(?:(?!${PATH_END})[^\\\\])+(?=\\\\|${PATH_END}|$)`, 'g'), '~');
+}
+
+/** Redacts and shortens one piece of text, adding what it replaced to `tally`. */
+function scrub(text: string, tally: { count: number }): string {
+  const { text: out, count } = redactSecrets(shortenHomePaths(text));
+  tally.count += count;
+  return out;
 }
 
 function cut(text: string, limit: number): string {
   if (text.length <= limit) return text;
-  return text.slice(0, limit).trimEnd() + `\n\n_(cut here: ${text.length - limit} more characters on the board)_`;
+  // Never end on the first half of a surrogate pair (an emoji at the limit).
+  const end = /[\uD800-\uDBFF]/.test(text[limit - 1]) ? limit - 1 : limit;
+  return text.slice(0, end).trimEnd() + `\n\n_(cut here: ${text.length - end} more characters on the board)_`;
 }
 
 function when(iso: string): string {
@@ -166,17 +214,17 @@ function checksSection(item: Item): string[] {
   return lines;
 }
 
-function bodySection(item: Item): string[] {
+function bodySection(item: Item, tally: { count: number }): string[] {
   if (!item.body) return [];
   const heading = item.kind === 'document' ? '## The document' : '## Attached material';
   if (item.bodyFormat === 'html') {
     const kb = Math.max(1, Math.round(item.body.length / 1024));
     return [heading, '', `An HTML page (${kb} KB) is attached on the board. It is not copied here; ask for the parts that matter.`];
   }
-  return [heading, '', cut(item.body, BRIEF_LIMITS.section)];
+  return [heading, '', cut(scrub(item.body, tally), BRIEF_LIMITS.section)];
 }
 
-function threadSection(messages: Message[]): string[] {
+function threadSection(messages: Message[], tally: { count: number }): string[] {
   if (!messages.length) return ['## The discussion', '', 'Nobody has replied yet.'];
   const lines = ['## The discussion', '', `${messages.length} message${messages.length === 1 ? '' : 's'}, oldest first. When two messages disagree, the newest one wins.`, ''];
   let shown: (Message | number)[] = messages;
@@ -193,7 +241,7 @@ function threadSection(messages: Message[]): string[] {
       return;
     }
     const n = messages.indexOf(entry) + 1;
-    lines.push(`**${n}. ${whoSaid(entry)}, ${when(entry.createdAt)}**`, quote(cut(entry.text, BRIEF_LIMITS.message)), '');
+    lines.push(`**${n}. ${whoSaid(entry)}, ${when(entry.createdAt)}**`, quote(cut(scrub(entry.text, tally), BRIEF_LIMITS.message)), '');
   });
   return lines;
 }
@@ -222,6 +270,12 @@ function standing(item: Item): string[] {
  */
 export function itemBrief(item: Item, project: Project, now: Date = new Date()): string {
   const messages = item.messages || [];
+  // The long fields are scrubbed before they are cut: a cut can drop a key
+  // block's END marker or shorten a token below its pattern, and what is left
+  // would then leave unredacted. The whole text is scrubbed again at the end
+  // for the short fields (title, options, notes).
+  const tally = { count: 0 };
+  const context = item.context.trim();
   const facts = [
     `- **Project:** ${project.name}${project.description ? `: ${project.description}` : ''}`,
     `- **Item:** ${itemName(item)}, ${kindWord(item)}, raised ${when(item.createdAt)}`,
@@ -238,17 +292,18 @@ export function itemBrief(item: Item, project: Project, now: Date = new Date()):
       ...facts,
     ],
     ['## The question', '', ...theQuestion(item)],
-    ['## Why it exists', '', item.context.trim() ? cut(item.context.trim(), BRIEF_LIMITS.section) : 'No background was written for this item.'],
+    ['## Why it exists', '', context ? cut(scrub(context, tally), BRIEF_LIMITS.section) : 'No background was written for this item.'],
     optionsSection(item),
     checksSection(item),
-    bodySection(item),
-    threadSection(messages),
+    bodySection(item, tally),
+    threadSection(messages, tally),
     standing(item),
     ['## What I need from you', '', 'What would you choose and why? What am I missing?'],
   ];
 
   const raw = parts.filter((p) => p.length).map((p) => p.join('\n').trimEnd()).join('\n\n');
-  const { text, count } = redactSecrets(shortenHomePaths(raw));
+  const text = scrub(raw, tally);
+  const count = tally.count;
   const footer = [`_Brief made ${when(now.toISOString())} from ${itemName(item)}._`];
   if (count) footer.push(`_${count} value${count === 1 ? '' : 's'} that looked like a secret ${count === 1 ? 'was' : 'were'} replaced with ${REDACTED}._`);
   return text + '\n\n---\n\n' + footer.join('\n') + '\n';
