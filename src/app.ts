@@ -20,6 +20,7 @@ import {
   convertRecommendedSuffix, noOptionsWarning, recommendedInTextWarning, unownedStepsWarning, auditItems,
   wallOfTextWarning, escapedNewlineWarning, pointerOptionWarning,
 } from './rules.ts';
+import { itemBrief } from './brief.ts';
 
 /**
  * The contract version. Bumped in the same pull request as any change to a
@@ -28,7 +29,7 @@ import {
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '20';
+export const CONTRACT_VERSION = '21';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -397,6 +398,7 @@ const ROUTES = [
   'POST   /api/projects/<slug>/items           item | [item, ...]   (item.clientId for idempotent retries)',
   'GET    /api/items/<id-or-ref> · PATCH /api/items/<id-or-ref> {..., actor, session, ifVersion}  (id accepts WB-<KEY>-<n> refs)',
   'GET    /api/items/<id-or-ref>/body',
+  'GET    /api/items/<id-or-ref>/brief          text/markdown: the item written out for a second opinion from someone with no context; reads, never writes',
   'GET    /api/items/<id-or-ref>/messages · POST /api/items/<id-or-ref>/messages {who, text, actor, session, status?}',
   'PATCH  /api/items/<id-or-ref>/checks/<checkId>     {result, note?, actor, session}',
   'every write: actor = the name a person recognises; session = the id this session generated once at start',
@@ -838,6 +840,23 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           // somebody else's markup and must not be able to frame-bust or be
           // treated as trusted by anything else.
           'content-security-policy': "sandbox; default-src 'none'; img-src data: https:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com",
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    }
+
+    // The second-opinion brief: the item as self-contained Markdown, for the
+    // person to paste to another model or a colleague. The page's button
+    // fetches this same route, so an agent and a person get identical text.
+    // Read-only, and served as text rather than JSON because its one use is
+    // being copied whole. See src/brief.ts for what it leaves out and why.
+    if (parts[2] === 'brief' && parts.length === 3) {
+      if (method !== 'GET') return badRequest(ctx, `${method} not supported here; the brief is read-only`);
+      if (!owner) return notFound(ctx, `item "${parts[1]}" has no project`);
+      return new Response(itemBrief(item, owner), {
+        headers: {
+          'content-type': 'text/markdown; charset=utf-8',
+          'cache-control': 'no-store',
           'x-content-type-options': 'nosniff',
         },
       });

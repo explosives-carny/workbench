@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v20.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `20`,
+**Contract v21.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `21`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -48,6 +48,7 @@ for everything else.
 ```bash
 wb board <slug>                                    GET  /api/projects/<slug>?status=received,in-progress&messages=last
 wb show <id|ref>                                   GET  /api/items/<id-or-ref>   — a ref (WB-DEMO-14) works anywhere an id does
+wb brief <id|ref>                                  GET  /api/items/<id-or-ref>/brief — the item as a self-contained Markdown brief for a second opinion; reads only
 wb audit [slug]                                    GET  /api/projects/<slug>/audit (no slug: GET /api/audit) — live items out of spec, rule + fix each
 wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"recommended":["B"],"labels":["…"],"clientId":"…"}]'
                                                    POST /api/projects/<slug>/items     — an array files a set; clientId makes a retry safe
@@ -656,6 +657,35 @@ recommended option pointed at "the table above". The person: "I never want to
 see this kind of unformatted response again." The page renders it now; the
 warnings stop the next one at write time; and because `wb audit` lists the
 same findings, the move to v20 has every session reformat its own live items.
+
+### Second opinion brief (v21)
+
+`GET /api/items/<id-or-ref>/brief` (`wb brief <id|ref>`) returns one item as
+`text/markdown`, written for a reader who has never seen the board: another
+model, or a colleague in chat. The item page's **Get a 2nd opinion** button
+copies the same text, from the same route, so what a person pastes and what an
+agent fetches never differ.
+
+- **What it holds:** the project's name and description; the item's ref (the
+  id's first eight characters without a key), title, kind, section and labels;
+  the context; the question (the title, with what kind of answer is wanted);
+  the options, with `recommended` and `choice` marked; QA steps and results; a
+  Markdown or text body (an HTML body is named, not copied); the thread
+  oldest first with who said each message, noting that the newest wins; the
+  status, what it is blocked by, due and priority on a to-do; and a closing
+  ask: "What would you choose and why? What am I missing?"
+- **What it leaves out:** the project's `repos`, the board's address, ids
+  beyond the ref, and anything else about the installation. Values that look
+  like credentials (API keys, tokens, `password=…`, `user:pass@` in a URL,
+  private keys) are replaced with `[redacted]` and counted in the footer, and
+  `/Users/<name>/` or `/home/<name>/` becomes `~/`. Long sections and messages
+  are cut, and a thread over 12 messages keeps the first 2 and the newest 10.
+- **It reads, never writes.** Fetching a brief changes no status, version or
+  signature. Any other method is a `400`.
+
+An outside opinion is advice for the person, not their answer. If they paste
+one into the thread, it arrives as their message: act on the parts they say
+they agree with, and ask (as `options`, rule 10) when that is unclear.
 
 ### Payload
 

@@ -185,6 +185,7 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb board <slug> [--all] [--status a,b]   the actionable set: received + in-progress (--all: everything)
   wb audit [slug]                          live items out of spec with the current contract (no slug: every project)
   wb show <id|ref>                         one item, full thread and body
+  wb brief <id|ref>                        the item as a self-contained Markdown brief, for a second opinion
   wb ask <slug> <json|file|->              create items; an array files a whole set; give each a clientId to make retries safe
   wb reply <id|ref> <text> [--status s]    post a reply; a finishing reply MUST carry --status
   wb claim <id|ref> [<text>]               set in-progress with your name and say what you are about to do
@@ -304,6 +305,26 @@ async function main() {
       i.body ? `body (${i.bodyFormat}, ${i.body.length} chars):\n${i.body}` : null,
       `thread:\n${thread || '  (none)'}`,
     ].filter(Boolean).join('\n'), i);
+    return;
+  }
+
+  // The second-opinion brief (v21): the same text the item page copies,
+  // printed as is so it can be piped to a file or another tool.
+  if (cmd === 'brief') {
+    const id = args[0] || fail('usage: wb brief <id|ref>');
+    const url = `${BASE}/api/items/${encodeURIComponent(id)}/brief`;
+    // Text, not JSON, so not through call(); a refused connection goes
+    // through call() once for its retries and its blocked-or-down diagnosis.
+    let res = await fetch(url).catch(() => null);
+    if (!res) { await call('GET', '/api'); res = await fetch(url); }
+    const text = await res.text();
+    if (!res.ok) {
+      let error = text;
+      try { error = JSON.parse(text).error; } catch {}
+      fail(`${res.status}: ${error}`);
+    }
+    if (flags.json) console.log(JSON.stringify({ ok: true, brief: text }));
+    else process.stdout.write(text);
     return;
   }
 

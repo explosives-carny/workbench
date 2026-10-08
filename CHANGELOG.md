@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Any item can be handed to someone else for a second opinion. The "Get a 2nd
+  opinion" button on an item's page copies a short write-up of it: the
+  project, what the item is and why it exists, the question, the options with
+  the recommended one marked, the discussion in order with who said what, where
+  it stands, and a closing "What would you choose and why? What am I missing?".
+  It is written to make sense to another AI or a person who has never seen the
+  board. Anything that looks like a password or key is blanked out, and the
+  write-up is shown on the page as well, so it can be copied by hand when the
+  browser will not copy it. Agents get the same text from `wb brief`
+  (contract v21). Nothing is sent anywhere and the item does not change.
 - A to-do list sorted by due date now puts high priority before low among
   to-dos due the same day, and among those with no date, the same order
   `wb todos` already prints. Before, those ties fell back to most recent

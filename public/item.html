@@ -41,6 +41,9 @@
   let lastSig = null;
   // A result clicked but not yet saved because it still needs a note.
   const pendingResult = {};
+  // The second-opinion brief once fetched: { text, copied }. Kept across
+  // repaints so the 5-second refresh does not close it under the reader.
+  let brief = null;
 
   function sig() {
     // The viewer's today is part of it so the due chip re-bands at midnight.
@@ -284,7 +287,17 @@
     const h = document.createElement('h3');
     h.textContent = 'Discussion';
     head.appendChild(h);
+    // The brief is the server's (GET /api/items/<id>/brief), so the text a
+    // person copies is the text an agent fetches.
+    const second = document.createElement('button');
+    second.type = 'button';
+    second.className = 'second-opinion';
+    second.textContent = 'Get a 2nd opinion';
+    second.title = 'Copy this item as a self-contained brief to paste to another AI or a person';
+    second.addEventListener('click', getBrief);
+    head.appendChild(second);
     card.appendChild(head);
+    if (brief) card.appendChild(briefPanel());
 
     const msgs = item.messages || [];
     if (msgs.length) {
@@ -386,6 +399,51 @@
     el.appendChild(card);
   }
 
+  // Shown whether or not the copy worked: the reader can see what they are
+  // about to paste, and when the clipboard is refused (no permission, an
+  // insecure context) the text is already selected for a manual copy.
+  function briefPanel() {
+    const box = document.createElement('div');
+    box.className = 'briefbox';
+    const msg = document.createElement('p');
+    msg.className = 'brief-note mono' + (brief.copied ? '' : ' err');
+    msg.textContent = brief.copied
+      ? 'Copied to the clipboard. Paste it to another AI or a person. Their answer is advice for you; it is not sent anywhere or recorded here.'
+      : 'Could not copy automatically. The brief is selected below: copy it by hand.';
+    const ta = document.createElement('textarea');
+    ta.id = 'brief-text';
+    ta.className = 'brief-text mono';
+    ta.readOnly = true;
+    ta.value = brief.text;
+    ta.setAttribute('aria-label', 'Second-opinion brief');
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'labeledit mono';
+    close.textContent = 'Close';
+    close.addEventListener('click', () => { brief = null; paint(true); });
+    box.append(msg, ta, close);
+    if (!brief.copied) setTimeout(() => { try { ta.focus(); ta.select(); } catch (e) { /* still readable */ } }, 0);
+    return box;
+  }
+
+  async function getBrief() {
+    note('making the brief…');
+    let text;
+    try {
+      const res = await fetch('/api/items/' + encodeURIComponent(itemId) + '/brief');
+      if (!res.ok) throw new Error('brief failed (' + res.status + ')');
+      text = await res.text();
+    } catch (e) { note(e.message, true); return; }
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch (e) { /* the panel below falls back to a selected textarea */ }
+    brief = { text, copied };
+    paint(true);
+    note(copied ? 'brief copied' : 'copy it from the box below', !copied);
+  }
+
   function note(text, isErr) {
     const el = document.getElementById('saved-main');
     if (el) { el.textContent = text; el.className = 'saved' + (isErr ? ' err' : ''); }
@@ -396,7 +454,7 @@
     if (!force && s === lastSig) return;
     const live = document.activeElement;
     // A date being picked is held the same way: a repaint mid-pick would drop it.
-    if (live && (live.id === 'ta-main' || live.classList.contains('ck-note') || live.classList.contains('plan-date'))) {
+    if (live && (live.id === 'ta-main' || live.id === 'brief-text' || live.classList.contains('ck-note') || live.classList.contains('plan-date'))) {
       clearTimeout(deferred);
       deferred = setTimeout(() => paint(true), 2500);
       return;
