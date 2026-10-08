@@ -469,6 +469,17 @@ textarea { min-height: 62px; resize: vertical; }
 textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .saved { font-family: var(--mono); font-size: 10.5px; color: var(--faint); margin-top: 7px; min-height: 14px; }
 .saved.err { color: var(--you); }
+/* Second-opinion brief: a quiet button in the Discussion heading, and the
+   copied text shown under it so the reader sees what they are about to paste. */
+button.second-opinion {
+  margin-left: auto; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 3px; color: var(--soft);
+}
+button.second-opinion:hover, button.second-opinion:focus-visible { border-color: var(--accent); color: var(--accent); }
+.briefbox { margin: 10px 0 14px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.brief-note { font-size: 10.5px; color: var(--soft); margin: 0; }
+.brief-note.err { color: var(--you); }
+textarea.brief-text { width: 100%; min-height: 220px; font-size: 12px; box-sizing: border-box; }
 
 select.status {
   width: auto; min-width: 160px; padding: 6px 10px; font-size: 13.5px;

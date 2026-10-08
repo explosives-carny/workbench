@@ -84,7 +84,9 @@ export type Rendered = { doc: any; byId: (id: string) => El; win: any };
 export async function renderPage(
   handler: (req: Request) => Promise<Response>,
   page: string,
-  path: string
+  path: string,
+  /** Replaces globals the page sees, e.g. a navigator whose clipboard refuses. */
+  overrides: Record<string, unknown> = {}
 ): Promise<Rendered> {
   const html = readFileSync(new URL(`../../public/${page}`, import.meta.url), 'utf8');
   const ids = new Map<string, El>();
@@ -127,6 +129,7 @@ export async function renderPage(
     clearTimeout: () => {},
     confirm: () => true,
     navigator: { clipboard: { writeText: async () => {} } },
+    ...overrides,
   };
   const scripts: string[] = [];
   for (const m of html.matchAll(/<script(?: src="([^"]+)")?>([\s\S]*?)<\/script>/g)) {

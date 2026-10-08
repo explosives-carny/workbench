@@ -371,3 +371,21 @@ describe('wb todo / wb todos (v19)', () => {
     expect(line).not.toContain('decision');
   });
 });
+
+describe('wb brief (v21)', () => {
+  test('prints the same Markdown the route serves', async () => {
+    const res = await wb('brief', 'wb-demo-1');
+    expect(res.code).toBe(0);
+    expect(res.stdout.startsWith('# Second opinion: First')).toBe(true);
+    const served = await (await fetch(`http://127.0.0.1:${server.port}/api/items/WB-DEMO-1/brief`)).text();
+    // Only the footer's timestamp may differ between the two reads.
+    const body = (t: string) => t.split('\n---\n')[0];
+    expect(body(res.stdout)).toBe(body(served));
+  });
+
+  test('an unknown ref fails with the server error', async () => {
+    const res = await wb('brief', 'WB-NOPE-9');
+    expect(res.code).toBe(1);
+    expect(res.stderr).toContain('404');
+  });
+});

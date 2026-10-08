@@ -144,7 +144,7 @@ describe('audit and contract', () => {
     expect(rules(live.id)).toEqual(['context-wall-of-text', 'option-points-elsewhere']);
     expect(rules(done.id)).toEqual([]);
   });
-  test('GET /api speaks v20', async () => {
-    expect((await api('GET', '/api')).json.contractVersion).toBe('20');
+  test('GET /api speaks v20 or later', async () => {
+    expect(Number((await api('GET', '/api')).json.contractVersion)).toBeGreaterThanOrEqual(20);
   });
 });

@@ -109,6 +109,12 @@ person. Click one on a row to see only that thread of work.
 Replies are threaded, because most of these are a short back-and-forth rather
 than a single answer.
 
+**Get a 2nd opinion** on an item's page copies the item as a short,
+self-contained write-up (what it is, why it exists, the question, the options,
+the discussion, where it stands) to paste to another AI or a colleague. It
+blanks out anything that looks like a key or password, and nothing is sent
+anywhere by the board.
+
 ## Using it with agents
 
 Point your agent at [`AGENTS.md`](AGENTS.md). It is written to be handed to any
