@@ -53,6 +53,31 @@ async function send(method: string, path: string, body?: BodyInit, headers: Reco
 }
 const postJson = (path: string, body: unknown) => send('POST', path, JSON.stringify(body), { 'content-type': 'application/json' });
 
+describe('size is checked before the body is read', () => {
+  test('a declared oversize length is refused without reading the body', async () => {
+    let pulled = false;
+    const body = new ReadableStream({
+      pull(controller) { pulled = true; controller.enqueue(new Uint8Array(8)); controller.close(); },
+    });
+    const req = new Request('http://localhost/api/images', {
+      method: 'POST',
+      body,
+      // @ts-ignore duplex is required for a streamed body
+      duplex: 'half',
+      headers: { 'content-type': 'image/png', 'content-length': String(15 * 1024 * 1024) },
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as any).error).toContain('the limit is 10 MB');
+    expect(pulled).toBe(false);
+  });
+
+  test('a declared length within the cap goes on to the normal checks', async () => {
+    const res = await send('POST', '/api/images', PNG, { 'content-type': 'image/png' });
+    expect(res.status).toBe(201);
+  });
+});
+
 describe('the type comes from the bytes', () => {
   test('each of the five formats is recognised, and nothing else', () => {
     expect(sniffImage(PNG)).toBe('png');

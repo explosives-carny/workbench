@@ -47,6 +47,18 @@ export type ImageExt = keyof typeof IMAGE_TYPES;
  */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
+/**
+ * The largest request body an upload route will read: 10 MB of image as base64
+ * is 13.3 MB, plus JSON or multipart overhead. A declared length above this is
+ * refused before the body is buffered.
+ */
+export const MAX_IMAGE_REQUEST_BYTES = 14 * 1024 * 1024;
+
+/** The one size refusal, for the stored file and for a declared request length. */
+export function imageTooLarge(bytes: number): string {
+  return `the image is ${(bytes / 1048576).toFixed(1)} MB; the limit is ${MAX_IMAGE_BYTES / 1048576} MB. Crop it or save it as JPEG or WebP.`;
+}
+
 /** The one shape an image reference may take, in a URL and in Markdown. */
 export const IMAGE_NAME = /^([0-9a-f]{64})\.(png|jpg|gif|webp|svg)$/;
 export const IMAGE_PATH_PREFIX = '/api/images/';
@@ -140,7 +152,7 @@ export class ImageStore {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (!bytes.length) throw new ImageRefused('the image is empty');
     if (bytes.length > MAX_IMAGE_BYTES) {
-      throw new ImageRefused(`the image is ${(bytes.length / 1048576).toFixed(1)} MB; the limit is ${MAX_IMAGE_BYTES / 1048576} MB. Crop it or save it as JPEG or WebP.`);
+      throw new ImageRefused(imageTooLarge(bytes.length));
     }
     const ext = sniffImage(bytes);
     if (!ext) throw new ImageRefused('not an image this board stores: send PNG, JPEG, GIF, WebP or SVG (the type is read from the bytes, not the file name)');
