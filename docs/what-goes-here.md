@@ -599,6 +599,12 @@ worse still: the thread is the record, and a correction is part of the record.
   the human is still deciding while you are already building against half their
   decisions — and a round answered together is almost always a different, and
   smaller, piece of work than the same items answered one at a time.
+- **A round opens on a condition, not only on a word (v25, 2026-09-10 → 2026-10-09).**
+  The check-in word exists so an agent never reacts while a person is still
+  typing; the condition in `AGENTS.md` keeps that purpose and lets an unattended
+  scheduled worker satisfy it. The person, 2026-10-09: "I dont like relying on
+  notifications or conversations to get this work done." and "This should be an
+  automatically on skill for any session".
 - **On a check-in, the actionable set is everything at `received`.** Nothing
   else. A human replying to an issue moves it there automatically, so the status
   is the signal and hunting for others only finds work they have not finished

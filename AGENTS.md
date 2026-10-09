@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v24.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `24`,
+**Contract v25.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `25`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -23,7 +23,7 @@ wb board <slug>                               # 3. the actionable set: received 
 ```
 
 Nothing at `received` → say so in one line. Never create items on a check-in.
-Do not read the board again until the check-in word.
+Do not read the board again until the check-in word — or, for a scheduled worker, until the condition in *The check-in word, in full* holds again.
 
 **Status is whose move it is.** An issue holds one of eight (so does a question
 set, `kind: "questions"` — see *Question sets*); a document (`kind:
@@ -868,7 +868,34 @@ otherwise**. Do not poll; do not answer an item the moment you notice an
 answer. They are still typing, and an agent that reacts to each reply as it
 lands turns one round of decisions into a dozen half-plans, each a full pass
 over the work. A reply is not a task; being asked to tidy a status is not a
-reason to sweep the board. Only the check-in word opens the round.
+reason to sweep the board.
+
+**A round opens on a condition (v25).** The rule above protects one thing:
+never react while a person is still typing. The check-in word is one way to
+show that is not happening; it is not the only one. A round may open when all
+of these hold:
+
+- an item is the agent's move: one at `received`, a stale claim, a `blocked`
+  item whose blocker has cleared, or open agent-owned QA steps;
+- no person has written on the project, and no other agent has moved an item
+  on it, inside the installation's quiet window; and
+- no live session holds the project.
+
+A person saying the check-in word satisfies the condition for that person's
+session. A scheduled worker satisfies it unattended. Short of the condition,
+the rule stands: do not react to each reply as it lands.
+
+#### Scheduled workers
+
+A scheduled worker is a session like any other. It generates its own `session`
+id for each run and signs every write with it. It claims an item before it
+starts the work. It never opens a round inside the quiet window. It honours
+holds.
+
+A **hold** is one session's claim on a whole project, recorded where the
+installation keeps it. Every session, interactive or scheduled, checks for a
+hold before it writes and stops if another session has one. The length of the
+quiet window is set by the installation, never by this contract.
 
 1. Read the scoped project (or every project when unscoped). **Read everything
    before doing anything.**
