@@ -263,8 +263,9 @@ window.WB = (function () {
 
   // A ref may sit inside something clickable — an expanded card's header, a
   // row that toggles. Caught in the capture phase so the click reaches the
-  // anchor's navigation and nothing above it.
-  if (typeof document.addEventListener === 'function') {
+  // anchor's navigation and nothing above it. Guarded: this file is also
+  // loaded with only a `window`, by tests of its pure helpers.
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('click', (e) => {
       const t = e.target;
       const a = t && t.closest ? t.closest('a.ref-link') : null;
