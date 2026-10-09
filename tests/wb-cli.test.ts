@@ -1,6 +1,6 @@
 // The CLI must use the same reference routes a shell does, not a mocked fetch.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { rmSync } from 'fs';
+import { rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createHandler } from '../src/app.ts';
@@ -28,7 +28,7 @@ beforeAll(() => {
   server = Bun.serve({
     port: 0,
     hostname: '127.0.0.1',
-    fetch: createHandler(store, { publicDir: PUBLIC_DIR, agentsMdPath: AGENTS_MD }),
+    fetch: createHandler(store, { publicDir: PUBLIC_DIR, agentsMdPath: AGENTS_MD, imagesDir: dbPath + '-images' }),
   });
 });
 
@@ -37,6 +37,8 @@ afterAll(() => {
   for (const suffix of ['', '-wal', '-shm']) {
     try { rmSync(dbPath + suffix); } catch {}
   }
+  rmSync(dbPath + '-images', { recursive: true, force: true });
+  rmSync(dbPath + '-shot.png', { force: true });
 });
 
 async function wb(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -387,5 +389,34 @@ describe('wb brief (v21)', () => {
     const res = await wb('brief', 'WB-NOPE-9');
     expect(res.code).toBe(1);
     expect(res.stderr).toContain('404');
+  });
+});
+
+describe('wb attach and wb image (v22)', () => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+  test('wb image uploads and prints the Markdown to paste', async () => {
+    writeFileSync(dbPath + '-shot.png', PNG);
+    const res = await wb('image', dbPath + '-shot.png', '--alt', 'the error banner');
+    expect(res.code).toBe(0);
+    expect(res.stdout.trim()).toMatch(/^!\[the error banner\]\(\/api\/images\/[0-9a-f]{64}\.png\)$/);
+  });
+
+  test('wb attach posts the images as one signed reply, caption first', async () => {
+    writeFileSync(dbPath + '-shot.png', PNG);
+    const res = await wb('attach', 'WB-DEMO-2', dbPath + '-shot.png', '--text', 'What I saw:');
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('1 image(s) posted');
+    const messages = store.listMessages(store.resolveItem('WB-DEMO-2')!.id);
+    const last = messages[messages.length - 1];
+    expect(last.author).toBe('tester');
+    expect(last.text).toMatch(/^What I saw:\n\n!\[[^\]]*-shot\]\(\/api\/images\/[0-9a-f]{64}\.png\)$/);
+  });
+
+  test('a file that is not an image is refused with the server reason', async () => {
+    writeFileSync(dbPath + '-shot.png', 'not an image');
+    const res = await wb('attach', 'WB-DEMO-2', dbPath + '-shot.png');
+    expect(res.code).toBe(1);
+    expect(res.stderr).toContain('PNG, JPEG, GIF, WebP or SVG');
   });
 });

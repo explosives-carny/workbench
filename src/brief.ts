@@ -130,9 +130,20 @@ export function shortenHomePaths(text: string): string {
     .replace(new RegExp(`(?<![A-Za-z0-9_.~-])[A-Za-z]:\\\\Users\\\\(?:(?!${PATH_END})[^\\\\])+(?=\\\\|${PATH_END}|$)`, 'g'), '~');
 }
 
+/**
+ * An image reference becomes a named placeholder (contract v22). The path is
+ * the board's own address, which the brief leaves out, and the reader it is
+ * pasted to cannot fetch it anyway; saying a picture was there, and what its
+ * alt text says, tells them to ask for it if it matters.
+ */
+export function describeImages(text: string): string {
+  return text.replace(/!\[([^\]]*)\]\(\/api\/images\/[0-9a-f]{64}\.(?:png|jpg|gif|webp|svg)\)/g, (_, alt) =>
+    `[image${alt.trim() ? `: ${alt.trim()}` : ''} (on the board, not included)]`);
+}
+
 /** Redacts and shortens one piece of text, adding what it replaced to `tally`. */
 function scrub(text: string, tally: { count: number }): string {
-  const { text: out, count } = redactSecrets(shortenHomePaths(text));
+  const { text: out, count } = redactSecrets(shortenHomePaths(describeImages(text)));
   tally.count += count;
   return out;
 }

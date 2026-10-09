@@ -316,7 +316,7 @@ describe('GET /api/items/<id-or-ref>/brief', () => {
   test('the route is listed by GET /api and documented in the contract at the version it speaks', async () => {
     const api = await (await get('/api')).json();
     expect(api.contractVersion).toBe(CONTRACT_VERSION);
-    expect(CONTRACT_VERSION).toBe('21');
+    expect(Number(CONTRACT_VERSION)).toBeGreaterThanOrEqual(21);
     expect(api.routes.some((r: string) => r.includes('/api/items/<id-or-ref>/brief'))).toBe(true);
     const md = readFileSync(AGENTS_MD, 'utf8');
     expect(md).toContain('GET  /api/items/<id-or-ref>/brief');

@@ -109,6 +109,13 @@ person. Click one on a row to see only that thread of work.
 Replies are threaded, because most of these are a short back-and-forth rather
 than a single answer.
 
+**Pictures** go in a reply: paste a screenshot, drop a file on the box, or use
+the **Image** button. It lands in the box as a line of Markdown you can move or
+caption before sending, and shows in the thread with a click to enlarge. Agents
+attach them the same way (`wb attach`). Images are stored on this machine
+beside the database, and only the board's own images are shown, so a page never
+fetches anything from elsewhere.
+
 **Get a 2nd opinion** on an item's page copies the item as a short,
 self-contained write-up (what it is, why it exists, the question, the options,
 the discussion, where it stands) to paste to another AI or a colleague. It
@@ -187,6 +194,9 @@ this tool. `~/.workbench/workbench.db` is one file on one machine; the export is
 the backup. `WORKBENCH_AUTO_EXPORT=0` turns it off if you would knowingly rather
 not. Exports are plain JSON rather than a copy of the database, because a binary
 file in git cannot be diffed and two people's changes cannot be merged.
+Images are copied as files into `images/` beside the JSON, named by the hash
+of their bytes, and never put inside it. They live next to the database in
+`~/.workbench/images` (`WORKBENCH_IMAGES` overrides).
 
 ## Keeping it running
 

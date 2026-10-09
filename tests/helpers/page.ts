@@ -114,6 +114,11 @@ export async function renderPage(
     querySelectorAll: () => [],
     activeElement: null,
     documentElement: new El('html'),
+    // Page-wide listeners (app.js delegates image clicks and Escape here),
+    // kept so a test can fire one.
+    listeners: {} as Record<string, Listener[]>,
+    addEventListener(type: string, fn: Listener) { (doc.listeners[type] ||= []).push(fn); },
+    body: new El('body'),
   };
   const store: Record<string, string> = {};
   const fetchFn = async (url: string, init?: any) => handler(new Request(new URL(url, 'http://localhost').toString(), init));

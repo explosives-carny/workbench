@@ -363,7 +363,8 @@
     sb.className = 'send';
     sb.textContent = 'Send';
     sb.addEventListener('click', send);
-    box.append(ta, sb);
+    // Paste, drop or pick an image; it lands in the box as Markdown (v22).
+    box.append(ta, WB.imageAttach(ta, note), sb);
     card.appendChild(box);
 
     const bar = document.createElement('div');

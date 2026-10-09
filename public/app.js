@@ -447,8 +447,161 @@ window.WB = (function () {
     return wrap;
   }
 
+  // Images (contract v22). A picture goes in as Markdown text, the same way a
+  // person or an agent writes one: the file is uploaded first, and the reply
+  // box receives `![name](/api/images/<hash>.png)` at the cursor, where it can
+  // be moved, captioned or deleted before sending. Nothing is posted until
+  // Send, so attaching is never itself a message.
+  //
+  // `textareaId` is looked up again when the upload finishes, because the page
+  // repaints every few seconds and the box the file was dropped on may have
+  // been replaced by an identical one meanwhile.
+  async function uploadImage(file) {
+    const res = await fetch('/api/images?alt=' + encodeURIComponent((file.name || 'image').replace(/\.[a-z0-9]+$/i, '')), {
+      method: 'POST',
+      headers: { 'content-type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok || !data || data.ok === false) throw new Error((data && data.error) || 'upload failed (' + res.status + ')');
+    return data.image;
+  }
+
+  function insertAtCursor(ta, text) {
+    const start = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+    const end = ta.selectionEnd != null ? ta.selectionEnd : start;
+    const before = ta.value.slice(0, start);
+    const after = ta.value.slice(end);
+    // Each image on its own line, so it renders as a block, not mid-sentence.
+    const lead = before && !/\n$/.test(before) ? '\n' : '';
+    const tail = after && !/^\n/.test(after) ? '\n' : '';
+    ta.value = before + lead + text + tail + after;
+    const at = (before + lead + text).length;
+    try { ta.setSelectionRange(at, at); } catch (e) { /* not focusable yet */ }
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  async function attachFiles(textareaId, files, note) {
+    const images = Array.prototype.filter.call(files || [], (f) => /^image\//.test(f.type));
+    if (!images.length) { if (files && files.length) note('only images can be attached', true); return; }
+    for (const file of images) {
+      note('uploading ' + (file.name || 'image') + '…');
+      try {
+        const image = await uploadImage(file);
+        const ta = document.getElementById(textareaId);
+        if (ta) insertAtCursor(ta, image.markdown);
+        note('image attached — it is sent with the reply');
+      } catch (e) {
+        note(e.message, true);
+        return;
+      }
+    }
+  }
+
+  // Wires paste and drop on a reply box and returns the Image button for it.
+  function imageAttach(ta, note) {
+    ta.addEventListener('paste', (e) => {
+      const files = e.clipboardData && e.clipboardData.files;
+      if (files && files.length && Array.prototype.some.call(files, (f) => /^image\//.test(f.type))) {
+        e.preventDefault();
+        attachFiles(ta.id, files, note);
+      }
+    });
+    ta.addEventListener('dragover', (e) => {
+      if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') !== -1) {
+        e.preventDefault();
+        ta.classList.add('dropping');
+      }
+    });
+    ta.addEventListener('dragleave', () => ta.classList.remove('dropping'));
+    ta.addEventListener('drop', (e) => {
+      ta.classList.remove('dropping');
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+        e.preventDefault();
+        attachFiles(ta.id, e.dataTransfer.files, note);
+      }
+    });
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml';
+    input.multiple = true;
+    input.hidden = true;
+    input.addEventListener('change', () => { attachFiles(ta.id, input.files, note); input.value = ''; });
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'attach';
+    btn.textContent = 'Image';
+    btn.title = 'Attach an image (or paste or drop one into the box)';
+    btn.setAttribute('aria-label', 'Attach an image');
+    btn.addEventListener('click', () => input.click());
+    const wrap = document.createElement('span');
+    wrap.className = 'attachwrap';
+    wrap.append(btn, input);
+    return wrap;
+  }
+
+  // Click to enlarge. md.js renders every image as a link to the file, so with
+  // script off (or a modifier key held) it opens full size in a new tab; a
+  // plain click shows it over the page instead. Escape, a click or the close
+  // button dismisses it.
+  let lightbox = null;
+  function openLightbox(src, alt) {
+    if (!lightbox) {
+      const box = document.createElement('div');
+      box.id = 'wb-lightbox';
+      box.className = 'lightbox';
+      box.setAttribute('role', 'dialog');
+      box.setAttribute('aria-modal', 'true');
+      box.tabIndex = -1;
+      const img = document.createElement('img');
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'lightbox-close';
+      close.textContent = 'Close';
+      const open = document.createElement('a');
+      open.className = 'lightbox-open';
+      open.target = '_blank';
+      open.rel = 'noopener';
+      open.textContent = 'Open full size';
+      const bar = document.createElement('div');
+      bar.className = 'lightbox-bar';
+      bar.append(open, close);
+      box.append(img, bar);
+      box.addEventListener('click', (e) => { if (e.target !== open) closeLightbox(); });
+      document.body.appendChild(box);
+      lightbox = { box, img, open };
+    }
+    lightbox.img.src = src;
+    lightbox.img.alt = alt || '';
+    lightbox.box.setAttribute('aria-label', alt ? 'Image: ' + alt : 'Image');
+    lightbox.open.href = src;
+    lightbox.box.hidden = false;
+    lightbox.box.focus();
+  }
+  function closeLightbox() {
+    if (lightbox) lightbox.box.hidden = true;
+  }
+  // Guarded because the helpers in this file are also loaded on their own,
+  // without a page, by tests of the date and priority logic.
+  if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', (e) => {
+    const link = e.target && e.target.closest ? e.target.closest('a.md-imglink') : null;
+    if (!link || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    const img = link.querySelector('img');
+    openLightbox(link.getAttribute('href'), img ? img.alt : '');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeLightbox();
+  });
+  }
+
   return {
     DUE_BANDED_STATUSES,
+    imageAttach,
+    uploadImage,
+    openLightbox,
     TODO_STATUSES,
     DUE_BANDS,
     PRIORITIES,

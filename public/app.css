@@ -754,3 +754,34 @@ button.labeledit:focus-visible { outline: 2px solid var(--accent); outline-offse
 }
 .ck-owner.qa-human { color: var(--you); }
 .ck-owner.qa-agent { color: var(--busy); }
+
+/* Images (contract v22). Rendered from Markdown that names one of the board's
+   own files. Capped in height so a tall screenshot does not push the thread
+   off the screen; the full image is one click away. */
+a.md-imglink { display: inline-block; max-width: 100%; margin: 4px 0; line-height: 0; border-radius: 5px; }
+a.md-imglink:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+img.md-img {
+  display: block; max-width: 100%; max-height: 420px; height: auto; width: auto;
+  border: 1px solid var(--rule); border-radius: 5px; background: var(--ground); cursor: zoom-in;
+}
+.attachwrap { display: contents; }
+button.attach { flex: none; }
+textarea.dropping { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.lightbox {
+  position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; padding: 16px;
+  background: rgba(10, 10, 12, .86); cursor: zoom-out;
+}
+.lightbox[hidden] { display: none; }
+.lightbox img {
+  max-width: 100%; max-height: calc(100vh - 80px); object-fit: contain;
+  border-radius: 4px; background: #fff;
+}
+.lightbox-bar { display: flex; gap: 10px; align-items: center; }
+.lightbox-bar a, .lightbox-bar button {
+  font-size: 13px; color: #fff; background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .3); border-radius: 5px; padding: 6px 12px; text-decoration: none;
+}
+@media (max-width: 640px) {
+  img.md-img { max-height: 300px; }
+}

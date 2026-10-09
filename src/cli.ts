@@ -10,22 +10,25 @@
 // server's automatic backup so the two can never write different shapes.
 import { openDb, Store } from './db.ts';
 import { exportAll, importAll } from './export.ts';
+import { imagesDirFor } from './images.ts';
 import { homedir } from 'os';
 import { join } from 'path';
 
 const DB_PATH = process.env.WORKBENCH_DB || join(homedir(), '.workbench', 'workbench.db');
 const store = new Store(openDb(DB_PATH));
 
+const IMAGES_DIR = imagesDirFor(DB_PATH);
+
 const [, , command, ...rest] = process.argv;
 const dir = rest[0] || process.env.WORKBENCH_CONTENT || join(homedir(), 'workbench-content');
 
 if (command === 'export') {
-  const result = exportAll(store, dir);
+  const result = exportAll(store, dir, { imagesDir: IMAGES_DIR });
   for (const file of result.files) console.log(`exported  ${file}`);
   console.log(`\n${result.items} items in ${result.projects} project(s) -> ${dir}`);
 } else if (command === 'import') {
   try {
-    importAll(store, dir);
+    importAll(store, dir, console.log, { imagesDir: IMAGES_DIR });
   } catch (error: any) {
     console.error(error?.message || error);
     process.exit(1);
@@ -37,7 +40,8 @@ else {
   bun run export [dir]   write every project to <dir> as JSON  (default: ${dir})
   bun run import [dir]   read every *.json in <dir> back in
 
-The database itself stays at ${DB_PATH} (override with WORKBENCH_DB).
+The database itself stays at ${DB_PATH} (override with WORKBENCH_DB), and its
+images in ${IMAGES_DIR} (WORKBENCH_IMAGES); both commands copy images through <dir>/images.
 Point <dir> at a git repository to keep your own content versioned separately
 from this application's code. The running server exports there on its own after
 every change (WORKBENCH_AUTO_EXPORT=0 turns that off).`);

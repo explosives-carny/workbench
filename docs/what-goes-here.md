@@ -608,6 +608,13 @@ They may open this hours later, on a phone, having forgotten the conversation.
   post an adjustment arrived as one paragraph of pipes and asterisks, and its
   recommended option pointed at "the table above". The person: "I never want to
   see this kind of unformatted response again."
+- Show it when a picture is the evidence (v22). A broken page, a chart, a
+  label, two layouts to choose between: upload the image and put its Markdown
+  in the context or the reply (`wb attach`, or `POST /api/images`), rather than
+  describing what the screen looks like. Alt text says what it shows, because
+  the brief and the raw text carry only the alt. Do not put an image where a
+  sentence or a table would do; a screenshot of text cannot be searched,
+  quoted or copied.
 - Say what it costs to be wrong. That is usually the only thing that determines
   how long they think about it.
 - Do not write "let me know if you have questions." They know.
