@@ -64,7 +64,7 @@ describe('audit', () => {
     const ids = seedOld();
     const res = await api('GET', '/api/projects/demo/audit');
     expect(res.status).toBe(200);
-    expect(res.json.contractVersion).toBe('22');
+    expect(res.json.contractVersion).toBe('23');
     const rules = (id: string) => (res.json.items.find((i: any) => i.id === id)?.findings || []).map((f: any) => f.rule);
     expect(rules(ids.decision.id)).toEqual(['decision-without-recommendation']);
     expect(rules(ids.textMarked.id)).toEqual(['recommended-in-text']);

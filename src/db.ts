@@ -119,6 +119,9 @@ export const ISSUE_STATUSES: Status[] = STATUSES.filter((s) => !DOCUMENT_STATUSE
  *   document — something to read or work through: active or archived
  *   todo     — the person's own task, on a project with `mode: "todo"` only:
  *              todo, deferred, complete or cancelled (contract v18)
+ *   questions — a question set (contract v23): several questions answered in
+ *              one place. Holds the issue statuses and is the person's move at
+ *              needs-decision until every question has an answer
  *
  * Stored rather than inferred. It was briefly inferred from whether the item
  * carried a body, which is wrong in both directions: a decision can arrive with
@@ -126,8 +129,19 @@ export const ISSUE_STATUSES: Status[] = STATUSES.filter((s) => !DOCUMENT_STATUSE
  * Getting it wrong lets a specification be set to "Received", which is the
  * exact confusion the two status sets exist to prevent.
  */
-export type Kind = 'issue' | 'document' | 'todo';
-export const KINDS = ['issue', 'document', 'todo'] as const;
+export type Kind = 'issue' | 'document' | 'todo' | 'questions';
+export const KINDS = ['issue', 'document', 'todo', 'questions'] as const;
+
+/**
+ * The kinds that are the agent-and-person handshake: something to decide or do,
+ * held at a whose-move status. An issue and a question set behave the same in
+ * every place the board asks "whose move is this" — a human reply moves it to
+ * received, an agent reply on received claims it, it counts as waiting on the
+ * person at needs-decision. One function, so the sites cannot drift apart.
+ */
+export function isWorkKind(kind: Kind): boolean {
+  return kind === 'issue' || kind === 'questions';
+}
 
 /** The statuses this kind of item is allowed to hold. */
 export function statusesFor(kind: Kind): Status[] {
@@ -162,7 +176,8 @@ export const PROJECT_MODES = ['board', 'todo'] as const;
 /** The kind an item lands as in a project of this mode, given what was asked for. */
 export function kindFor(mode: ProjectMode, asked: unknown): Kind {
   if (asked === 'document') return 'document';
-  return mode === 'todo' ? 'todo' : 'issue';
+  if (mode === 'todo') return 'todo';
+  return asked === 'questions' ? 'questions' : 'issue';
 }
 
 /**
@@ -573,6 +588,161 @@ export function qaOf(checks: { owner?: string; result?: string }[]): { qa: QaKin
   return { qa, qaWaitingOn };
 }
 
+/**
+ * One question of a question set (contract v23). Each carries its own options,
+ * recommendation and answer slot, and is answered one at a time, so two people
+ * (or a person and an agent relaying) never overwrite each other's answers.
+ */
+export type Question = {
+  /** 'q1', 's7' … stable, unique within the item. */
+  id: string;
+  /** Short headline, e.g. "Packing location". */
+  label: string;
+  /** Markdown: the question itself, with its facts. */
+  ask: string;
+  /** May be empty: free text only. */
+  options: string[];
+  /** A subset of options, exact text. */
+  recommended: string[];
+  /** One of options, or ''. */
+  choice: string;
+  /** Free text, Markdown, or ''. */
+  answer: string;
+  /** Who recorded the answer; '' when unanswered. */
+  by: string;
+  /** ISO instant of the answer; '' when unanswered. */
+  at: string;
+  /** True when an agent recorded it on the person's behalf. */
+  relayed: boolean;
+};
+
+/** What a writer may send for a question; everything but the ask is optional. */
+export type QuestionInput = Partial<Question>;
+
+/**
+ * "Answered" is one definition, used by the store, the page, wb, the brief and
+ * the audit: a choice, or a non-blank note. A single place so the progress bar
+ * and the row chip can never disagree about whether a question is done.
+ */
+export function isAnswered(q: { choice: string; answer: string }): boolean {
+  return q.choice !== '' || q.answer.trim() !== '';
+}
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+
+/** Read a stored question list. Tolerant: a malformed blob is [] and never throws. */
+function parseQuestions(raw: unknown): Question[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(typeof raw === 'string' ? raw : '[]'); } catch { return []; }
+  if (!Array.isArray(parsed)) return [];
+  const out: Question[] = [];
+  parsed.forEach((q: any, n) => {
+    if (!q || typeof q !== 'object') return;
+    const options = strings(q.options);
+    const answer = typeof q.answer === 'string' ? q.answer : '';
+    const choice = typeof q.choice === 'string' ? q.choice : '';
+    out.push({
+      id: typeof q.id === 'string' && q.id ? q.id : `q${n + 1}`,
+      label: typeof q.label === 'string' ? q.label : '',
+      ask: typeof q.ask === 'string' ? q.ask : '',
+      options,
+      recommended: normaliseRecommended(strings(q.recommended), options),
+      choice, answer,
+      by: typeof q.by === 'string' ? q.by : '',
+      at: typeof q.at === 'string' ? q.at : '',
+      relayed: q.relayed === true,
+    });
+  });
+  return out;
+}
+
+export const QUESTION_SET_OPTIONS_REFUSAL =
+  'a question set carries its options on each question — send "questions":[{"options":[…],"recommended":[…]}]';
+
+/**
+ * The first line of an ask, cut to 60 characters: the label a question gets
+ * when its writer sent none.
+ */
+function labelFromAsk(ask: string, id: string): string {
+  const first = ask.split('\n').map((l) => l.trim()).find(Boolean) || '';
+  const clean = first.replace(/^[#>*\-\s]+/, '');
+  return (clean || id).slice(0, 60);
+}
+
+/**
+ * Build the stored question list from what a writer sent, merging by id onto
+ * what the item already holds. Pure, so the API can run it before any write and
+ * the store can run it again inside the write.
+ *
+ * - A question without an id gets `q<n>` (its position, from 1).
+ * - Duplicate ids refuse the whole write, naming the id.
+ * - `recommended` keeps only exact option texts.
+ * - A question that already exists keeps choice, answer, by, at and relayed —
+ *   sent values for those are ignored; answers go through answerQuestion — unless its
+ *   new options no longer offer the stored choice, which is then cleared and
+ *   reported in `warnings`.
+ * - `droppedAnswered` lists answered questions the new list leaves out; the
+ *   caller decides whether that is allowed (see QuestionsLocked).
+ */
+export function buildQuestions(incoming: QuestionInput[], existing: Question[] = []): {
+  questions: Question[]; warnings: string[]; droppedAnswered: string[];
+} {
+  const bad = (message: string) => Object.assign(new Error(message), { statusCode: 400 });
+  const byId = new Map(existing.map((q) => [q.id, q]));
+  const seen = new Set<string>();
+  const warnings: string[] = [];
+  const questions = incoming.map((raw, n) => {
+    const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `q${n + 1}`;
+    if (seen.has(id)) throw bad(`duplicate question id "${id}" — every question in a set needs its own id`);
+    seen.add(id);
+    const ask = typeof raw.ask === 'string' ? raw.ask : '';
+    const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : labelFromAsk(ask, id);
+    const options = strings(raw.options);
+    const recommended = normaliseRecommended(raw.recommended, options);
+    const before = byId.get(id);
+    // What an answer looks like is decided by the stored record when there is
+    // one; a question new to the item may arrive with its answer already in
+    // it, which is how an import restores a set.
+    const source = before ?? raw;
+    let choice = typeof source.choice === 'string' ? source.choice : '';
+    const answer = typeof source.answer === 'string' ? source.answer.trim() : '';
+    if (choice && !options.includes(choice)) {
+      if (before) warnings.push(`question ${id}: its options changed and no longer offer the recorded choice "${choice}", so the choice was cleared`);
+      choice = '';
+    }
+    const answered = isAnswered({ choice, answer });
+    return {
+      id, label, ask, options, recommended, choice, answer,
+      by: answered && typeof source.by === 'string' ? source.by : '',
+      at: answered && typeof source.at === 'string' ? source.at : '',
+      relayed: answered && source.relayed === true,
+    } as Question;
+  });
+  const droppedAnswered = existing.filter((q) => isAnswered(q) && !seen.has(q.id)).map((q) => q.id);
+  return { questions, warnings, droppedAnswered };
+}
+
+/**
+ * The shape rules for a question set, judged against the item as it will be
+ * after the write (not the fields that arrived against the item as it was), so
+ * one write may turn an issue into a question set, clear its item-level
+ * options and add the questions together.
+ */
+export function checkQuestionSet(
+  kind: Kind,
+  after: { options: string[]; recommended: string[]; choice: string; questions?: unknown[] }
+): string | undefined {
+  if (kind === 'questions') {
+    if (after.options.length || after.recommended.length) return QUESTION_SET_OPTIONS_REFUSAL;
+    if (after.choice) return 'a question set has no item-level choice — record answers one question at a time, PATCH /api/items/<id>/questions/<qid>';
+    return undefined;
+  }
+  if (after.questions && after.questions.length) {
+    return `"questions" belong to kind "questions"; this item is a ${kind === 'todo' ? 'to-do' : kind}`;
+  }
+  return undefined;
+}
+
 export type Item = {
   id: string;
   projectId: string;
@@ -633,6 +803,15 @@ export type Item = {
   body: string;
   bodyFormat: 'text' | 'markdown' | 'html';
   checks: Check[];
+  /**
+   * The questions of a question set (kind "questions"); [] on every other kind.
+   * List rows leave the array out and carry only the two counts below.
+   */
+  questions: Question[];
+  /** Derived from `questions` on every read. Never written. */
+  questionCount: number;
+  /** Derived: how many of them are answered, by isAnswered. Never written. */
+  answered: number;
   /** Derived from `checks` on every read; see qaOf. Never written. */
   qa: QaKind;
   /** Derived: who has an unanswered step, '' when none. See qaOf. */
@@ -665,6 +844,8 @@ export type ItemInput = {
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
   checks?: Check[];
+  /** See Item.questions. Only a question set may carry any; merged by id on update. */
+  questions?: QuestionInput[];
   labels?: string[];
   /**
    * Idempotency key, unique per project. A create that names a clientId already
@@ -841,6 +1022,9 @@ export function openDb(path: string): Database {
       -- the board, and they share one context and one sign-off. JSON because
       -- the shape is a list the item owns, never queried across items.
       checks      TEXT NOT NULL DEFAULT '[]',
+      -- A question set's questions (kind questions): each with its own options,
+      -- recommendation and answer slot. JSON for the same reason as checks.
+      questions   TEXT NOT NULL DEFAULT '[]',
       -- Labels: any number per item, crosswise to section and status. JSON
       -- because the set is small, owned by the item, and only ever read with it.
       labels      TEXT NOT NULL DEFAULT '[]',
@@ -942,6 +1126,7 @@ export function openDb(path: string): Database {
   if (!columns.has('body')) db.exec("ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''");
   if (!columns.has('body_format')) db.exec("ALTER TABLE items ADD COLUMN body_format TEXT NOT NULL DEFAULT 'text'");
   if (!columns.has('checks')) db.exec("ALTER TABLE items ADD COLUMN checks TEXT NOT NULL DEFAULT '[]'");
+  if (!columns.has('questions')) db.exec("ALTER TABLE items ADD COLUMN questions TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('labels')) db.exec("ALTER TABLE items ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
   if (!columns.has('blocked_by')) db.exec("ALTER TABLE items ADD COLUMN blocked_by TEXT NOT NULL DEFAULT ''");
   if (!columns.has('recommended')) db.exec("ALTER TABLE items ADD COLUMN recommended TEXT NOT NULL DEFAULT '[]'");
@@ -960,7 +1145,7 @@ export function openDb(path: string): Database {
   // guard that stops a stored value the UI can no longer produce from sitting
   // there forever after a hand-edit or an older writer.
   db.exec("UPDATE items SET status = 'active' WHERE kind = 'document' AND status NOT IN ('active','archived')");
-  db.exec("UPDATE items SET status = 'needs-decision' WHERE kind = 'issue' AND status IN ('active','archived','todo')");
+  db.exec("UPDATE items SET status = 'needs-decision' WHERE kind IN ('issue','questions') AND status IN ('active','archived','todo')");
   db.exec("UPDATE items SET status = 'todo' WHERE kind = 'todo' AND status NOT IN ('todo','deferred','complete','cancelled')");
   // `needs-you` split into `needs-decision` and `needs-qa`. Every existing row
   // predates the split and therefore predates the distinction, so it becomes
@@ -1009,6 +1194,19 @@ export class ChecksLocked extends Error {
     super(`item ${current.id} has recorded results on ${stepsWithResults.length} step(s): ${stepsWithResults.join(', ')}. ` +
       `Record results with PATCH /api/items/${current.id}/checks/<step>; to redefine the steps and discard those results send "replaceChecks": true.`);
     this.name = 'ChecksLocked';
+  }
+}
+
+/**
+ * Thrown when a write would drop a question that holds an answer. Same reasoning
+ * as ChecksLocked: an answer is the person's record and must not vanish as a
+ * side effect of an edit. `replaceQuestions: true` is the explicit act.
+ */
+export class QuestionsLocked extends Error {
+  constructor(public current: Item, public answeredIds: string[]) {
+    super(`item ${current.id} holds answers to ${answeredIds.length} question(s) this write would drop: ${answeredIds.join(', ')}. ` +
+      `Keep them in "questions" (a question with the same id keeps its answer), or send "replaceQuestions": true to drop them.`);
+    this.name = 'QuestionsLocked';
   }
 }
 
@@ -1094,6 +1292,7 @@ function rowToItem(r: any): Item {
     // leaving the field missing, so every reader sees the same shape.
     if (Array.isArray(parsed)) checks = parsed.map((c: any) => ({ ...c, owner: c?.owner === 'human' || c?.owner === 'agent' ? c.owner : '' }));
   } catch { checks = []; }
+  const questions = r.kind === 'questions' ? parseQuestions(r.questions) : [];
   let recommended: string[] = [];
   try {
     const parsed = JSON.parse(r.recommended ?? '[]');
@@ -1122,8 +1321,11 @@ function rowToItem(r: any): Item {
     updatedSession: r.updated_session ?? '',
     checks,
     ...qaOf(checks),
+    questions,
+    questionCount: questions.length,
+    answered: questions.filter(isAnswered).length,
     labels: parseLabels(r.labels),
-    kind: (r.kind === 'document' || r.kind === 'todo' ? r.kind : 'issue') as Kind,
+    kind: (r.kind === 'document' || r.kind === 'todo' || r.kind === 'questions' ? r.kind : 'issue') as Kind,
     clientId: r.client_id ?? '',
     body: r.body ?? '',
     bodyFormat: (r.body_format ?? 'text') as 'text' | 'markdown' | 'html',
@@ -1500,6 +1702,13 @@ export class Store {
       const modeRow: any = this.db.query('SELECT mode FROM projects WHERE id = ?').get(projectId);
       const kind: Kind = kindFor(modeRow?.mode === 'todo' ? 'todo' : 'board', input.kind);
       const status = input.status && isStatusAllowed(kind, input.status) ? input.status : defaultStatusFor(kind);
+      // The shape of a question set is checked before anything is written, so a
+      // refused create leaves no half-made item and no consumed sequence number.
+      const refusal = checkQuestionSet(kind, {
+        options: input.options || [], recommended: input.recommended || [], choice: input.choice || '', questions: input.questions,
+      });
+      if (refusal) throw Object.assign(new Error(refusal), { statusCode: 400 });
+      const questions = kind === 'questions' ? buildQuestions(input.questions || []).questions : [];
       // A retry returns before reading or advancing next_seq. Keeping this in
       // the same transaction as the insert closes the only sequence race.
       const clientId = typeof input.clientId === 'string' ? input.clientId.trim().slice(0, 120) : '';
@@ -1520,8 +1729,8 @@ export class Store {
       const id = randomUUID();
       this.db
         .query(
-          `INSERT INTO items (id, project_id, title, context, options, recommended, choice, status, section, blocked_by, due_at, priority, position, body, body_format, checks, labels, kind, client_id, seq, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO items (id, project_id, title, context, options, recommended, choice, status, section, blocked_by, due_at, priority, position, body, body_format, checks, questions, labels, kind, client_id, seq, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -1540,6 +1749,7 @@ export class Store {
           input.body || '',
           input.bodyFormat || inferBodyFormat(input.body),
           JSON.stringify(input.checks || []),
+          JSON.stringify(questions),
           JSON.stringify(normaliseLabels(input.labels)),
           kind,
           clientId,
@@ -1561,7 +1771,7 @@ export class Store {
   updateItem(
     id: string,
     patch: Partial<ItemInput> & { position?: number },
-    opts: { ifVersion?: number; actor?: string; session?: string; replaceChecks?: boolean } = {}
+    opts: { ifVersion?: number; actor?: string; session?: string; replaceChecks?: boolean; replaceQuestions?: boolean; warnings?: string[] } = {}
   ): Item | null {
     const current = this.getItem(id);
     if (!current) return null;
@@ -1578,6 +1788,27 @@ export class Store {
     const wanted = patch.status ?? current.status;
     const status = isStatusAllowed(kind, wanted) ? wanted : defaultStatusFor(kind);
     const options = patch.options ?? current.options;
+    // Judged on the item as it will be, so one write can turn an issue into a
+    // question set and clear its item-level fields in the same breath.
+    const refusal = checkQuestionSet(kind, {
+      options, recommended: patch.recommended ?? current.recommended, choice: patch.choice ?? current.choice, questions: patch.questions,
+    });
+    if (refusal) throw Object.assign(new Error(refusal), { statusCode: 400 });
+    let questions = current.questions;
+    if (kind === 'questions') {
+      if (patch.questions !== undefined) {
+        const built = buildQuestions(patch.questions, current.questions);
+        if (built.droppedAnswered.length && !opts.replaceQuestions) throw new QuestionsLocked(current, built.droppedAnswered);
+        questions = built.questions;
+        opts.warnings?.push(...built.warnings);
+      }
+    } else if (current.questions.length) {
+      // Leaving the question-set kind drops its questions; answers among them
+      // are the person's record, so that needs the same explicit word.
+      const answeredIds = current.questions.filter(isAnswered).map((q) => q.id);
+      if (answeredIds.length && !opts.replaceQuestions) throw new QuestionsLocked(current, answeredIds);
+      questions = [];
+    }
     const next = {
       title: patch.title ?? current.title,
       context: patch.context ?? current.context,
@@ -1604,18 +1835,19 @@ export class Store {
       bodyFormat: patch.bodyFormat
         ?? (patch.body !== undefined && current.bodyFormat === 'text' ? inferBodyFormat(patch.body) : current.bodyFormat),
       checks: JSON.stringify(patch.checks ?? current.checks),
+      questions: JSON.stringify(questions),
       labels: JSON.stringify(patch.labels === undefined ? current.labels : normaliseLabels(patch.labels)),
     };
     const guard = typeof opts.ifVersion === 'number' ? ' AND version = ?' : '';
     const params: any[] = [
       next.title, next.context, next.options, next.recommended, next.choice, next.status, next.kind, next.section, next.blockedBy, next.dueAt, next.priority, next.position,
-      next.body, next.bodyFormat, next.checks, next.labels, now(), opts.actor || '', opts.session || '', id,
+      next.body, next.bodyFormat, next.checks, next.questions, next.labels, now(), opts.actor || '', opts.session || '', id,
     ];
     if (guard) params.push(opts.ifVersion);
     const result = this.db
       .query(
         `UPDATE items SET title = ?, context = ?, options = ?, recommended = ?, choice = ?, status = ?, kind = ?, section = ?, blocked_by = ?, due_at = ?, priority = ?, position = ?,
-           body = ?, body_format = ?, checks = ?, labels = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1
+           body = ?, body_format = ?, checks = ?, questions = ?, labels = ?, updated_at = ?, updated_by = ?, updated_session = ?, version = version + 1
          WHERE id = ?${guard}`
       )
       .run(...params);
@@ -1702,6 +1934,76 @@ export class Store {
     return this.getItem(itemId);
   }
 
+  /**
+   * Record one answer of a question set. One question at a time, read-modify-write
+   * inside one transaction, so two answers arriving together never lose each
+   * other and the "last answer moves the item" check cannot run twice.
+   *
+   * An answer is the person's. An actor other than `you` is refused unless it
+   * says `relay: true` — it is writing down what the person said, and the
+   * record says so. Recording does not touch updatedBy/updatedSession: an
+   * answer is not a claim on the item, the same reasoning that keeps a message
+   * from rewriting them.
+   */
+  answerQuestion(
+    itemId: string,
+    qid: string,
+    patch: { choice?: string; answer?: string; clear?: boolean; relay?: boolean; by?: string; session?: string }
+  ): Item | null {
+    const fail = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
+    const run = this.db.transaction(() => {
+      const current = this.getItem(itemId);
+      if (!current) return null;
+      if (current.kind !== 'questions') throw fail(400, `item ${current.id} is ${current.kind === 'todo' ? 'a to-do' : 'a ' + current.kind}, not a question set — questions are answered on kind "questions" items`);
+      const before = current.questions.find((q) => q.id === qid);
+      if (!before) throw fail(404, `no question "${qid}" on this item. Known: ${current.questions.map((q) => q.id).join(', ') || '(none)'}`);
+      const by = (patch.by || '').trim() || 'you';
+      if (by !== 'you' && patch.relay !== true) {
+        throw fail(400, 'answers are the person\'s; an agent records one only as a relay, with relay:true');
+      }
+      let next: Question;
+      if (patch.clear === true) {
+        next = { ...before, choice: '', answer: '', by: '', at: '', relayed: false };
+      } else {
+        const choice = typeof patch.choice === 'string' ? patch.choice : undefined;
+        const answer = typeof patch.answer === 'string' ? patch.answer.trim() : undefined;
+        if (choice && !before.options.includes(choice)) {
+          throw fail(400, before.options.length
+            ? `choice "${choice}" is not one of the options of ${qid}: ${before.options.map((o) => JSON.stringify(o)).join(', ')}`
+            : `${qid} has no options — send "answer" with the text`);
+        }
+        if (!choice && !answer) throw fail(400, 'nothing to record — send a choice or an answer (clear:true empties a question)');
+        next = {
+          ...before,
+          choice: choice !== undefined ? choice : before.choice,
+          answer: answer !== undefined ? answer : before.answer,
+          by, at: now(), relayed: patch.relay === true,
+        };
+      }
+      const questions = current.questions.map((q) => (q.id === qid ? next : q));
+      this.db
+        .query('UPDATE items SET questions = ?, updated_at = ?, version = version + 1 WHERE id = ?')
+        .run(JSON.stringify(questions), now(), itemId);
+      // The last answer hands the item back. A set with open questions is the
+      // person's move; once every one is answered it is the agent's, and the
+      // board says so itself rather than waiting for somebody to remember.
+      // Inside this transaction so nine answers landing together produce one
+      // message, not nine.
+      const finished = questions.length > 0 && questions.every(isAnswered);
+      if (patch.clear !== true && finished && current.status === 'needs-decision') {
+        this.addMessage(itemId, {
+          who: patch.relay === true ? 'agent' : 'you',
+          author: by,
+          session: patch.session,
+          status: 'received',
+          text: `All ${questions.length} questions answered`,
+        });
+      }
+      return this.getItem(itemId);
+    });
+    return run.immediate();
+  }
+
   deleteItem(id: string): boolean {
     const result = this.db.query('DELETE FROM items WHERE id = ?').run(id);
     return result.changes > 0;
@@ -1761,9 +2063,9 @@ export class Store {
     // still waiting on the human (`needs-decision`, `needs-qa`) leaves the move
     // where it is, and anything else needs an explicit status — which a caller
     // can always pass, and should whenever the reply hands the item back.
-    const autoClaim = item.kind === 'issue' && input.who === 'agent' && item.status === 'received';
+    const autoClaim = isWorkKind(item.kind) && input.who === 'agent' && item.status === 'received';
     const wanted: Status = input.status
-      ?? (item.kind === 'issue' && input.who === 'you' ? 'received' : (autoClaim ? 'in-progress' : item.status));
+      ?? (isWorkKind(item.kind) && input.who === 'you' ? 'received' : (autoClaim ? 'in-progress' : item.status));
     const status: Status = isStatusAllowed(item.kind, wanted) ? wanted : item.status;
     // Messages are append-only and never conflict, so posting one is always
     // safe from any number of sessions at once. Only the status it carries
