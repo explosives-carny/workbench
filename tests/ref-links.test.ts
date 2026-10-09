@@ -132,9 +132,9 @@ describe('server: writes warn, the audit lists, /i/<ref> redirects', () => {
     return { status: res.status, json, text, headers: res.headers };
   };
 
-  test('the contract is v26', async () => {
-    expect(CONTRACT_VERSION).toBe('26');
-    expect((await call('GET', '/api')).json.contractVersion).toBe('26');
+  test('the contract is v27', async () => {
+    expect(CONTRACT_VERSION).toBe('27');
+    expect((await call('GET', '/api')).json.contractVersion).toBe('27');
     expect((await call('GET', '/api')).json.routes.some((r: string) => r.includes('/i/<id-or-ref>'))).toBe(true);
   });
 
