@@ -401,7 +401,10 @@
 
   // Shown whether or not the copy worked: the reader can see what they are
   // about to paste, and when the clipboard is refused (no permission, an
-  // insecure context) the text is already selected for a manual copy.
+  // insecure context) the text is already selected for a manual copy. The
+  // Copy button is a second chance on a real click: the automatic copy runs
+  // after a fetch, and a browser may refuse a clipboard write that far from
+  // the gesture even when it would allow one on the button itself.
   function briefPanel() {
     const box = document.createElement('div');
     box.className = 'briefbox';
@@ -409,20 +412,44 @@
     msg.className = 'brief-note mono' + (brief.copied ? '' : ' err');
     msg.textContent = brief.copied
       ? 'Copied to the clipboard. Paste it to another AI or a person. Their answer is advice for you; it is not sent anywhere or recorded here.'
-      : 'Could not copy automatically. The brief is selected below: copy it by hand.';
+      : 'Could not copy automatically. Press Copy, or copy the brief by hand from the box below.';
     const ta = document.createElement('textarea');
     ta.id = 'brief-text';
     ta.className = 'brief-text mono';
     ta.readOnly = true;
     ta.value = brief.text;
     ta.setAttribute('aria-label', 'Second-opinion brief');
+    const row = document.createElement('div');
+    row.className = 'row';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'labeledit mono brief-copy';
+    copy.textContent = 'Copy';
+    copy.title = 'Copy the brief to the clipboard';
+    copy.addEventListener('click', copyBrief);
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'labeledit mono';
     close.textContent = 'Close';
     close.addEventListener('click', () => { brief = null; paint(true); });
-    box.append(msg, ta, close);
+    row.append(copy, close);
+    box.append(msg, ta, row);
     return box;
+  }
+
+  async function copyBrief() {
+    if (!brief) return;
+    try {
+      await navigator.clipboard.writeText(brief.text);
+    } catch (e) {
+      note('the browser refused the clipboard: copy it by hand from the box', true);
+      const ta = document.getElementById('brief-text');
+      if (ta) { try { ta.focus(); ta.select(); } catch (e2) { /* still readable */ } }
+      return;
+    }
+    brief = { text: brief.text, copied: true };
+    paint(true);
+    note('brief copied');
   }
 
   async function getBrief() {
