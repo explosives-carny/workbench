@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v25.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `25`,
+**Contract v26.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `26`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -49,7 +49,7 @@ for everything else.
 ```bash
 wb board <slug>                                    GET  /api/projects/<slug>?status=received,in-progress&messages=last
 wb show <id|ref>                                   GET  /api/items/<id-or-ref>   — a ref (WB-DEMO-14) works anywhere an id does
-                                                   GET  /i/<id-or-ref>  — 302 to the item's page, any project, former keys too; every ref the page renders links here (v25)
+                                                   GET  /i/<id-or-ref>  — 302 to the item's page, any project, former keys too; every ref the page renders links here (v26)
 wb brief <id|ref>                                  GET  /api/items/<id-or-ref>/brief — the item as a self-contained Markdown brief for a second opinion; reads only
 wb audit [slug]                                    GET  /api/projects/<slug>/audit (no slug: GET /api/audit) — live items out of spec, rule + fix each
 wb ask <slug> '[{"title":"…?","context":"…","options":["A","B"],"recommended":["B"],"labels":["…"],"clientId":"…"}]'
@@ -158,7 +158,7 @@ understood — usually a typo).
     never a truncated one. Fall back to the UUID's first eight characters only
     when the project has no key at all. **Write the ref bare: the page draws
     every ref as a link to its item**, on any project and under a former key
-    (v25). Never build the link yourself (`[WB-DEMO-14](/p/demo/i/…)`): the
+    (v26). Never build the link yourself (`[WB-DEMO-14](/p/demo/i/…)`): the
     server warns and the audit lists it. See **References** below.
 12. **Write for the page.** Context, messages and document bodies render as
     Markdown. Lead with one sentence, then short paragraphs, bullet lists and
@@ -459,7 +459,7 @@ context above them. Agents read the answers as fields.
   set: send `"kind":"questions"`, `"options":[]`, `"recommended":[]`,
   `"choice":""` and the `questions` together.
 - **Cite a question as `WB-DEMO-14/q3`**: the item's ref, a slash, the
-  question's id; the page draws it as a link to that question (v25). When an
+  question's id; the page draws it as a link to that question (v26). When an
   answer starts separate work, file that work as its own item and link it back
   by that citation.
 - **A set does not nest.** A question that grows a second question of its own
@@ -577,7 +577,7 @@ project has no key at all.
 `GET /api/items/<id-or-ref>`, its `PATCH`, `/messages`, `/checks/<checkId>`,
 and `wb show|reply|claim|status|check`.
 
-**Every ref the page renders is a link to its item (v25).** In a context, a
+**Every ref the page renders is a link to its item (v26).** In a context, a
 message, a document body, a question's ask or answer, a title, a QA step's
 label, a question's label and a `blockedBy` line, `WB-DEMO-14` is drawn as a
 link to that item — on whichever project it lives, and under a former key as
@@ -766,7 +766,7 @@ lists live items that break the same rules.
 | Escaped newlines | two or more literal `\n` and no real line break | Send real line breaks |
 | Pointer option | an option points by position: "(see below)", "the table above;" — not a comparison like "below 10" | Name what it means; keep that content in the context |
 | Table option | an option points at a table and no Markdown table is in the context or body | Put the table in the context, formatted |
-| Ref written as a link | a Markdown link whose target is an item page (`/p/<slug>/i/…`, `/i/…`) or whose text is a bare ref, in a context, body, ask or agent message (fenced code excepted) | Write the ref bare; the page links it (v25) |
+| Ref written as a link | a Markdown link whose target is an item page (`/p/<slug>/i/…`, `/i/…`) or whose text is a bare ref, in a context, body, ask or agent message (fenced code excepted) | Write the ref bare; the page links it (v26) |
 
 Why: on 2026-10-06 a 2,128-character decision context with a nine-row table and
 bulleted reasons was shown as one paragraph of pipes and asterisks, and its

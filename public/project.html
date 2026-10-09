@@ -971,7 +971,7 @@
   }
 
   async function load(redraw) {
-    // The keys this board knows, before anything is drawn (contract v25).
+    // The keys this board knows, before anything is drawn (contract v26).
     await WB.refKeys();
     const data = await WB.get('/api/projects/' + encodeURIComponent(slug));
     // A project grouping by status, or by whose move it is, has no section

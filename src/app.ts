@@ -32,7 +32,7 @@ import { ImageStore, ImageRefused, imageHeaders, imageTooLarge, MAX_IMAGE_REQUES
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '25';
+export const CONTRACT_VERSION = '26';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -1172,7 +1172,9 @@ export function crossSiteRefusal(req: Request, url: URL, extra: string[] = []): 
 // The audit reads list rows, which carry no body; a Markdown document is
 // read in full so the rule against hand-built links can see its text.
 function itemsForAudit(store: Store, projectId: string) {
-  return store.listItems(projectId, 'none').map((row: any) => (row.bodyFormat === 'markdown' && row.bodyLength ? store.getItem(row.id)! : row));
+  const finished = new Set(['complete', 'cancelled', 'archived']);
+  return store.listItems(projectId, 'none').map((row: any) =>
+    (row.bodyFormat === 'markdown' && row.bodyLength && !finished.has(row.status) ? store.getItem(row.id) || row : row));
 }
 
 export function createHandler(store: Store, opts: HandlerOptions): (req: Request) => Promise<Response> {
@@ -1218,7 +1220,7 @@ export function createHandler(store: Store, opts: HandlerOptions): (req: Request
     if (url.pathname === '/api-doc') {
       return new Response(Bun.file(opts.agentsMdPath), { headers: { 'content-type': 'text/plain; charset=utf-8' } });
     }
-    // /i/<ref> is the one address a rendered reference links to (contract v25).
+    // /i/<ref> is the one address a rendered reference links to (contract v26).
     // The page that draws a ref knows its key, not its project's slug, and a
     // former key must still land; resolveItem knows both. So the server answers
     // with the item's current page, and the browser keeps any #fragment (a

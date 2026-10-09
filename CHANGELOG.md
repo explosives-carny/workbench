@@ -10,7 +10,7 @@
   (`WB-DEMO-14/q3`) opens the set at that question. References inside option
   buttons stay plain, since a button cannot hold a link. Agents keep writing
   the bare reference; one that builds the link by hand is warned and listed
-  by the audit (contract v25).
+  by the audit (contract v26).
 - Phone photos can be attached as they come. A HEIC or HEIF file — what an
   iPhone saves — is accepted by the Image button, by drag and drop, by
   `wb attach` and by the upload route, and is stored as a JPEG so it shows in

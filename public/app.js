@@ -200,7 +200,7 @@ window.WB = (function () {
     return chip;
   }
 
-  // ---- References as links (contract v25) ----
+  // ---- References as links (contract v26) ----
   //
   // The keys this board knows, current and former, fetched once per page and
   // handed to md.js as MD.refKeys. A ref whose key is on the board links to
@@ -682,7 +682,7 @@ window.WB = (function () {
     return e;
   }
 
-  // A question's label, with any ref in it linked (contract v25).
+  // A question's label, with any ref in it linked (contract v26).
   function qLabel(q) {
     const e = qEl('strong', 'qlabel');
     e.replaceChildren(renderRefs(q.label || q.id));

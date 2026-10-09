@@ -513,7 +513,7 @@
     refslot.innerHTML = '';
     const ref = WB.refChip(item.ref);
     if (ref) refslot.appendChild(ref);
-    // A ref in the title is a link like anywhere else (contract v25).
+    // A ref in the title is a link like anywhere else (contract v26).
     document.getElementById('title').replaceChildren(WB.renderRefs(item.title));
     // Context is Markdown, written like a reply: a single newline is a line
     // break (contract v20). md.js escapes everything before it formats.

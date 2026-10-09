@@ -1,4 +1,4 @@
-// References as links (contract v25). Three layers, each tested where it
+// References as links (contract v26). Three layers, each tested where it
 // lives: md.js links a ref in rendered text; the pages link refs in the
 // fields that are not Markdown and load the board's keys first; the server
 // turns /i/<ref> into the item's page. And the rule that keeps agents from
@@ -132,9 +132,9 @@ describe('server: writes warn, the audit lists, /i/<ref> redirects', () => {
     return { status: res.status, json, text, headers: res.headers };
   };
 
-  test('the contract is v25', async () => {
-    expect(CONTRACT_VERSION).toBe('25');
-    expect((await call('GET', '/api')).json.contractVersion).toBe('25');
+  test('the contract is v26', async () => {
+    expect(CONTRACT_VERSION).toBe('26');
+    expect((await call('GET', '/api')).json.contractVersion).toBe('26');
     expect((await call('GET', '/api')).json.routes.some((r: string) => r.includes('/i/<id-or-ref>'))).toBe(true);
   });
 

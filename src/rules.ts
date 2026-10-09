@@ -167,7 +167,7 @@ export function issueReadsLikeQuestionSet(item: { kind: Kind; status: Status; co
   return `the context holds ${lines} numbered questions — file it as kind "questions" with "questions":[{"label":"…","ask":"…","options":[…],"recommended":[…]}] so each is answered where it is asked`;
 }
 
-// Refs are links on the page (AGENTS.md "References", contract v25): every
+// Refs are links on the page (AGENTS.md "References", contract v26): every
 // WB-<KEY>-<n> in a context, a message, a body, an option or a question is
 // rendered as a link to that item, on any project and under former keys. So a
 // link an agent builds by hand — `[WB-DEMO-14](/p/demo/i/<uuid>)` — is a second
@@ -188,8 +188,9 @@ export function refLinkWarning(field: string, text: string | undefined): string 
     const open = line.match(/^(```|~~~)/);
     if (open) { fence = fence === open[1] ? null : fence || open[1]; continue; }
     if (fence) continue;
-    // Inline code quotes a pattern; it does not commit it.
-    const prose = line.replace(/`[^`]*`/g, '');
+    // Inline code quotes a pattern; it does not commit it. An image whose alt
+    // is a ref (`![WB-DEMO-14](/api/images/…)`) is a picture, not a link.
+    const prose = line.replace(/`[^`]*`/g, '').replace(/!\[[^\]]*\]\([^)\s]+\)/g, '');
     for (const m of prose.matchAll(/\[([^\]]+)\]\(([^)\s]+)\)/g)) {
       const label = m[1];
       const href = m[2];
