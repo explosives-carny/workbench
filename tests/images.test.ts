@@ -58,7 +58,7 @@ describe('size is checked before the body is read', () => {
     let pulled = false;
     const body = new ReadableStream({
       pull(controller) { pulled = true; controller.enqueue(new Uint8Array(8)); controller.close(); },
-    });
+    }, { highWaterMark: 0 }); // no read-ahead: pull runs only if something reads the body
     const req = new Request('http://localhost/api/images', {
       method: 'POST',
       body,
@@ -312,6 +312,24 @@ describe('backup and restore carry images as files beside the JSON', () => {
     expect(result.images).toBe(1);
     expect(readdirSync(restored)).toEqual([`${sha(PNG)}.png`]);
     expect(lines.some((l) => l.includes('do not match'))).toBe(true);
+  });
+
+  test('one unreadable entry is logged and skipped; the rest is copied and the JSON still written', () => {
+    mkdirSync(imagesDir, { recursive: true });
+    writeFileSync(join(imagesDir, `${sha(PNG)}.png`), PNG);
+    // A directory carrying a valid image name: reading it as a file throws.
+    const bad = `${'ab'.repeat(32)}.png`;
+    mkdirSync(join(imagesDir, bad));
+    store.createProject({ name: 'Demo', key: 'DEMO' });
+    const out = join(root, 'content');
+    const lines: string[] = [];
+    const result = exportAll(store, out, { imagesDir, log: (l) => lines.push(l) });
+    expect(result.images).toBe(1);
+    expect(existsSync(join(out, 'images', `${sha(PNG)}.png`))).toBe(true);
+    expect(existsSync(join(out, 'images', bad))).toBe(false);
+    expect(lines.some((l) => l.startsWith(`skipped image ${bad}:`))).toBe(true);
+    expect(result.projects).toBe(1);
+    expect(readdirSync(join(out, 'images')).filter((n) => n.endsWith('.tmp'))).toEqual([]);
   });
 
   test('copyImages with no source directory is a no-op', () => {

@@ -18,7 +18,7 @@
 // quoting it does. The text that references an image is already signed and
 // versioned, so the file itself needs no second copy of that.
 import { createHash } from 'crypto';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 
 /**
@@ -202,15 +202,30 @@ export function copyImages(from: string, to: string, log?: (line: string) => voi
     const m = IMAGE_NAME.exec(name);
     if (!m) continue;
     const target = join(to, name);
-    if (existsSync(target)) continue;
-    const bytes = readFileSync(join(from, name));
-    if (createHash('sha256').update(bytes).digest('hex') !== m[1]) {
-      log?.(`skipped image ${name}: its bytes do not match its name`);
-      continue;
+    // One unreadable or locked file must not stop the rest of the export (or
+    // the project JSON that is written after this): log it and go on.
+    try {
+      if (existsSync(target)) continue;
+      const bytes = readFileSync(join(from, name));
+      if (createHash('sha256').update(bytes).digest('hex') !== m[1]) {
+        log?.(`skipped image ${name}: its bytes do not match its name`);
+        continue;
+      }
+      mkdirSync(to, { recursive: true });
+      // Temporary name then rename, as put() does, so an interrupted copy
+      // never leaves a truncated file under a hash it does not match.
+      const tmp = join(to, `.${name}.${process.pid}.${Date.now()}.tmp`);
+      try {
+        writeFileSync(tmp, bytes);
+        renameSync(tmp, target);
+      } catch (error) {
+        try { rmSync(tmp, { force: true }); } catch {}
+        throw error;
+      }
+      copied += 1;
+    } catch (error: any) {
+      log?.(`skipped image ${name}: ${error?.message || error}`);
     }
-    mkdirSync(to, { recursive: true });
-    copyFileSync(join(from, name), target);
-    copied += 1;
   }
   return copied;
 }
