@@ -81,6 +81,10 @@ describe('md.js links a reference in text', () => {
     expect(MD('<b>WB-BD-1</b>')).toBe(`<p>&lt;b&gt;${link('WB-BD-1')}&lt;/b&gt;</p>`);
     expect(MD('WB-BD-1 "x" <a href="/i/WB-BD-2">y</a>')).not.toContain('<a href="/i/WB-BD-2"');
   });
+
+  test('an inline code span is escaped once (found in review: a<b showed as a&lt;b)', () => {
+    expect(MD('`a<b & "c"`')).toBe('<p><code>a&lt;b &amp; &quot;c&quot;</code></p>');
+  });
 });
 
 describe('the rule against hand-built links', () => {
@@ -92,6 +96,10 @@ describe('the rule against hand-built links', () => {
     expect(refLinkWarning('context', 'WB-BD-1 and `WB-BD-2`')).toBeUndefined();
     expect(refLinkWarning('context', '[the PR](https://example.test/pr/1)')).toBeUndefined();
     expect(refLinkWarning('context', '```\n[WB-BD-1](/p/board/i/x)\n```')).toBeUndefined();
+    expect(refLinkWarning('context', '~~~\n[WB-BD-1](/p/board/i/x)\n~~~')).toBeUndefined();
+    expect(refLinkWarning('context', 'never write `[WB-BD-1](/p/board/i/x)`')).toBeUndefined();
+    expect(refLinkWarning('context', '[x](https://other.example/p/board/i/x)')).toBeUndefined();
+    expect(refLinkWarning('context', '[x](http://127.0.0.1:4317/i/WB-BD-1)')).toContain('links an item by hand');
     expect(refLinkWarning('context', '')).toBeUndefined();
   });
 });
@@ -147,6 +155,16 @@ describe('server: writes warn, the audit lists, /i/<ref> redirects', () => {
     const r = await call('GET', '/i/WB-BD-1');
     expect(r.status).toBe(302);
     expect(r.headers.get('location')).toBe('/p/board/i/WB-NEW-1');
+  });
+
+  test('/i/<ref> answers GET and HEAD only', async () => {
+    store.createItem(board.id, { title: 'First' });
+    expect((await call('HEAD', '/i/WB-BD-1')).status).toBe(302);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const r = await call(method, '/i/WB-BD-1');
+      expect(r.status).toBe(405);
+      expect(r.headers.get('allow')).toBe('GET, HEAD');
+    }
   });
 
   test('a ref nobody holds, a bad escape and a malformed ref are 404 text, never 500', async () => {
@@ -233,6 +251,19 @@ describe('the pages link refs in titles, labels and blocked-by lines, across pro
     const labels = page.byId('checks').byClass('ck-label');
     expect(labels.length).toBe(1);
     expect(anchors(labels[0])).toEqual([['WB-BD-1', '/i/WB-BD-1']]);
+  });
+
+  test('renderRefs with no keys loaded links every well-formed ref, and without md.js leaves text alone', async () => {
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    page.win.MD.refKeys = null;
+    const frag = page.win.WB.renderRefs('WB-ZZ-4 and WB-BD-1');
+    expect(frag.byClass('ref-link').map((a: El) => a.href)).toEqual(['/i/WB-ZZ-4', '/i/WB-BD-1']);
+    const md = page.win.MD;
+    page.win.MD = undefined;
+    const plain = page.win.WB.renderRefs('WB-BD-1 only');
+    expect(plain.byClass('ref-link').length).toBe(0);
+    expect(plain.textContent).toBe('WB-BD-1 only');
+    page.win.MD = md;
   });
 
   test('the project page: the row title stays text inside its own link; the expanded card links', async () => {

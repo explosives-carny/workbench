@@ -176,15 +176,21 @@ export function issueReadsLikeQuestionSet(item: { kind: Kind; status: Status; co
 // never refused; the audit lists the same. Fenced code is exempt: a body that
 // documents the bad pattern is not committing it.
 const REF_AS_TEXT = /^\s*WB-[A-Z][A-Z0-9]{1,4}-[1-9][0-9]*(?:\/[a-z]+[0-9]+)?\s*$/i;
-const ITEM_HREF = /^(?:https?:\/\/[^/\s)]+)?\/(?:p\/[^/\s)]+\/i\/[^\s)]+|i\/[^\s)]+)$/i;
+// An item page on this board: a path, or the same path under the board's own
+// origin (localhost or 127.0.0.1, any port). Another site's /p/x/i/y is not
+// an item here.
+const ITEM_HREF = /^(?:https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)?\/(?:p\/[^/\s)]+\/i\/[^\s)]+|i\/[^\s)]+)$/i;
 export function refLinkWarning(field: string, text: string | undefined): string | undefined {
   if (!text) return undefined;
-  let fenced = false;
+  let fence: string | null = null;
   for (const raw of text.split('\n')) {
     const line = raw.trim();
-    if (line.startsWith('```')) { fenced = !fenced; continue; }
-    if (fenced) continue;
-    for (const m of line.matchAll(/\[([^\]]+)\]\(([^)\s]+)\)/g)) {
+    const open = line.match(/^(```|~~~)/);
+    if (open) { fence = fence === open[1] ? null : fence || open[1]; continue; }
+    if (fence) continue;
+    // Inline code quotes a pattern; it does not commit it.
+    const prose = line.replace(/`[^`]*`/g, '');
+    for (const m of prose.matchAll(/\[([^\]]+)\]\(([^)\s]+)\)/g)) {
       const label = m[1];
       const href = m[2];
       if (ITEM_HREF.test(href)) {

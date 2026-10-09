@@ -1226,6 +1226,9 @@ export function createHandler(store: Store, opts: HandlerOptions): (req: Request
     // here, so the item page keeps reading its identifiers from one path shape
     // and the address bar teaches the current ref.
     const refPage = url.pathname.match(/^\/i\/([^/]+)\/?$/);
+    if (refPage && req.method !== 'GET' && req.method !== 'HEAD') {
+      return new Response('Only GET here: /i/<ref> is an address, not a route to write to.', { status: 405, headers: { allow: 'GET, HEAD', 'content-type': 'text/plain; charset=utf-8' } });
+    }
     if (refPage) {
       let raw = refPage[1];
       try { raw = decodeURIComponent(raw); } catch { /* a bad escape is just not a ref */ }

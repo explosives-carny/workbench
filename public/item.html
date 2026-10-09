@@ -627,9 +627,9 @@
   function scrollToQuestion() {
     if (scrolledToHash) return;
     scrolledToHash = true;
-    const m = String((typeof location !== 'undefined' && location.hash) || '').match(/^#([a-z]+[0-9]+)$/);
+    const m = String((typeof location !== 'undefined' && location.hash) || '').match(/^#([a-z]+[0-9]+)$/i);
     if (!m) return;
-    const el = document.getElementById('q-' + item.id + '-' + m[1]);
+    const el = document.getElementById('q-' + item.id + '-' + m[1].toLowerCase());
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
   }
 

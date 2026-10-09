@@ -233,6 +233,8 @@ window.WB = (function () {
   function renderRefs(text, className) {
     const frag = document.createDocumentFragment();
     if (!text) return frag;
+    // A page without md.js (the gallery) has no ref regex: text as it is.
+    if (!window.MD || !window.MD.REF) { frag.appendChild(document.createTextNode(text)); return frag; }
     const re = new RegExp(window.MD.REF.source, 'gi');
     const keys = window.MD.refKeys;
     let last = 0;
@@ -262,9 +264,12 @@ window.WB = (function () {
   }
 
   // A ref may sit inside something clickable — an expanded card's header, a
-  // row that toggles. Caught in the capture phase so the click reaches the
-  // anchor's navigation and nothing above it. Guarded: this file is also
-  // loaded with only a `window`, by tests of its pure helpers.
+  // row that toggles. Caught in the capture phase and stopped there, so the
+  // click still navigates the anchor (its default action is not prevented)
+  // but no listener on the page sees it — not the container that would
+  // toggle, and not the document-level ones either (the lightbox handler
+  // below only ever wants an image click, so nothing is lost). Guarded:
+  // this file is also loaded with only a `window`, by tests of its helpers.
   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('click', (e) => {
       const t = e.target;
