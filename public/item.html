@@ -175,7 +175,7 @@
       if (withLabel) {
         const label = document.createElement('div');
         label.className = 'ck-label';
-        label.textContent = c.label;
+        label.replaceChildren(WB.renderRefs(c.label));
         row.appendChild(label);
       }
 
@@ -345,7 +345,8 @@
         const b = document.createElement('button');
         b.type = 'button';
         // Inline formatting only; the value sent on click is the raw option text.
-        b.innerHTML = MD.inline(o);
+        // No anchor inside a button: a ref in an option stays text.
+        b.innerHTML = MD.inline(o, { refs: false });
         // The agent's recommendation, marked by the board rather than written
         // into the option text (which would end up in `choice` when clicked).
         if ((item.recommended || []).includes(o)) {
@@ -512,17 +513,16 @@
     refslot.innerHTML = '';
     const ref = WB.refChip(item.ref);
     if (ref) refslot.appendChild(ref);
-    document.getElementById('title').textContent = item.title;
+    // A ref in the title is a link like anywhere else (contract v25).
+    document.getElementById('title').replaceChildren(WB.renderRefs(item.title));
     // Context is Markdown, written like a reply: a single newline is a line
     // break (contract v20). md.js escapes everything before it formats.
     document.getElementById('ctx').innerHTML = MD(item.context || '', { breaks: true });
-    // Blocked by: the item key comes from this item's own ref (WB-<KEY>-<n>),
-    // so only refs on this board are linked.
+    // Blocked by: any ref the board knows links, on whichever project it is.
     const blockedEl = document.getElementById('blocked');
     blockedEl.replaceChildren();
     if (item.status === 'blocked' && item.blockedBy) {
-      const ownKey = item.ref ? item.ref.split('-')[1] : null;
-      blockedEl.append('Blocked by: ', WB.renderBlockedBy(item.blockedBy, slug, ownKey));
+      blockedEl.append('Blocked by: ', WB.renderBlockedBy(item.blockedBy));
       blockedEl.hidden = false;
     } else {
       blockedEl.hidden = true;
@@ -620,10 +620,27 @@
     host.appendChild(edit);
   }
 
+  // A `#q3` in the address (a question citation, WB-DEMO-14/q3) scrolls to
+  // that question once, after the first paint — never again, or the
+  // five-second repaint would drag the reader back while they are typing.
+  let scrolledToHash = false;
+  function scrollToQuestion() {
+    if (scrolledToHash) return;
+    scrolledToHash = true;
+    const m = String((typeof location !== 'undefined' && location.hash) || '').match(/^#([a-z]+[0-9]+)$/);
+    if (!m) return;
+    const el = document.getElementById('q-' + item.id + '-' + m[1]);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+  }
+
   async function load() {
+    // The keys this board knows, before anything is drawn, so a ref links on
+    // the first paint rather than on the first repaint.
+    await WB.refKeys();
     const data = await WB.get('/api/items/' + encodeURIComponent(itemId));
     item = data.item;
     paint();
+    scrollToQuestion();
   }
 
   async function choose(option) {

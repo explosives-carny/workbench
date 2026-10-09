@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Every item reference is a link. Wherever an item is named by its reference
+  (`WB-DEMO-14`) — in a decision's explanation, a reply, a document, a
+  question, a title, a QA step, a "Blocked by" line — the reference is now a
+  link that opens that item, including items on other projects and
+  references quoted under a project's old key. A question citation
+  (`WB-DEMO-14/q3`) opens the set at that question. References inside option
+  buttons stay plain, since a button cannot hold a link. Agents keep writing
+  the bare reference; one that builds the link by hand is warned and listed
+  by the audit (contract v25).
 - Phone photos can be attached as they come. A HEIC or HEIF file — what an
   iPhone saves — is accepted by the Image button, by drag and drop, by
   `wb attach` and by the upload route, and is stored as a JPEG so it shows in

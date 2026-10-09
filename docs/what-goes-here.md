@@ -466,7 +466,8 @@ stops sharing what the set shares. Each reason below is one of the ways it does:
   whole. A question you need now, with the rest able to wait, would hold the
   hand-back until the last one is answered.
 - **Its answer starts separate work.** That work has its own PR and its own QA
-  and needs an item to carry them; file it and link it back by `ref/qid`.
+  and needs an item to carry them; file it and link it back by `ref/qid`
+  (written bare — the page draws every ref, and a `ref/qid`, as a link).
 - **Another item must wait on it.** `blockedBy` names an item, not a question
   inside one.
 - **Its answer is a physical or device fact.** Somebody must go and test; it

@@ -147,6 +147,8 @@ export function questionFormatFindings(item: { questions: Question[]; body: stri
     if (wall) out.push({ rule: 'context-wall-of-text', message: wall });
     const escaped = escapedNewlineWarning(ask, q.ask);
     if (escaped) out.push({ rule: 'context-escaped-newlines', message: escaped });
+    const handLink = refLinkWarning(ask, q.ask);
+    if (handLink) out.push({ rule: 'ref-written-as-link', message: handLink });
     for (const f of pointerOptionWarnings(q.options, q.ask, item.body)) {
       out.push({ rule: f.rule, message: `questions[${q.id}].options: ${f.message}` });
     }
@@ -163,6 +165,37 @@ export function issueReadsLikeQuestionSet(item: { kind: Kind; status: Status; co
   const lines = item.context.split('\n').filter((l) => QUESTION_LINE.test(l)).length;
   if (lines < 4) return undefined;
   return `the context holds ${lines} numbered questions — file it as kind "questions" with "questions":[{"label":"…","ask":"…","options":[…],"recommended":[…]}] so each is answered where it is asked`;
+}
+
+// Refs are links on the page (AGENTS.md "References", contract v25): every
+// WB-<KEY>-<n> in a context, a message, a body, an option or a question is
+// rendered as a link to that item, on any project and under former keys. So a
+// link an agent builds by hand — `[WB-DEMO-14](/p/demo/i/<uuid>)` — is a second
+// copy of a fact the board holds, and the copy rots: it names a UUID or a
+// slug, it survives a key change wrongly, and it clutters the text. Warned,
+// never refused; the audit lists the same. Fenced code is exempt: a body that
+// documents the bad pattern is not committing it.
+const REF_AS_TEXT = /^\s*WB-[A-Z][A-Z0-9]{1,4}-[1-9][0-9]*(?:\/[a-z]+[0-9]+)?\s*$/i;
+const ITEM_HREF = /^(?:https?:\/\/[^/\s)]+)?\/(?:p\/[^/\s)]+\/i\/[^\s)]+|i\/[^\s)]+)$/i;
+export function refLinkWarning(field: string, text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  let fenced = false;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('```')) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    for (const m of line.matchAll(/\[([^\]]+)\]\(([^)\s]+)\)/g)) {
+      const label = m[1];
+      const href = m[2];
+      if (ITEM_HREF.test(href)) {
+        return `${field} links an item by hand (${m[0].slice(0, 80)}) — write the ref bare, as WB-DEMO-14; the page links every ref it renders, on any project and under a former key`;
+      }
+      if (REF_AS_TEXT.test(label)) {
+        return `${field} uses a ref as link text (${m[0].slice(0, 80)}) — a ref reads as the item, so write it bare and link the other thing (a pull request, a page) by its own name`;
+      }
+    }
+  }
+  return undefined;
 }
 
 // Formatting (AGENTS.md rule 12, contract v20). Context, messages and bodies
@@ -258,6 +291,8 @@ export function auditItem(item: Item): Finding[] {
   add('title-reads-like-a-body', titleWarning(item));
   add('context-wall-of-text', wallOfTextWarning('context', item.context));
   add('context-escaped-newlines', escapedNewlineWarning('context', item.context));
+  add('ref-written-as-link', refLinkWarning('context', item.context));
+  if (item.bodyFormat === 'markdown') add('ref-written-as-link', refLinkWarning('body', item.body));
   for (const f of pointerOptionWarnings(item.options, item.context, item.body)) add(f.rule, f.message);
   if (item.kind === 'questions') {
     if (!item.questions.length) add('question-set-without-questions', 'a question set with no questions gives nothing to answer — add "questions":[{"label":"…","ask":"…","options":["…"],"recommended":["…"]}]');
