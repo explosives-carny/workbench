@@ -377,3 +377,20 @@ describe('saving a question with Enter while its box has focus', () => {
     expect(rows().length).toBe(1);
   });
 });
+
+describe('Accept all re-reads the item first', () => {
+  const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0)); };
+  test('an answer another session recorded meanwhile is not overwritten', async () => {
+    const item = store.createItem(store.getProject('board')!.id, {
+      title: 'Race', kind: 'questions',
+      questions: [{ id: 'a', ask: 'A?', options: ['X', 'Y'], recommended: ['X'] }, { id: 'b', ask: 'B?', options: ['P', 'Q'], recommended: ['P'] }],
+    });
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    store.answerQuestion(item.id, 'a', { choice: 'Y', by: 'you' });
+    page.byId('questions').byClass('qaccept')[0].dispatchEvent({ type: 'click' });
+    await settle();
+    const after = store.getItem(item.id)!;
+    expect(after.questions[0].choice).toBe('Y');
+    expect(after.questions[1].choice).toBe('P');
+  });
+});

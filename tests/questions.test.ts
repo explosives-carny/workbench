@@ -5,6 +5,7 @@ import { Database } from 'bun:sqlite';
 import { openDb, Store, isAnswered } from '../src/db.ts';
 import { createHandler } from '../src/app.ts';
 import { exportAll, importAll } from '../src/export.ts';
+import { itemBrief } from '../src/brief.ts';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { mkdtempSync, rmSync } from 'fs';
@@ -465,3 +466,29 @@ describe('a question set at needs-qa behaves as work', () => {
     expect(audit.findings.map((f: any) => f.rule)).toContain('qa-without-steps');
   });
 });
+
+describe('review nits', () => {
+  test('a malformed percent-encoded question id is a 400, and no list row carries a questions key', async () => {
+    const item = await makeSet();
+    const res = await api('PATCH', `/api/items/${item.id}/questions/%E0%A4%A`, { choice: 'Bay A', actor: 'you' });
+    expect(res.status).toBe(400);
+    await api('POST', '/api/projects/demo/items', { title: 'Plain' });
+    for (const row of (await api('GET', '/api/projects/demo')).json.items) expect('questions' in row).toBe(false);
+  });
+
+  test('the brief scrubs a label and an option text', () => {
+    const project = store.getProject('demo')!;
+    const item = store.createItem(project.id, {
+      title: 'S', kind: 'questions',
+      questions: [{ id: 'a', label: 'key ghp_abcdefghijklmnopqrstuvwxyz012345', ask: 'Pick?', options: ['api_key=sk_live_abcdefghijkl1234', 'No'], recommended: ['No'] }],
+    });
+    const text = itemBriefFor(item.id);
+    expect(text).not.toContain('ghp_abcdefghij');
+    expect(text).not.toContain('sk_live_abcdefghijkl1234');
+  });
+});
+
+function itemBriefFor(id: string): string {
+  const item = store.getItem(id)!;
+  return itemBrief(item, store.getProjectById(item.projectId)!);
+}

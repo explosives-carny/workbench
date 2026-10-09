@@ -678,7 +678,10 @@ window.WB = (function () {
       all.title = 'Answer ' + acceptable.length + ' open question' + (acceptable.length === 1 ? '' : 's') + ' with the option the agent recommends';
       all.addEventListener('click', async () => {
         say('saving…');
+        // Read the item once more first: another session may have answered
+        // some of these since this page drew, and those answers stand.
         let latest = null;
+        try { latest = (await window.WB.get('/api/items/' + encodeURIComponent(item.id))).item; } catch (e) { say(e.message, true); return; }
         for (const q of acceptable) {
           // Somebody may have answered it since this page drew; that answer stands.
           const now = latest && (latest.questions || []).find((x) => x.id === q.id);

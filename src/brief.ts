@@ -228,7 +228,7 @@ function questionsSection(item: Item, tally: { count: number }): string[] {
   const done = item.questions.filter(isAnswered).length;
   const lines = ['## The questions', '', `${done} of ${item.questions.length} answered.`, ''];
   item.questions.forEach((q, n) => {
-    lines.push(`### ${n + 1}. ${q.label || q.id} (${q.id})`, '');
+    lines.push(`### ${n + 1}. ${scrub(q.label || q.id, tally)} (${q.id})`, '');
     if (q.ask.trim()) lines.push(cut(scrub(q.ask.trim(), tally), BRIEF_LIMITS.section), '');
     if (q.options.length) {
       const noPreference = q.options.length > 1 && q.recommended.length === q.options.length;
@@ -236,7 +236,7 @@ function questionsSection(item: Item, tally: { count: number }): string[] {
         const marks: string[] = [];
         if (!noPreference && q.recommended.includes(option)) marks.push('**recommended by the agent**');
         if (q.choice === option) marks.push('**chosen**');
-        lines.push(`${i + 1}. ${option}${marks.length ? ` (${marks.join(', ')})` : ''}`);
+        lines.push(`${i + 1}. ${scrub(option, tally)}${marks.length ? ` (${marks.join(', ')})` : ''}`);
       });
       lines.push('');
     }

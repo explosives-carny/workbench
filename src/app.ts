@@ -237,7 +237,6 @@ function questionSetWarnings(item: Item, sent: boolean): string[] {
 // otherwise ship every ask on every poll. The item itself carries the array.
 function withoutQuestions<T extends Item>(items: T[]): T[] {
   return items.map((item) => {
-    if (!item.questions.length) return item;
     const { questions: _dropped, ...row } = item;
     return row as T;
   });
@@ -1080,9 +1079,11 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           ? 'a relayed answer needs your "actor" name'
           : 'answers are the person\'s; an agent records one only as a relay, with relay:true and its own "actor"');
       }
+      let qid: string;
+      try { qid = decodeURIComponent(parts[3]); } catch { return badRequest(ctx, 'the question id in the path is not valid percent-encoding'); }
       try {
         ctx.wrote = true;
-        const updated = store.answerQuestion(item.id, decodeURIComponent(parts[3]), {
+        const updated = store.answerQuestion(item.id, qid, {
           choice: body.choice, answer: body.answer, clear: body.clear === true, relay: body.relay === true,
           by, session: sessionOf(body),
         });
