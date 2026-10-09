@@ -357,3 +357,23 @@ describe('a question set on the board and on its page', () => {
     expect(rule('.qask {')).toContain('overflow-wrap');
   });
 });
+
+describe('saving a question with Enter while its box has focus', () => {
+  const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0)); };
+  test('the row folds and the count moves without waiting for a blur', async () => {
+    const item = store.createItem(store.getProject('board')!.id, { title: 'Focus', kind: 'questions', questions: [{ id: 'a', ask: 'One?' }, { id: 'b', ask: 'Two?' }] });
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    const rows = () => page.byId('questions').byClass('q-open');
+    const input = rows()[0].byClass('q-input')[0];
+    // The browser reports the box as focused until something blurs it.
+    page.doc.activeElement = input;
+    (input as any).blur = () => { if (page.doc.activeElement === input) page.doc.activeElement = null; };
+    input.value = 'typed answer';
+    input.dispatchEvent({ type: 'input' });
+    input.dispatchEvent({ type: 'keydown', key: 'Enter' } as any);
+    await settle();
+    expect(page.byId('questions').byClass('qcount')[0].textContent).toBe('1 of 2 answered');
+    expect(page.byId('questions').byClass('q-done').length).toBe(1);
+    expect(rows().length).toBe(1);
+  });
+});

@@ -651,6 +651,10 @@ window.WB = (function () {
         const res = await window.WB.patch(path(qid), Object.assign({ actor: 'you' }, body));
         delete qDrafts[item.id + '/' + qid];
         delete qOpen[item.id + '/' + qid];
+        // The pages hold a repaint while an answer box has focus; this one is
+        // saved, so let go of it or the row would not fold until a blur.
+        const live = document.activeElement;
+        if (live && live.classList && live.classList.contains('q-input') && live.blur) live.blur();
         if (hooks && hooks.onItem) hooks.onItem(res.item);
         say(res.warning ? res.warning : 'saved', Boolean(res.warning));
       } catch (e) { say(e.message, true); }
