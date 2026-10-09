@@ -648,7 +648,7 @@ window.WB = (function () {
     async function save(qid, body) {
       say('saving…');
       try {
-        const res = await patch(path(qid), Object.assign({ actor: 'you' }, body));
+        const res = await window.WB.patch(path(qid), Object.assign({ actor: 'you' }, body));
         delete qDrafts[item.id + '/' + qid];
         delete qOpen[item.id + '/' + qid];
         if (hooks && hooks.onItem) hooks.onItem(res.item);
@@ -680,7 +680,7 @@ window.WB = (function () {
           const now = latest && (latest.questions || []).find((x) => x.id === q.id);
           if (now && isAnswered(now)) continue;
           try {
-            const res = await patch(path(q.id), { choice: q.recommended[0], actor: 'you' });
+            const res = await window.WB.patch(path(q.id), { choice: q.recommended[0], actor: 'you' });
             latest = res.item;
             delete qDrafts[item.id + '/' + q.id];
           } catch (e) { say(q.id + ': ' + e.message, true); break; }
@@ -696,7 +696,7 @@ window.WB = (function () {
       const key = item.id + '/' + q.id;
       const answered = isAnswered(q);
       const open = !answered || qOpen[key];
-      const block = qEl('div', 'qrow ' + (answered ? 'q-done' : 'q-open'));
+      const block = qEl('div', 'qrow ' + (answered ? 'q-done' : 'q-open') + (answered && open ? ' q-editing' : ''));
       block.id = 'q-' + item.id + '-' + q.id;
 
       if (!open) {
@@ -705,7 +705,7 @@ window.WB = (function () {
         block.appendChild(qEl('strong', 'qlabel', q.label || q.id));
         const text = [q.choice, String(q.answer || '').trim()].filter(Boolean).join(' \u2014 ');
         const a = qEl('span', 'qanswer-text');
-        a.innerHTML = MD.inline(text);
+        a.innerHTML = window.MD.inline(text);
         block.appendChild(a);
         const meta = qEl('span', 'mono qmeta', (q.by || 'you') + (q.at ? ' \u00b7 ' + relTime(q.at) : ''));
         if (q.at) meta.title = fmt(q.at);
@@ -726,7 +726,7 @@ window.WB = (function () {
       block.appendChild(top);
       if (q.ask) {
         const ask = qEl('div', 'md qask');
-        ask.innerHTML = MD(q.ask, { breaks: true });
+        ask.innerHTML = window.MD(q.ask, { breaks: true });
         block.appendChild(ask);
       }
 
@@ -744,7 +744,7 @@ window.WB = (function () {
         for (const o of q.options) {
           const b = document.createElement('button');
           b.type = 'button';
-          b.innerHTML = MD.inline(o);
+          b.innerHTML = window.MD.inline(o);
           if ((q.recommended || []).indexOf(o) !== -1) {
             b.classList.add('rec');
             b.append(' ', qEl('span', 'rec-tag', 'Recommended'));

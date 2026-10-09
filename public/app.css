@@ -680,7 +680,8 @@ input.ck-note { flex: 1 1 180px; width: auto; font-size: 12.5px; padding: 5px 9p
   padding: 10px 12px; border: 1px solid var(--rule); border-radius: 4px;
   background: var(--panel); margin-bottom: 6px; min-width: 0;
 }
-.qrow.q-open { border-left: 3px solid var(--you); display: block; }
+.qrow.q-open, .qrow.q-editing { display: block; }
+.qrow.q-open { border-left: 3px solid var(--you); }
 .qrow.q-done { border-left: 3px solid var(--ok); }
 .qtop { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .qid { font-size: 10.5px; color: var(--faint); }
