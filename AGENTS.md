@@ -845,6 +845,13 @@ set) and returns compact JSON to anything that is not a browser (`?pretty=1`
 forces indentation). `body` is never in a list — `bodyLength` says one is
 there; `GET /api/items/<id>` or `/body` for the text. Ask for what you need.
 
+A write that arrives from a browser page carries an `Origin` header, and the
+board takes those only from its own pages (or the origins in
+`WORKBENCH_ORIGINS`): anything else is `403`. A page on some other site open in
+the same browser could otherwise file items or post messages on a board that
+has no delete. Requests with no `Origin` — `wb`, curl, an agent — are not
+affected; reads never are.
+
 Name a body's `bodyFormat` (`text`, `markdown`, `html`). Left out, it is guessed
 from the body: a leading `<!doctype html>` or `<html>` is `html`, a Markdown
 heading, list or quote is `markdown`, anything else `text`; an edit guesses only

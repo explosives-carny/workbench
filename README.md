@@ -79,6 +79,7 @@ this repository**, so your content never lands in the app's git history.
 | `WORKBENCH_PORT` | `4317` | Port to serve on |
 | `WORKBENCH_DB` | `~/.workbench/workbench.db` | Database file |
 | `WORKBENCH_CONTENT` | `~/workbench-content` | Export/import directory |
+| `WORKBENCH_ORIGINS` | (none) | Other origins whose browser pages may write; the board's own always may. A write from any other page is refused with 403. Requests without an `Origin` header (curl, `wb`, agents) are unaffected. |
 
 ## Using it
 
