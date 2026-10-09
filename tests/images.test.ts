@@ -8,7 +8,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { openDb, Store } from '../src/db.ts';
 import { createHandler, CONTRACT_VERSION } from '../src/app.ts';
 import { exportAll, importAll } from '../src/export.ts';
-import { sniffImage, svgRefusal, MAX_IMAGE_BYTES, copyImages } from '../src/images.ts';
+import { sniffImage, sniffHeic, heicConverter, HEIC_NO_CONVERTER, svgRefusal, MAX_IMAGE_BYTES, copyImages } from '../src/images.ts';
 import { itemBrief } from '../src/brief.ts';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -90,6 +90,67 @@ describe('the type comes from the bytes', () => {
     expect(sniffImage(Buffer.from('just text'))).toBeUndefined();
   });
 
+  test('a HEIC is known by its ftyp brands, and AVIF or a bare mif1 is not', () => {
+    const ftyp = (major: string, ...compatible: string[]) => {
+      const brands = Buffer.from(major + '\0\0\0\0' + compatible.join(''), 'binary');
+      const size = Buffer.alloc(4); size.writeUInt32BE(8 + brands.length);
+      return Buffer.concat([size, Buffer.from('ftyp'), brands, Buffer.alloc(32)]);
+    };
+    expect(sniffHeic(ftyp('heic', 'mif1'))).toBe(true);
+    expect(sniffHeic(ftyp('heix'))).toBe(true);
+    expect(sniffHeic(ftyp('mif1', 'heic'))).toBe(true);     // what sips writes
+    expect(sniffHeic(ftyp('mif1', 'avif'))).toBe(false);
+    expect(sniffHeic(ftyp('avif', 'mif1'))).toBe(false);
+    expect(sniffHeic(ftyp('isom', 'mp42'))).toBe(false);
+    expect(sniffHeic(PNG)).toBe(false);
+    expect(sniffHeic(Buffer.from('ftyp'))).toBe(false);
+    // A HEIC is never one of the stored types: it is converted first.
+    expect(sniffImage(ftyp('heic'))).toBeUndefined();
+  });
+
+  test('a HEIC on a machine with no converter is refused with the way out', async () => {
+    const before = process.env.WORKBENCH_HEIC_CONVERTER;
+    process.env.WORKBENCH_HEIC_CONVERTER = 'none';
+    try {
+      expect(heicConverter()).toBeNull();
+      const heic = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypheic\0\0\0\0heicmif1'), Buffer.alloc(64)]);
+      const res = await send('POST', '/api/images', heic, { 'content-type': 'image/heic' });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe(HEIC_NO_CONVERTER);
+      expect(existsSync(imagesDir)).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env.WORKBENCH_HEIC_CONVERTER; else process.env.WORKBENCH_HEIC_CONVERTER = before;
+    }
+  });
+
+  // Needs a converter on the machine running the tests (sips on macOS). On a
+  // runner without one the refusal above is what is tested.
+  const sips = Bun.which('sips');
+  test.skipIf(!sips)('a HEIC is stored as a JPEG, the same one each time, and comes back as image/jpeg', async () => {
+    const src = join(root, 'px.png');
+    writeFileSync(src, PNG);
+    const made = Bun.spawnSync([sips!, '-s', 'format', 'heic', src, '--out', join(root, 'px.heic')], { stdout: 'ignore', stderr: 'ignore' });
+    expect(made.exitCode).toBe(0);
+    const heic = readFileSync(join(root, 'px.heic'));
+    expect(sniffHeic(heic)).toBe(true);
+    const first = await send('POST', '/api/images', heic, { 'content-type': 'image/heic' });
+    expect(first.status).toBe(201);
+    expect(first.json.image.type).toBe('image/jpeg');
+    expect(first.json.image.name).toMatch(/^[0-9a-f]{64}\.jpg$/);
+    expect(first.json.image.markdown).toBe(`![image](${first.json.image.url})`);
+    const stored = readFileSync(join(imagesDir, first.json.image.name));
+    expect(sniffImage(stored)).toBe('jpg');
+    expect(sha(stored)).toBe(first.json.image.hash);
+    const again = await postJson('/api/images', { data: heic.toString('base64'), alt: 'the same photo' });
+    expect(again.status).toBe(200);
+    expect(again.json.image.existed).toBe(true);
+    expect(again.json.image.url).toBe(first.json.image.url);
+    const served = await send('GET', first.json.image.url);
+    expect(served.headers.get('content-type')).toBe('image/jpeg');
+    // The conversion leaves nothing behind in the temporary directory.
+    expect(readdirSync(tmpdir()).filter((n) => /^workbench-.*\.(heic|jpg)$/.test(n))).toEqual([]);
+  });
+
   test('an SVG with anything active in it is refused, a plain drawing is not', () => {
     expect(svgRefusal(SVG)).toBeUndefined();
     const bad = [
@@ -167,7 +228,7 @@ describe('POST /api/images', () => {
   test('a declared type is not trusted: HTML sent as image/png is refused', async () => {
     const res = await send('POST', '/api/images', '<html><script>alert(1)</script></html>', { 'content-type': 'image/png' });
     expect(res.status).toBe(400);
-    expect(res.json.error).toContain('PNG, JPEG, GIF, WebP or SVG');
+    expect(res.json.error).toContain('PNG, JPEG, GIF, WebP, SVG or HEIC');
     expect(existsSync(imagesDir) ? readdirSync(imagesDir) : []).toEqual([]);
   });
 
@@ -229,8 +290,8 @@ describe('GET /api/images/<name>', () => {
 
   test('the contract version is 22 and the routes list names the upload', async () => {
     const res = await send('GET', '/api');
-    expect(res.json.contractVersion).toBe('23');
-    expect(CONTRACT_VERSION).toBe('23');
+    expect(res.json.contractVersion).toBe('24');
+    expect(CONTRACT_VERSION).toBe('24');
     expect(res.json.routes.some((r: string) => r.includes('POST   /api/images'))).toBe(true);
     expect(readFileSync(AGENTS_MD, 'utf8')).toContain('### Images (v22)');
   });

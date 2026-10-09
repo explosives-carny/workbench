@@ -489,8 +489,15 @@ window.WB = (function () {
     ta.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
+  // A phone photo is a HEIC, and a browser that cannot draw one reports no
+  // type for it (Firefox) or image/heic (Chrome, Safari): the name is checked
+  // too, so the file reaches the server, which converts it to JPEG.
+  function isImageFile(f) {
+    return /^image\//.test(f.type) || /\.(heic|heif)$/i.test(f.name || '');
+  }
+
   async function attachFiles(textareaId, files, note) {
-    const images = Array.prototype.filter.call(files || [], (f) => /^image\//.test(f.type));
+    const images = Array.prototype.filter.call(files || [], isImageFile);
     if (!images.length) { if (files && files.length) note('only images can be attached', true); return; }
     for (const file of images) {
       note('uploading ' + (file.name || 'image') + '…');
@@ -510,7 +517,7 @@ window.WB = (function () {
   function imageAttach(ta, note) {
     ta.addEventListener('paste', (e) => {
       const files = e.clipboardData && e.clipboardData.files;
-      if (files && files.length && Array.prototype.some.call(files, (f) => /^image\//.test(f.type))) {
+      if (files && files.length && Array.prototype.some.call(files, isImageFile)) {
         e.preventDefault();
         attachFiles(ta.id, files, note);
       }
@@ -531,7 +538,7 @@ window.WB = (function () {
     });
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml';
+    input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/heic,image/heif,.heic,.heif';
     input.multiple = true;
     input.hidden = true;
     input.addEventListener('change', () => { attachFiles(ta.id, input.files, note); input.value = ''; });

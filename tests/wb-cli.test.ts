@@ -417,7 +417,7 @@ describe('wb attach and wb image (v22)', () => {
     writeFileSync(dbPath + '-shot.png', 'not an image');
     const res = await wb('attach', 'WB-DEMO-2', dbPath + '-shot.png');
     expect(res.code).toBe(1);
-    expect(res.stderr).toContain('PNG, JPEG, GIF, WebP or SVG');
+    expect(res.stderr).toContain('PNG, JPEG, GIF, WebP, SVG or HEIC');
   });
 });
 

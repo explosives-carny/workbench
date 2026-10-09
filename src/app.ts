@@ -32,7 +32,7 @@ import { ImageStore, ImageRefused, imageHeaders, imageTooLarge, MAX_IMAGE_REQUES
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '23';
+export const CONTRACT_VERSION = '24';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -484,7 +484,7 @@ const ROUTES = [
   'GET    /api/items/<id-or-ref>/messages · POST /api/items/<id-or-ref>/messages {who, text, actor, session, status?}',
   'PATCH  /api/items/<id-or-ref>/checks/<checkId>     {result, note?, actor, session}',
   'PATCH  /api/items/<id-or-ref>/questions/<qid>      {choice?, answer?, clear?, relay?, actor, session}  — kind "questions"; the person answers, an agent only with relay:true',
-  'POST   /api/images                          raw image bytes | multipart "file" | {data: base64 or data: URL, alt?}  → {image: {url, markdown}}; PNG, JPEG, GIF, WebP, SVG, 10 MB',
+  'POST   /api/images                          raw image bytes | multipart "file" | {data: base64 or data: URL, alt?}  → {image: {url, markdown}}; PNG, JPEG, GIF, WebP, SVG, 10 MB; HEIC is stored as JPEG where the machine can convert it',
   'GET    /api/images/<sha256>.<ext>           the image; reference it in Markdown as ![alt](/api/images/<sha256>.<ext>)',
   'every write: actor = the name a person recognises; session = the id this session generated once at start',
 ];

@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v23.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `23`,
+**Contract v24.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `24`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -807,7 +807,11 @@ inline, at most about 420px tall, and a click enlarges it.
 
 - **Types and limits:** PNG, JPEG, GIF, WebP and SVG, up to 10 MB each. The
   type is read from the bytes, never the file name; anything else is a `400`
-  naming the allowed set. An SVG stays inert because of how it is
+  naming the allowed set. **A HEIC or HEIF** (a phone photo, v24) is accepted and
+  stored as a JPEG, so the response names a `.jpg` and every browser draws
+  it; the board converts with a tool the machine already has (macOS `sips`,
+  ImageMagick `magick`, or libheif `heif-convert`), and a machine with none
+  answers `400` saying to export the photo as JPEG. An SVG stays inert because of how it is
   served (a sandboxing CSP) and shown (through `<img>`), not because of an
   upload filter. As a second line, common active content is refused at upload
   with a `400` (script elements, event handlers, `javascript:` and other

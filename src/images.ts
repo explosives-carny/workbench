@@ -19,7 +19,8 @@
 // versioned, so the file itself needs no second copy of that.
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { tmpdir } from 'os';
+import { basename, dirname, join } from 'path';
 
 /**
  * Where a board's images live: `WORKBENCH_IMAGES`, else an `images/` folder
@@ -87,6 +88,82 @@ export function sniffImage(bytes: Uint8Array): ImageExt | undefined {
 }
 
 /**
+ * HEIC (and HEIF), the format a phone camera saves in. It is accepted at
+ * upload and stored as a JPEG: no browser but Safari draws a HEIC inside
+ * <img>, so a board that kept the bytes as they came would show a broken
+ * picture to most readers, and a format the renderer and the export would
+ * both have to learn is more surface than a camera default deserves. The
+ * conversion runs through a converter already on the machine — `sips` on
+ * macOS, else ImageMagick's `magick` or libheif's `heif-convert` — never a
+ * dependency of this repository. A machine with none refuses the upload and
+ * says what to do.
+ *
+ * Sniffed from the ISO base media header: a `ftyp` box whose major brand, or
+ * one of whose compatible brands, is a HEIF brand carrying HEVC pictures.
+ * `mif1`/`msf1` alone are shared with AVIF, so those count only with a HEIC
+ * brand beside them.
+ */
+const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs']);
+export function sniffHeic(bytes: Uint8Array): boolean {
+  if (bytes.length < 16) return false;
+  const ascii = (at: number) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+  if (ascii(4) !== 'ftyp') return false;
+  const size = ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0;
+  const end = Math.min(bytes.length, size > 16 && size < 4096 ? size : 64);
+  if (HEIC_BRANDS.has(ascii(8))) return true;
+  for (let at = 16; at + 4 <= end; at += 4) if (HEIC_BRANDS.has(ascii(at))) return true;
+  return false;
+}
+
+/**
+ * The converter this machine has, as the argv that turns `in` into a JPEG at
+ * `out`, or null. `WORKBENCH_HEIC_CONVERTER` names one (a command name or a
+ * path; `none` turns conversion off, which the tests use to exercise the
+ * refusal on a machine that has one). Looked up on each upload: a converter
+ * installed while the board is running should work without a restart.
+ */
+export function heicConverter(): ((input: string, output: string) => string[]) | null {
+  const named = process.env.WORKBENCH_HEIC_CONVERTER;
+  if (named === 'none') return null;
+  const candidates = named ? [named] : ['sips', 'magick', 'heif-convert'];
+  for (const candidate of candidates) {
+    const path = Bun.which(candidate);
+    if (!path) continue;
+    const name = basename(path);
+    if (name === 'sips') return (input, output) => [path, '-s', 'format', 'jpeg', '-s', 'formatOptions', '90', input, '--out', output];
+    if (name === 'magick' || name === 'convert') return (input, output) => [path, `${input}[0]`, '-quality', '90', output];
+    return (input, output) => [path, '-q', '90', input, output];
+  }
+  return null;
+}
+
+export const HEIC_NO_CONVERTER =
+  'HEIC is accepted only where this machine can convert it to JPEG (macOS sips, ImageMagick, or libheif heif-convert); none was found. Export the photo as JPEG and upload that.';
+
+/** HEIC bytes in, JPEG bytes out, through the machine's converter. Throws ImageRefused with a reason. */
+export function convertHeic(bytes: Uint8Array): Uint8Array {
+  const converter = heicConverter();
+  if (!converter) throw new ImageRefused(HEIC_NO_CONVERTER);
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const input = join(tmpdir(), `workbench-${stamp}.heic`);
+  const output = join(tmpdir(), `workbench-${stamp}.jpg`);
+  try {
+    writeFileSync(input, bytes);
+    // An argv, never a shell: the paths are ours, but the habit is the point.
+    const run = Bun.spawnSync(converter(input, output), { stdout: 'ignore', stderr: 'pipe', timeout: 30_000 });
+    if (run.exitCode !== 0 || !existsSync(output)) {
+      const detail = new TextDecoder().decode(run.stderr || new Uint8Array()).trim().split('\n').pop() || `exit ${run.exitCode}`;
+      throw new ImageRefused(`the HEIC could not be converted to JPEG (${detail}). Export it as JPEG and upload that.`);
+    }
+    const jpeg = new Uint8Array(readFileSync(output));
+    if (sniffImage(jpeg) !== 'jpg') throw new ImageRefused('the HEIC converter did not produce a JPEG. Export it as JPEG and upload that.');
+    return jpeg;
+  } finally {
+    for (const file of [input, output]) { try { rmSync(file, { force: true }); } catch {} }
+  }
+}
+
+/**
  * An SVG is a document that can carry script. The guarantee that it stays
  * inert is how it is served and shown: a sandboxing CSP on the file, and
  * rendering through <img>, which runs no script. This check is a second,
@@ -149,13 +226,17 @@ export class ImageStore {
 
   /** Validate and store. Throws ImageRefused with a reason the sender can act on. */
   put(input: Uint8Array, alt?: unknown): StoredImage {
-    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+    let bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (!bytes.length) throw new ImageRefused('the image is empty');
     if (bytes.length > MAX_IMAGE_BYTES) {
       throw new ImageRefused(imageTooLarge(bytes.length));
     }
+    // A HEIC becomes a JPEG before anything else looks at it, so the name,
+    // the hash, the type and the Markdown are all the JPEG's. The same HEIC
+    // twice converts to the same JPEG, so `existed` still holds for it.
+    if (sniffHeic(bytes)) bytes = convertHeic(bytes);
     const ext = sniffImage(bytes);
-    if (!ext) throw new ImageRefused('not an image this board stores: send PNG, JPEG, GIF, WebP or SVG (the type is read from the bytes, not the file name)');
+    if (!ext) throw new ImageRefused('not an image this board stores: send PNG, JPEG, GIF, WebP, SVG or HEIC (the type is read from the bytes, not the file name)');
     if (ext === 'svg') {
       const refusal = svgRefusal(bytes);
       if (refusal) throw new ImageRefused(refusal);
