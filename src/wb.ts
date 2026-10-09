@@ -421,7 +421,7 @@ async function main() {
     const f = Bun.file(file);
     if (!(await f.exists())) fail(`no such file: ${file}`);
     const data = Buffer.from(await f.arrayBuffer()).toString('base64');
-    const { status, json } = await call('POST', '/api/images', { data, alt: alt ?? basename(file).replace(/\.[a-z0-9]+$/i, '') });
+    const { status, json } = await call('POST', '/api/images', { data, alt: alt ?? '' });
     if (!json.ok) fail(`${file}: ${status}: ${json.error}`);
     return json.image;
   }

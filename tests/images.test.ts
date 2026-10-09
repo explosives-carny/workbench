@@ -53,6 +53,31 @@ async function send(method: string, path: string, body?: BodyInit, headers: Reco
 }
 const postJson = (path: string, body: unknown) => send('POST', path, JSON.stringify(body), { 'content-type': 'application/json' });
 
+describe('size is checked before the body is read', () => {
+  test('a declared oversize length is refused without reading the body', async () => {
+    let pulled = false;
+    const body = new ReadableStream({
+      pull(controller) { pulled = true; controller.enqueue(new Uint8Array(8)); controller.close(); },
+    }, { highWaterMark: 0 }); // no read-ahead: pull runs only if something reads the body
+    const req = new Request('http://localhost/api/images', {
+      method: 'POST',
+      body,
+      // @ts-ignore duplex is required for a streamed body
+      duplex: 'half',
+      headers: { 'content-type': 'image/png', 'content-length': String(15 * 1024 * 1024) },
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as any).error).toContain('the limit is 10 MB');
+    expect(pulled).toBe(false);
+  });
+
+  test('a declared length within the cap goes on to the normal checks', async () => {
+    const res = await send('POST', '/api/images', PNG, { 'content-type': 'image/png' });
+    expect(res.status).toBe(201);
+  });
+});
+
 describe('the type comes from the bytes', () => {
   test('each of the five formats is recognised, and nothing else', () => {
     expect(sniffImage(PNG)).toBe('png');
@@ -75,8 +100,24 @@ describe('the type comes from the bytes', () => {
       '<svg><image href="https://example.invalid/x.png"/></svg>',
       '<svg><style>@import url(https://example.invalid/x.css);</style></svg>',
       '<svg><iframe src="x"></iframe></svg>',
+      // evasions: no whitespace before the handler, other schemes, entities
+      '<svg/onload=alert(1)></svg>',
+      '<svg a="1"onload="alert(1)"></svg>',
+      "<svg a='1'onclick='x()'></svg>",
+      '<svg:script>alert(1)</svg:script>',
+      '<svg><a href="&#106;avascript:alert(1)"><rect/></a></svg>',
+      '<svg><a href="&#x6A;avascript:alert(1)"><rect/></a></svg>',
+      '<svg><image href="file:///etc/passwd"/></svg>',
+      '<svg><image xlink:href="ftp://example.invalid/x.png"/></svg>',
+      '<svg><image href="relative/other.png"/></svg>',
+      '<svg><image href=https://example.invalid/x.png /></svg>',
     ];
     for (const s of bad) expect(svgRefusal(Buffer.from(s))).toMatch(/^SVG refused/);
+  });
+
+  test('fragment and embedded-image references are still allowed', () => {
+    const ok = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><rect id="r" width="1" height="1"/></defs><use xlink:href="#r"/><image href="data:image/png;base64,AAAA"/></svg>';
+    expect(svgRefusal(Buffer.from(ok))).toBeUndefined();
   });
 });
 
@@ -271,6 +312,24 @@ describe('backup and restore carry images as files beside the JSON', () => {
     expect(result.images).toBe(1);
     expect(readdirSync(restored)).toEqual([`${sha(PNG)}.png`]);
     expect(lines.some((l) => l.includes('do not match'))).toBe(true);
+  });
+
+  test('one unreadable entry is logged and skipped; the rest is copied and the JSON still written', () => {
+    mkdirSync(imagesDir, { recursive: true });
+    writeFileSync(join(imagesDir, `${sha(PNG)}.png`), PNG);
+    // A directory carrying a valid image name: reading it as a file throws.
+    const bad = `${'ab'.repeat(32)}.png`;
+    mkdirSync(join(imagesDir, bad));
+    store.createProject({ name: 'Demo', key: 'DEMO' });
+    const out = join(root, 'content');
+    const lines: string[] = [];
+    const result = exportAll(store, out, { imagesDir, log: (l) => lines.push(l) });
+    expect(result.images).toBe(1);
+    expect(existsSync(join(out, 'images', `${sha(PNG)}.png`))).toBe(true);
+    expect(existsSync(join(out, 'images', bad))).toBe(false);
+    expect(lines.some((l) => l.startsWith(`skipped image ${bad}:`))).toBe(true);
+    expect(result.projects).toBe(1);
+    expect(readdirSync(join(out, 'images')).filter((n) => n.endsWith('.tmp'))).toEqual([]);
   });
 
   test('copyImages with no source directory is a no-op', () => {

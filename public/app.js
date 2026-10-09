@@ -464,7 +464,7 @@ window.WB = (function () {
   // repaints every few seconds and the box the file was dropped on may have
   // been replaced by an identical one meanwhile.
   async function uploadImage(file) {
-    const res = await fetch('/api/images?alt=' + encodeURIComponent((file.name || 'image').replace(/\.[a-z0-9]+$/i, '')), {
+    const res = await fetch('/api/images?alt=' + '', {
       method: 'POST',
       headers: { 'content-type': file.type || 'application/octet-stream' },
       body: file,

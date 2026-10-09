@@ -7,13 +7,13 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { copyImages } from './images.ts';
 
-export function exportAll(store: Store, dir: string, opts: { imagesDir?: string } = {}): { projects: number; items: number; files: string[]; images?: number } {
+export function exportAll(store: Store, dir: string, opts: { imagesDir?: string; log?: (line: string) => void } = {}): { projects: number; items: number; files: string[]; images?: number } {
   mkdirSync(dir, { recursive: true });
   // Images go beside the project files as files, never into the JSON: a
   // screenshot as base64 would make every export of that project megabytes
   // larger and every commit of it unreadable. Content-addressed, so a copy is
   // only ever an addition, and an image already exported is never rewritten.
-  const images = opts.imagesDir ? copyImages(opts.imagesDir, join(dir, 'images')) : 0;
+  const images = opts.imagesDir ? copyImages(opts.imagesDir, join(dir, 'images'), opts.log) : 0;
   const files: string[] = [];
   let total = 0;
   for (const project of store.listProjects(true)) {
@@ -213,7 +213,7 @@ export function autoExporter(store: Store, dir: string, opts: { delayMs?: number
     if (running) { dirtyAgain = true; return; }
     running = true;
     try {
-      const result = exportAll(store, dir, { imagesDir: opts.imagesDir });
+      const result = exportAll(store, dir, { imagesDir: opts.imagesDir, log: opts.log });
       const committed = await commitIfRepo(dir, `workbench: auto-export ${new Date().toISOString()}`);
       log(`export     ${result.items} items in ${result.projects} project(s) -> ${dir} (${committed})`);
     } catch (error: any) {

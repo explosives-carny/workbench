@@ -23,7 +23,7 @@ import {
   questionWithoutRecommendation, emptyQuestionSetWarning, longQuestionSetHint, questionFormatFindings,
 } from './rules.ts';
 import { itemBrief } from './brief.ts';
-import { ImageStore, ImageRefused, imageHeaders } from './images.ts';
+import { ImageStore, ImageRefused, imageHeaders, imageTooLarge, MAX_IMAGE_REQUEST_BYTES } from './images.ts';
 
 /**
  * The contract version. Bumped in the same pull request as any change to a
@@ -525,6 +525,10 @@ async function handleImages(opts: HandlerOptions, req: Request, parts: string[],
   const images = new ImageStore(opts.imagesDir);
   if (parts.length === 1) {
     if (method !== 'POST') return badRequest(ctx, `${method} not supported here; POST an image`);
+    // Refuse on the declared length before buffering anything: the 10 MB cap
+    // in put() only runs after the whole body is in memory.
+    const declared = Number(req.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_IMAGE_REQUEST_BYTES) return badRequest(ctx, imageTooLarge(declared));
     let upload;
     try {
       upload = await readImageUpload(req);

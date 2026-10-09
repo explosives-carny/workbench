@@ -37,6 +37,8 @@ const onWrite = AUTO_EXPORT ? autoExporter(store, CONTENT_DIR, { imagesDir: IMAG
 const server = Bun.serve({
   port: PORT,
   hostname: '127.0.0.1',
+  // An image upload is the largest body any route takes (see MAX_IMAGE_REQUEST_BYTES).
+  maxRequestBodySize: 16 * 1024 * 1024,
   fetch: createHandler(store, { publicDir: PUBLIC_DIR, agentsMdPath: AGENTS_MD, onWrite, home: homedir(), imagesDir: IMAGES_DIR }),
 });
 

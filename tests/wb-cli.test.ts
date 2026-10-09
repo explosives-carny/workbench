@@ -410,7 +410,7 @@ describe('wb attach and wb image (v22)', () => {
     const messages = store.listMessages(store.resolveItem('WB-DEMO-2')!.id);
     const last = messages[messages.length - 1];
     expect(last.author).toBe('tester');
-    expect(last.text).toMatch(/^What I saw:\n\n!\[[^\]]*-shot\]\(\/api\/images\/[0-9a-f]{64}\.png\)$/);
+    expect(last.text).toMatch(/^What I saw:\n\n!\[image\]\(\/api\/images\/[0-9a-f]{64}\.png\)$/);
   });
 
   test('a file that is not an image is refused with the server reason', async () => {
