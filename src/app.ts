@@ -203,11 +203,8 @@ function asQuestions(raw: unknown): QuestionInput[] | undefined {
       label, ask,
       options: list('options'),
       recommended: list('recommended'),
-      choice: text('choice'),
-      answer: text('answer'),
-      by: text('by'),
-      at: text('at'),
-      relayed: q.relayed === true,
+      // choice, answer, by, at and relayed are not read: an answer is recorded
+      // only through PATCH …/questions/<qid>, by whoever is answering.
     };
   });
 }

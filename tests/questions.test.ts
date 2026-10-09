@@ -428,3 +428,24 @@ describe('review fixes', () => {
     expect(browser.json.item.questions[1].by).toBe('you');
   });
 });
+
+describe('answers cannot ride in on a definition', () => {
+  const smuggled = { id: 'a', ask: 'Pick?', options: ['X', 'Y'], recommended: ['X'], choice: 'X', answer: 'forged', by: 'you', at: '2026-01-01T00:00:00.000Z', relayed: false };
+
+  test('create and patch drop choice, answer, by, at and relayed from a question', async () => {
+    const created = await api('POST', '/api/projects/demo/items', { title: 'S', kind: 'questions', questions: [smuggled] });
+    const item = created.json.items[0];
+    expect(item.questions[0]).toMatchObject({ choice: '', answer: '', by: '', at: '', relayed: false });
+    expect(item.answered).toBe(0);
+    const patched = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: item.version, questions: [smuggled, { ...smuggled, id: 'b' }] });
+    expect(patched.json.item.answered).toBe(0);
+  });
+
+  test('a store-level definition does not restore answers either; importAll does', () => {
+    const project = store.getProject('demo')!;
+    const viaStore = store.createItem(project.id, { title: 'S2', kind: 'questions', questions: [smuggled] });
+    expect(viaStore.answered).toBe(0);
+    const restored = store.createItem(project.id, { title: 'S3', kind: 'questions', questions: [smuggled], restoreAnswers: true });
+    expect(restored.questions[0]).toMatchObject({ choice: 'X', answer: 'forged', by: 'you' });
+  });
+});

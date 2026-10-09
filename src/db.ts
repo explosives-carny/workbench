@@ -684,7 +684,7 @@ function labelFromAsk(ask: string, id: string): string {
  * - `droppedAnswered` lists answered questions the new list leaves out; the
  *   caller decides whether that is allowed (see QuestionsLocked).
  */
-export function buildQuestions(incoming: QuestionInput[], existing: Question[] = []): {
+export function buildQuestions(incoming: QuestionInput[], existing: Question[] = [], opts: { restoreAnswers?: boolean } = {}): {
   questions: Question[]; warnings: string[]; droppedAnswered: string[];
 } {
   const bad = (message: string) => Object.assign(new Error(message), { statusCode: 400 });
@@ -703,7 +703,10 @@ export function buildQuestions(incoming: QuestionInput[], existing: Question[] =
     // What an answer looks like is decided by the stored record when there is
     // one; a question new to the item may arrive with its answer already in
     // it, which is how an import restores a set.
-    const source = before ?? raw;
+    // Only a restore from an export may bring an answer in with the question;
+    // a write through the API never records one (answers go through
+    // answerQuestion, which knows who is speaking).
+    const source: QuestionInput = before ?? (opts.restoreAnswers ? raw : {});
     let choice = typeof source.choice === 'string' ? source.choice : '';
     const answer = typeof source.answer === 'string' ? source.answer.trim() : '';
     if (choice && !options.includes(choice)) {
@@ -844,6 +847,8 @@ export type ItemInput = {
   body?: string;
   bodyFormat?: 'text' | 'markdown' | 'html';
   checks?: Check[];
+  /** Set by importAll alone: keep the answers carried inside `questions`. Never parsed from an API body. */
+  restoreAnswers?: boolean;
   /** See Item.questions. Only a question set may carry any; merged by id on update. */
   questions?: QuestionInput[];
   labels?: string[];
@@ -1708,7 +1713,7 @@ export class Store {
         options: input.options || [], recommended: input.recommended || [], choice: input.choice || '', questions: input.questions,
       });
       if (refusal) throw Object.assign(new Error(refusal), { statusCode: 400 });
-      const questions = kind === 'questions' ? buildQuestions(input.questions || []).questions : [];
+      const questions = kind === 'questions' ? buildQuestions(input.questions || [], [], { restoreAnswers: input.restoreAnswers === true }).questions : [];
       // A retry returns before reading or advancing next_seq. Keeping this in
       // the same transaction as the insert closes the only sequence race.
       const clientId = typeof input.clientId === 'string' ? input.clientId.trim().slice(0, 120) : '';
