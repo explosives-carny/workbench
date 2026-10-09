@@ -199,7 +199,7 @@ scrolling; the same decision posted twice because it was unclear where it lived.
 Signs you split too coarsely: one project where half the items are irrelevant to
 whoever is looking; sections doing the work a project should.
 
-## The four kinds of item
+## The kinds of item
 
 **Whichever kind it is, the title is a headline.** A few words that name the
 thing — the explanation, the quote, the evidence go in `context` or a
@@ -436,6 +436,51 @@ it, it is not a finding — it is a message on whatever item it belonged to.
 Something real that nobody is acting on. Set it `deferred` and **say in the
 thread what would bring it back**. A deferred item with no trigger is just a
 question you gave up on, and it will be re-asked in three weeks.
+
+### 5. A question set — several questions answered in one place
+
+When several questions share one context and one person answers them in one
+sitting, file one item with `kind: "questions"` and a `questions` list. Each
+question carries its own options, recommendation and answer slot; the person
+answers each where it is asked, on one page; you read the answers as fields.
+
+The failure that produced this kind (2026-10-09): questions were numbered
+inside one issue's context, because splitting them into separate items copied
+the context into each and scattered it across the board. The person could
+answer only in one long reply, nothing recorded which were done, and, in their
+words, "it is hard to answer questions on a multi-question issue effectively"
+while it is "good to keep the context together on one page." A set keeps the
+context once and gives every question its own slot.
+
+**The default is to keep them together.** Split a question out only when it
+stops sharing what the set shares. Each reason below is one of the ways it does:
+
+- **A different person answers it.** The set is one person's sitting. A
+  question for someone else sits unanswered in it and holds the rest back from
+  reading as done.
+- **It needs none of the shared reading.** If it can be answered without the
+  context, it gains nothing from the set and loses its own place on the board.
+- **It belongs on another project's board.** An item lives in one project; a
+  question inside a set cannot be moved or counted elsewhere.
+- **It blocks work on its own schedule.** A set is answered, and moves, as a
+  whole. A question you need now, with the rest able to wait, would hold the
+  hand-back until the last one is answered.
+- **Its answer starts separate work.** That work has its own PR and its own QA
+  and needs an item to carry them; file it and link it back by `ref/qid`.
+- **Another item must wait on it.** `blockedBy` names an item, not a question
+  inside one.
+- **Its answer is a physical or device fact.** Somebody must go and test; it
+  will not be answered in one sitting at a desk.
+- **It needs its own cost-of-being-wrong paragraph.** It is a decision in its
+  own right (see 1) and deserves the item a decision gets.
+
+The reasons to keep them together are the same list read the other way: one
+person, one context, answers that change how a neighbour is read, one sitting
+in any order, one build or one design revision to act on them, and no copying
+of the context. About twelve questions is where "one sitting" stops being true;
+the server hints at it and never refuses. A set does not nest: a question that
+grows a second question becomes a new item. The full table is in the contract
+(*Question sets*).
 
 ## When to create, and when not to
 
