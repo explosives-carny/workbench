@@ -18,7 +18,7 @@
 // quoting it does. The text that references an image is already signed and
 // versioned, so the file itself needs no second copy of that.
 import { createHash } from 'crypto';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 
 /**
@@ -46,6 +46,18 @@ export type ImageExt = keyof typeof IMAGE_TYPES;
  * from making that repository unpleasant to clone.
  */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * The largest request body an upload route will read: 10 MB of image as base64
+ * is 13.3 MB, plus JSON or multipart overhead. A declared length above this is
+ * refused before the body is buffered.
+ */
+export const MAX_IMAGE_REQUEST_BYTES = 14 * 1024 * 1024;
+
+/** The one size refusal, for the stored file and for a declared request length. */
+export function imageTooLarge(bytes: number): string {
+  return `the image is ${(bytes / 1048576).toFixed(1)} MB; the limit is ${MAX_IMAGE_BYTES / 1048576} MB. Crop it or save it as JPEG or WebP.`;
+}
 
 /** The one shape an image reference may take, in a URL and in Markdown. */
 export const IMAGE_NAME = /^([0-9a-f]{64})\.(png|jpg|gif|webp|svg)$/;
@@ -75,28 +87,41 @@ export function sniffImage(bytes: Uint8Array): ImageExt | undefined {
 }
 
 /**
- * An SVG is a document that can carry script. It is served with a sandboxing
- * CSP and rendered through <img>, and neither runs script — but an image
- * that only stays inert because of two headers is one header change away from
- * not being inert. So an SVG carrying anything active is refused at the door:
- * script elements, on* handlers, javascript: URLs, foreignObject (HTML inside
- * the picture) and external references (which would make the board fetch
- * from somewhere else the moment it renders). A drawing exported from a
- * design tool has none of these.
+ * An SVG is a document that can carry script. The guarantee that it stays
+ * inert is how it is served and shown: a sandboxing CSP on the file, and
+ * rendering through <img>, which runs no script. This check is a second,
+ * best-effort line: common active content is refused at upload (script
+ * elements, on… handlers, javascript: and other non-image URL schemes,
+ * numeric entities hiding a scheme, foreignObject, embedded documents,
+ * outside references). It is a denylist over text, so it is not a sanitizer
+ * and must not be relied on as one. A drawing exported from a design tool has
+ * none of these.
  */
 export function svgRefusal(bytes: Uint8Array): string | undefined {
   const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   const checks: [RegExp, string][] = [
-    [/<script[\s>/]/i, 'a <script> element'],
-    [/\son[a-z]+\s*=/i, 'an on… event handler attribute'],
+    // `<svg/onload=` and `a="1"onload=` have no whitespace before the name.
+    [/<[\w:-]*script/i, 'a <script> element'],
+    [/[\s/"'<]on[a-z]+\s*=/i, 'an on… event handler attribute'],
     [/javascript\s*:/i, 'a javascript: URL'],
+    // An entity in an attribute value can spell a scheme (`&#106;avascript:`).
+    [/=\s*"[^"]*&(?:#|colon;|tab;|newline;)|=\s*'[^']*&(?:#|colon;|tab;|newline;)/i, 'an entity-encoded attribute value'],
     [/<foreignObject[\s>/]/i, 'a <foreignObject> element'],
     [/<(?:iframe|embed|object)[\s>/]/i, 'an embedded document'],
-    [/(?:href|src)\s*=\s*["']\s*(?:https?:|\/\/|data:text\/html)/i, 'a reference to an outside resource'],
     [/@import|url\(\s*["']?\s*(?:https?:|\/\/)/i, 'a stylesheet reference to an outside resource'],
   ];
   for (const [pattern, what] of checks) {
     if (pattern.test(text)) return `SVG refused: it contains ${what}. Export it without scripts or external references, or upload it as PNG.`;
+  }
+  // Every href/src/xlink:href may point only inside the drawing (#id) or at an
+  // embedded image. Anything else (http:, file:, ftp:, //host, data:text/html,
+  // a relative path) is a fetch or a navigation the drawing has no business making.
+  const ref = /(?<![\w-])(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  for (const m of text.matchAll(ref)) {
+    const value = (m[1] ?? m[2] ?? m[3] ?? '').trim();
+    if (!value.startsWith('#') && !/^data:image\//i.test(value)) {
+      return 'SVG refused: it contains a reference to an outside resource. Export it without scripts or external references, or upload it as PNG.';
+    }
   }
   return undefined;
 }
@@ -127,7 +152,7 @@ export class ImageStore {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (!bytes.length) throw new ImageRefused('the image is empty');
     if (bytes.length > MAX_IMAGE_BYTES) {
-      throw new ImageRefused(`the image is ${(bytes.length / 1048576).toFixed(1)} MB; the limit is ${MAX_IMAGE_BYTES / 1048576} MB. Crop it or save it as JPEG or WebP.`);
+      throw new ImageRefused(imageTooLarge(bytes.length));
     }
     const ext = sniffImage(bytes);
     if (!ext) throw new ImageRefused('not an image this board stores: send PNG, JPEG, GIF, WebP or SVG (the type is read from the bytes, not the file name)');
@@ -177,15 +202,30 @@ export function copyImages(from: string, to: string, log?: (line: string) => voi
     const m = IMAGE_NAME.exec(name);
     if (!m) continue;
     const target = join(to, name);
-    if (existsSync(target)) continue;
-    const bytes = readFileSync(join(from, name));
-    if (createHash('sha256').update(bytes).digest('hex') !== m[1]) {
-      log?.(`skipped image ${name}: its bytes do not match its name`);
-      continue;
+    // One unreadable or locked file must not stop the rest of the export (or
+    // the project JSON that is written after this): log it and go on.
+    try {
+      if (existsSync(target)) continue;
+      const bytes = readFileSync(join(from, name));
+      if (createHash('sha256').update(bytes).digest('hex') !== m[1]) {
+        log?.(`skipped image ${name}: its bytes do not match its name`);
+        continue;
+      }
+      mkdirSync(to, { recursive: true });
+      // Temporary name then rename, as put() does, so an interrupted copy
+      // never leaves a truncated file under a hash it does not match.
+      const tmp = join(to, `.${name}.${process.pid}.${Date.now()}.tmp`);
+      try {
+        writeFileSync(tmp, bytes);
+        renameSync(tmp, target);
+      } catch (error) {
+        try { rmSync(tmp, { force: true }); } catch {}
+        throw error;
+      }
+      copied += 1;
+    } catch (error: any) {
+      log?.(`skipped image ${name}: ${error?.message || error}`);
     }
-    mkdirSync(to, { recursive: true });
-    copyFileSync(join(from, name), target);
-    copied += 1;
   }
   return copied;
 }

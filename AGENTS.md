@@ -63,7 +63,7 @@ wb todo <slug> "title" --due 2026-10-31 --priority high   POST /api/projects/<sl
 wb todos [slug] [--all]                            open to-dos on every to-do project (or one), due first — what `wb board` cannot show
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
                                                    — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
-wb attach <id|ref> shot.png [--text "…"]           POST /api/images (the file) → POST /api/items/<id>/messages with ![shot](/api/images/<sha256>.png)
+wb attach <id|ref> <file>... [--text "…"]           POST /api/images (the file) → POST /api/items/<id>/messages with ![shot](/api/images/<sha256>.png)
 wb image shot.png                                  POST /api/images {"data":"<base64>","alt":"…"} → prints ![shot](/api/images/<sha256>.png) to put in a context or body
 wb export                                          bun run export — the server also exports on its own after every change
 wb archive <slug>                                  PATCH /api/projects/<slug> {"archived":true,"actor":"<you>"}
@@ -717,9 +717,13 @@ inline, at most about 420px tall, and a click enlarges it.
 
 - **Types and limits:** PNG, JPEG, GIF, WebP and SVG, up to 10 MB each. The
   type is read from the bytes, never the file name; anything else is a `400`
-  naming the allowed set. An SVG holding script, event handlers,
-  `javascript:` URLs, `foreignObject`, embedded documents or outside
-  references is a `400`; export it plain or send a PNG.
+  naming the allowed set. An SVG stays inert because of how it is
+  served (a sandboxing CSP) and shown (through `<img>`), not because of an
+  upload filter. As a second line, common active content is refused at upload
+  with a `400` (script elements, event handlers, `javascript:` and other
+  non-image URL schemes, entity-encoded attribute values, `foreignObject`,
+  embedded documents, outside references); that check is not a sanitizer.
+  Export the SVG plain or send a PNG.
 - **Only the board's own images render.** `![…](https://…)` stays literal text:
   a page that fetched pictures from elsewhere would send requests off the
   machine every time it renders. Upload the file instead.
