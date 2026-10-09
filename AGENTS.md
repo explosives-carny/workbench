@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v22.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `22`,
+**Contract v23.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `23`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -25,7 +25,8 @@ wb board <slug>                               # 3. the actionable set: received 
 Nothing at `received` → say so in one line. Never create items on a check-in.
 Do not read the board again until the check-in word.
 
-**Status is whose move it is.** An issue holds one of eight; a document (`kind:
+**Status is whose move it is.** An issue holds one of eight (so does a question
+set, `kind: "questions"` — see *Question sets*); a document (`kind:
 "document"`) holds `active` or `archived`, nothing else. (A project created
 with `mode: "todo"` holds to-dos instead of issues — see **To-do projects**;
 nothing below changes for any other project.)
@@ -63,6 +64,9 @@ wb todo <slug> "title" --due 2026-10-31 --priority high   POST /api/projects/<sl
 wb todos [slug] [--all]                            open to-dos on every to-do project (or one), due first — what `wb board` cannot show
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
                                                    — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
+wb questions <id|ref>                              GET  /api/items/<id-or-ref> — a question set's questions and their state, open ones first
+wb answer <id|ref> <qid> --choice "…" --note "…" --relay   PATCH /api/items/<id-or-ref>/questions/<qid> {"choice":"…","answer":"…","relay":true,"actor":"<you>"}
+                                                   — the person answers on the page; an agent records one only as a relay. File a set with kind:"questions","questions":[{"id":"s1","label":"…","ask":"…","options":[…],"recommended":[…]},…]
 wb attach <id|ref> <file>... [--text "…"]           POST /api/images (the file) → POST /api/items/<id>/messages with ![shot](/api/images/<sha256>.png)
 wb image shot.png                                  POST /api/images {"data":"<base64>","alt":"…"} → prints ![shot](/api/images/<sha256>.png) to put in a context or body
 wb export                                          bun run export — the server also exports on its own after every change
@@ -100,7 +104,11 @@ understood — usually a typo).
 5. **Send `ifVersion` on every status change.** Warned today, refused later. On
    `409`: re-apply only the fields you meant to change onto the returned item,
    resend with its `version`, and after a second `409` stop and post a message.
-6. **One item per question**, context answerable without you in the room:
+6. **One item per question — or one question set (`kind: "questions"`), when the
+   questions belong together.** A question set carries each question's options
+   and recommendation on the question; the person answers each where it is
+   asked; see *Question sets*. Each item, or each question, has context
+   answerable without you in the room:
    tradeoff, recommendation, cost of being wrong. **A decision with `options`
    names at least one in `recommended`** — the exact option text, e.g.
    `"options":["A","B"],"recommended":["B"]`; the board marks it. No
@@ -394,6 +402,88 @@ on screen, says when a refusal is the pass, asks only for what the worker
 controls, never touches production or source, and says how to know the
 environment is current. The full rule set and the failures each came from:
 `docs/what-goes-here.md` → *Writing a step somebody else can execute*.
+
+### Question sets (v23)
+
+A question set is one item (`kind: "questions"`) that carries several
+questions. Each question has its own options, recommendation and answer slot,
+so the person answers each where it is asked, on one page, with the shared
+context above them. Agents read the answers as fields.
+
+```json
+{"title":"Packing review","kind":"questions","context":"Shared facts…",
+ "questions":[
+   {"id":"s1","label":"Packing location","ask":"Where do the cases go?\n\n- Bay A is 40 ft from the dock","options":["Bay A","Bay B"],"recommended":["Bay A"]},
+   {"id":"s2","label":"Notes","ask":"Anything the crew should know?"}]}
+```
+
+- **The shape.** A question is `{id, label, ask, options, recommended}`. `id`
+  is stable and unique inside the item (default `q1`, `q2`…); `ask` is Markdown;
+  `options` may be empty, which makes the question free text only;
+  `recommended` is a subset of the question's `options`, exact text. The item
+  itself carries no `options`, `recommended` or `choice` — sending any is a
+  `400`. Held to the decision bar, per question: a question with options and
+  no `recommended` comes back with a warning naming its id, and the audit lists it.
+- **Read it back as fields.** Each question reads `choice`, `answer` (a note, or
+  the whole answer when it has no options), `by`, `at` and `relayed`. The item
+  reads `questionCount` and `answered`; list rows carry those two and never the
+  array. A question counts as answered when it has a `choice` or a non-blank
+  `answer`.
+- **One PATCH per question.** `PATCH /api/items/<id-or-ref>/questions/<qid>`
+  with `{choice?, answer?, clear?, relay?, actor, session}`. A `choice` must be
+  one of that question's options (the error names them). An empty save records
+  nothing and erases nothing: `400 nothing to record`. `"clear": true` empties
+  the question. Recording does not touch `updatedBy`: an answer is not a claim.
+- **Answers are the person's.** An agent may record one only as a relay, with
+  `"relay": true`, when the person told it the answer somewhere other than the
+  page. Without it an `actor` other than `you` is a `400`. A relayed answer is
+  stored with `relayed: true` and the page says so. Do not edit the person's
+  words into the `answer`; write them down as they were said.
+- **The last answer hands the item back.** When every question is answered and
+  the item is at `needs-decision`, the board posts "All N questions answered"
+  and the item moves to `received`, as a reply would. A set with open questions
+  is the person's move and counts as waiting on them. A reply still moves a set
+  exactly as it moves an issue (their reply → `received`; yours on `received` →
+  claims it). Answering an item at any other status records and moves nothing.
+- **Redefining the questions.** Send `questions:[…]` on a PATCH: questions merge
+  **by id**, so one that already exists keeps its recorded answer even when its
+  ask or label changes. Changing its options so the recorded `choice` is no
+  longer offered clears that choice, and the write says so. Dropping a question
+  that holds an answer is `409` with `conflict: "questions"` and the ids in
+  `answeredIds`, unless the write says `"replaceQuestions": true` — and then
+  say in the thread why. One write may turn an existing issue into a question
+  set: send `"kind":"questions"`, `"options":[]`, `"recommended":[]`,
+  `"choice":""` and the `questions` together.
+- **Cite a question as `WB-DEMO-14/q3`**: the item's ref, a slash, the
+  question's id. When an answer starts separate work, file that work as its own
+  item and link it back by that citation.
+- **A set does not nest.** A question that grows a second question of its own
+  becomes a new item, linked back by `ref/qid`.
+
+**When questions belong in one set, and when they are their own items.** The
+default is to keep them together. Make a question its own item when any right
+column below is true of it.
+
+| Keep in one set when | Make it its own item when |
+|---|---|
+| The same person answers all of them | A different person answers it |
+| They are answered against one context or document | It needs none of the shared reading to answer |
+| Its answer changes how another question in the set is read | It belongs on another project's board |
+| They would be answered in one sitting, in any order | It blocks work on its own schedule: you need it now, the rest can wait |
+| The answers are acted on in one build or one design revision | Its answer starts separate work with its own PR and its own QA |
+| Splitting would mean copying the context into each item | Another item must name it in `blockedBy` (a question inside a set cannot be a blocker) |
+| The set stays within about twelve questions (a hint, not a limit) | Its answer is a physical or device fact somebody must go and test |
+| — | It needs its own cost-of-being-wrong paragraph: it is a decision in its own right |
+
+**Why this exists (2026-10-09, the person's words):** "I'm finding it hard to
+answer questions on a multi-question issue effectively. I don't like the idea of
+breaking this up into multiple items because it's good to keep the context
+together on one page." Questions numbered inside one issue's context could only
+be answered in one long reply, with nothing recording which were done. The audit
+flags an issue at `needs-decision` whose context holds four or more numbered
+questions (`issue-reads-like-a-question-set`); file those as a set. More than
+about twelve questions in one set is a hint on the write, never a refusal and
+never an audit finding.
 
 ### Where the answer is
 
@@ -901,7 +991,7 @@ refuse.
 ## Further reading
 
 - `docs/what-goes-here.md` — what to create and when, how to segment projects,
-  the four kinds of item, writing QA steps, and the failures behind each rule.
+  the kinds of item, writing QA steps, and the failures behind each rule.
 - `docs/onboarding.md` — the setup questions and the board layouts.
 - `docs/integrations/README.md` — the one portable wiring block, plus vendor notes.
 - `CONTRIBUTING.md` — who may change the application, how a pull request is

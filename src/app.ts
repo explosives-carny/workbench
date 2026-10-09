@@ -8,17 +8,19 @@
 // arguments and hands back the `fetch` function, so a test can call it with a
 // `Request` and read the `Response` in-process.
 import {
-  Store, STATUSES, VersionConflict, ChecksLocked, findSimilarSection, asStatusValue,
+  Store, STATUSES, VersionConflict, ChecksLocked, QuestionsLocked, findSimilarSection, asStatusValue,
   ProjectKeyTaken, PROJECT_COLORS, STATUS_GROUPS, MOVE_GROUPS,
   isStatusAllowed, statusesFor, KINDS, defaultStatusFor, normaliseRecommended, CHECK_OWNERS,
   isDueDate, normalisePriority, PRIORITIES, kindFor, PROJECT_MODES, TODO_STATUSES,
-  type Status, type ItemInput, type Project, type Kind,
+  isWorkKind, checkQuestionSet, buildQuestions, type QuestionInput,
+  type Status, type ItemInput, type Project, type Kind, type Item,
 } from './db.ts';
 import { join } from 'path';
 import {
   blockedWithoutReason, titleWarning, recommendationRefusal, lacksRecommendation, MISSING_RECOMMENDATION,
   convertRecommendedSuffix, noOptionsWarning, recommendedInTextWarning, unownedStepsWarning, auditItems,
   wallOfTextWarning, escapedNewlineWarning, pointerOptionWarning,
+  questionWithoutRecommendation, emptyQuestionSetWarning, longQuestionSetHint, questionFormatFindings,
 } from './rules.ts';
 import { itemBrief } from './brief.ts';
 import { ImageStore, ImageRefused, imageHeaders, imageTooLarge, MAX_IMAGE_REQUEST_BYTES } from './images.ts';
@@ -30,7 +32,7 @@ import { ImageStore, ImageRefused, imageHeaders, imageTooLarge, MAX_IMAGE_REQUES
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '22';
+export const CONTRACT_VERSION = '23';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -120,10 +122,11 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // caller believed the label had landed until the board looked wrong. Refusing
 // would break older writers sending fields since retired; naming the drop is
 // enough for a writer to notice and fix itself.
-const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'dueAt', 'priority', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
+const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'dueAt', 'priority', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'questions', 'replaceQuestions', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
 const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
 const IMAGE_FIELDS = new Set(['data', 'alt', 'name', 'actor', 'author', 'session']);
 const CHECK_FIELDS = new Set(['result', 'note', 'owner', 'actor', 'by', 'session']);
+const ANSWER_FIELDS = new Set(['choice', 'answer', 'clear', 'relay', 'actor', 'by', 'session']);
 
 function ignoredKeys(body: any, known: Set<string>): string[] {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return [];
@@ -174,6 +177,69 @@ export function checkSettingsPatch(
 
 function withIgnored<T extends object>(data: T, ignored: string[]): T & { ignored?: string[] } {
   return ignored.length ? { ...data, ignored } : data;
+}
+
+// The questions of a question set, shape-checked. Strings are coerced, a
+// malformed option list is refused (a button the writer meant and the board
+// would not show is worse than a refusal), and `relayed` is a plain boolean.
+// Ids, labels and recommended-filtering are the store's (see buildQuestions).
+function asQuestions(raw: unknown): QuestionInput[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) throw new Error('questions must be an array of {"label","ask","options":[…],"recommended":[…]}');
+  return raw.map((q: any, n: number) => {
+    const where = `questions[${n}]`;
+    if (!q || typeof q !== 'object' || Array.isArray(q)) throw new Error(`${where} must be an object with "ask"`);
+    const text = (field: string) => (q[field] === undefined || q[field] === null ? '' : typeof q[field] === 'object' ? (() => { throw new Error(`${where}.${field} must be a string`); })() : String(q[field]));
+    const list = (field: string) => {
+      if (q[field] === undefined) return [];
+      if (!Array.isArray(q[field]) || q[field].some((o: unknown) => typeof o !== 'string')) throw new Error(`${where}.${field} must be an array of strings`);
+      return q[field] as string[];
+    };
+    const ask = text('ask');
+    const label = text('label');
+    if (!ask.trim() && !label.trim()) throw new Error(`${where} needs an "ask" (the question itself)`);
+    return {
+      id: text('id').trim() || undefined,
+      label, ask,
+      options: list('options'),
+      recommended: list('recommended'),
+      // choice, answer, by, at and relayed are not read: an answer is recorded
+      // only through PATCH …/questions/<qid>, by whoever is answering.
+    };
+  });
+}
+
+// Policy checked before anything is written, so a batch of items either lands
+// whole or is refused whole: the shape of a question set, and its ids.
+function questionSetRefusal(kind: Kind, input: ItemInput): string | undefined {
+  const refusal = checkQuestionSet(kind, { options: input.options || [], recommended: input.recommended || [], choice: input.choice || '', questions: input.questions });
+  if (refusal) return refusal;
+  if (kind === 'questions') {
+    try { buildQuestions(input.questions || []); } catch (error: any) { return error.message; }
+  }
+  return undefined;
+}
+
+// What a written question set earns in warnings: per question, the same bar a
+// decision is held to, plus the set-level ones.
+function questionSetWarnings(item: Item, sent: boolean): string[] {
+  if (item.kind !== 'questions') return [];
+  const out: (string | undefined)[] = [emptyQuestionSetWarning(item)];
+  if (sent) {
+    out.push(longQuestionSetHint(item));
+    for (const q of item.questions) out.push(questionWithoutRecommendation(q));
+    for (const f of questionFormatFindings(item)) out.push(f.message);
+  }
+  return out.filter(Boolean) as string[];
+}
+
+// List rows carry the counts, never the array: a board of forty sets would
+// otherwise ship every ask on every poll. The item itself carries the array.
+function withoutQuestions<T extends Item>(items: T[]): T[] {
+  return items.map((item) => {
+    const { questions: _dropped, ...row } = item;
+    return row as T;
+  });
 }
 
 function asItemInput(body: any, requireTitle: boolean): ItemInput {
@@ -235,6 +301,7 @@ function asItemInput(body: any, requireTitle: boolean): ItemInput {
     dueAt: body.dueAt === undefined ? undefined : (body.dueAt === null || body.dueAt === '' ? null : body.dueAt),
     priority: body.priority === undefined ? undefined : (body.priority === null || body.priority === '' ? null : normalisePriority(body.priority)),
     kind: body.kind === undefined ? undefined : body.kind,
+    questions: asQuestions(body.questions),
     // These were added to the store and forgotten here, so every document
     // imported as an empty one and the API cheerfully reported success. A
     // field the store accepts and the parser drops is a silent data loss, and
@@ -342,7 +409,7 @@ function todoPolicy(
   if (project.mode !== 'todo' && asked.kind === 'todo') {
     return `kind "todo" belongs to to-do projects; ${where} is a board. Keep to-dos in their own project: POST /api/projects {"name":"…","mode":"todo"}`;
   }
-  if (project.mode === 'todo' && asked.kind === 'issue') {
+  if (project.mode === 'todo' && (asked.kind === 'issue' || asked.kind === 'questions')) {
     return `${where} is a to-do project: it holds to-dos and documents, not decisions or QA. File those on a board project.`;
   }
   const dated = (asked.dueAt !== undefined && asked.dueAt !== null) || (asked.priority !== undefined && asked.priority !== null);
@@ -409,6 +476,7 @@ const ROUTES = [
   'GET    /api/items/<id-or-ref>/brief          text/markdown: the item written out for a second opinion from someone with no context; reads, never writes',
   'GET    /api/items/<id-or-ref>/messages · POST /api/items/<id-or-ref>/messages {who, text, actor, session, status?}',
   'PATCH  /api/items/<id-or-ref>/checks/<checkId>     {result, note?, actor, session}',
+  'PATCH  /api/items/<id-or-ref>/questions/<qid>      {choice?, answer?, clear?, relay?, actor, session}  — kind "questions"; the person answers, an agent only with relay:true',
   'POST   /api/images                          raw image bytes | multipart "file" | {data: base64 or data: URL, alt?}  → {image: {url, markdown}}; PNG, JPEG, GIF, WebP, SVG, 10 MB',
   'GET    /api/images/<sha256>.<ext>           the image; reference it in Markdown as ![alt](/api/images/<sha256>.<ext>)',
   'every write: actor = the name a person recognises; session = the id this session generated once at start',
@@ -579,6 +647,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         if (!['all', 'last', 'none'].includes(messagesParam)) return badRequest(ctx, "messages must be all, last or none");
         let items = store.listItems(project.id, messagesParam as 'all' | 'last' | 'none');
         if (wanted) items = items.filter((i) => wanted.has(i.status));
+        items = withoutQuestions(items);
         // `sections` and `labels` are returned so an agent can read the
         // vocabulary in the same call it reads the board, and reuse a name
         // instead of inventing a near-synonym. Deriving them by scanning items
@@ -737,7 +806,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
     }
 
     if (parts[2] === 'items' && parts.length === 3) {
-      if (method === 'GET') return json(ctx, { ok: true, items: store.listItems(project.id) });
+      if (method === 'GET') return json(ctx, { ok: true, items: withoutQuestions(store.listItems(project.id)) });
       if (method === 'POST') {
         const body = await readJson(req);
         // An array creates a whole set in one call. This is the shape an agent
@@ -756,6 +825,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           const named = (text: string) => (parsed.length > 1 ? `"${input.title}": ${text}` : text);
           const misplaced = todoPolicy(project, kindFor(project.mode, input.kind), input);
           if (misplaced) return badRequest(ctx, named(misplaced));
+          const shape = questionSetRefusal(kindFor(project.mode, input.kind), input);
+          if (shape) return badRequest(ctx, named(shape));
           // A retry of something already filed returns the existing item
           // untouched, so the rule is not applied to it a second time.
           if (!store.hasClientId(project.id, input.clientId)) {
@@ -790,6 +861,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           const askedForDecision = parsed[created.indexOf(item)]?.status === 'needs-decision';
           const optionsWarn = askedForDecision ? noOptionsWarning(item) : undefined;
           if (optionsWarn) warnings.push(parsed.length > 1 ? `"${item.title}": ${optionsWarn}` : optionsWarn);
+          for (const w of questionSetWarnings(item, true)) warnings.push(parsed.length > 1 ? `"${item.title}": ${w}` : w);
           for (const w of [wallOfTextWarning('context', item.context), escapedNewlineWarning('context', item.context), pointerOptionWarning(item.options, item.context, item.body)]) {
             if (w) warnings.push(parsed.length > 1 ? `"${item.title}": ${w}` : w);
           }
@@ -861,10 +933,17 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         }
         try {
           ctx.wrote = true;
+          const storeWarnings: string[] = [];
           const updated = store.updateItem(item.id, patch, {
             ifVersion, actor: actorOr(ctx, body, 'author'), session: sessionOf(body),
             replaceChecks: body.replaceChecks === true,
+            replaceQuestions: body.replaceQuestions === true,
+            warnings: storeWarnings,
           });
+          warnings.push(...storeWarnings);
+          if (updated && (patch.questions !== undefined || movesIntoDecision || patch.kind !== undefined)) {
+            warnings.push(...questionSetWarnings(updated, patch.questions !== undefined));
+          }
           const blockedWarning = updated ? blockedWithoutReason(updated) : undefined;
           if (blockedWarning) warnings.push(blockedWarning);
           const titleWarn = updated ? titleWarning(updated) : undefined;
@@ -885,6 +964,9 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
             // 409 with the live item attached, so the caller merges onto what is
             // actually there instead of re-reading and racing the same way again.
             return json(ctx, { ok: false, error: error.message, conflict: true, item: error.current }, 409);
+          }
+          if (error instanceof QuestionsLocked) {
+            return json(ctx, { ok: false, error: error.message, conflict: 'questions', answeredIds: error.answeredIds, item: error.current }, 409);
           }
           if (error instanceof ChecksLocked) {
             // Same status, different conflict: the steps hold a QA record and
@@ -970,6 +1052,45 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         const archivedWarn = archivedProjectWarning(owner);
         return json(ctx, withIgnored({ ok: true, item: updated, ...(archivedWarn ? { warning: archivedWarn } : {}) }, ignoredKeys(body, CHECK_FIELDS)));
       } catch (error: any) {
+        if (error?.statusCode === 400) return badRequest(ctx, error.message);
+        throw error;
+      }
+    }
+
+    // One question of a question set, answered on its own. A whole-array PATCH
+    // would lose a concurrent answer to a different question, and the answer is
+    // the person's: an agent may record one only as a relay (relay:true), which
+    // the item then says it was.
+    if (parts[2] === 'questions') {
+      if (method !== 'PATCH') return json(ctx, { ok: false, error: 'questions are recorded one at a time with PATCH /api/items/<id>/questions/<qid>' }, 405);
+      if (parts.length !== 4) return badRequest(ctx, 'name the question: PATCH /api/items/<id>/questions/<qid>');
+      const body = await readJson(req);
+      for (const field of ['choice', 'answer'] as const) {
+        if (body[field] !== undefined && typeof body[field] !== 'string') return badRequest(ctx, `${field} must be a string`);
+      }
+      for (const field of ['clear', 'relay'] as const) {
+        if (body[field] !== undefined && typeof body[field] !== 'boolean') return badRequest(ctx, `${field} must be true or false`);
+      }
+      // Who is answering is never guessed for a program: only the browser is the
+      // person. A caller that names nobody cannot be recorded as `you`.
+      const by = actorOr(ctx, body, 'by');
+      if (!by) {
+        return badRequest(ctx, body.relay === true
+          ? 'a relayed answer needs your "actor" name'
+          : 'answers are the person\'s; an agent records one only as a relay, with relay:true and its own "actor"');
+      }
+      let qid: string;
+      try { qid = decodeURIComponent(parts[3]); } catch { return badRequest(ctx, 'the question id in the path is not valid percent-encoding'); }
+      try {
+        ctx.wrote = true;
+        const updated = store.answerQuestion(item.id, qid, {
+          choice: body.choice, answer: body.answer, clear: body.clear === true, relay: body.relay === true,
+          by, session: sessionOf(body),
+        });
+        const archivedWarn = archivedProjectWarning(owner);
+        return json(ctx, withIgnored({ ok: true, item: updated, ...(archivedWarn ? { warning: archivedWarn } : {}) }, ignoredKeys(body, ANSWER_FIELDS)));
+      } catch (error: any) {
+        if (error?.statusCode === 404) return notFound(ctx, error.message);
         if (error?.statusCode === 400) return badRequest(ctx, error.message);
         throw error;
       }

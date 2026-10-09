@@ -410,3 +410,44 @@ describe('the item page button', () => {
     expect(page.byId('saved-main').textContent).toContain('copy it by hand');
   });
 });
+
+describe('a question set (contract v23)', () => {
+  test('the brief names the kind, asks for each answer and lists each question with its state', () => {
+    const p = board();
+    const item = store.createItem(p.id, {
+      title: 'Crew packing questions',
+      kind: 'questions',
+      context: 'Shared facts for all of them.',
+      questions: [
+        { id: 's1', label: 'Packing location', ask: 'Where do the cases go?', options: ['Bay A', 'Bay B'], recommended: ['Bay B'] },
+        { id: 's2', label: 'Notes', ask: 'Anything else?' },
+      ],
+    });
+    store.answerQuestion(item.id, 's1', { choice: 'Bay A', answer: 'closer to the dock', by: 'you' });
+    const text = briefOf(item.id);
+    expect(text).toContain('a question set (several questions answered in one place)');
+    expect(text).toContain('Answer each question below, or say which option fits and what is missing.');
+    expect(text).toContain('## The questions');
+    expect(text).toContain('1 of 2 answered');
+    expect(text).toContain('### 1. Packing location (s1)');
+    expect(text).toContain('2. Bay B (**recommended by the agent**)');
+    expect(text).toContain('1. Bay A (**chosen**)');
+    expect(text).toContain('chose Bay A; wrote: closer to the dock');
+    expect(text).toContain('**Answer so far:** not answered yet');
+    // After the options section position: the questions come before the discussion.
+    expect(text.indexOf('## The questions')).toBeLessThan(text.indexOf('## The discussion'));
+  });
+
+  test('a secret pasted into an ask or an answer is redacted, and a relayed answer says so', () => {
+    const p = board();
+    const item = store.createItem(p.id, {
+      title: 'Secrets', kind: 'questions',
+      questions: [{ id: 'a', ask: 'Use token ghp_abcdefghijklmnopqrstuvwxyz012345 for it?' }, { id: 'b', ask: 'Fine?' }],
+    });
+    store.answerQuestion(item.id, 'b', { answer: 'api_key=sk_live_abcdefghijkl1234', by: 'tool-a', relay: true });
+    const text = briefOf(item.id);
+    expect(text).not.toContain('ghp_abcdefghij');
+    expect(text).not.toContain('sk_live_abcdefghijkl1234');
+    expect(text).toContain('recorded by tool-a for the person');
+  });
+});

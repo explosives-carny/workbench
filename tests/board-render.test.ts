@@ -189,3 +189,208 @@ describe('the favicon', () => {
     }
   });
 });
+
+// Question sets (contract v23): the row, the item page and the expanded card.
+describe('a question set on the board and on its page', () => {
+  const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0)); };
+  const QS = [
+    { id: 's1', label: 'Packing location', ask: 'Where do the cases go?', options: ['Bay A', 'Bay B'], recommended: ['Bay A'] },
+    { id: 's2', label: 'Label stock', ask: 'Which label stock?', options: ['Thermal', 'Paper'], recommended: ['Thermal'] },
+    { id: 's3', label: 'Notes', ask: 'Anything else?' },
+  ];
+  const make = (questions: any[] = QS) => {
+    const p = store.getProject('board')!;
+    return store.createItem(p.id, { title: 'Three questions', kind: 'questions', questions });
+  };
+  const read = (id: string) => store.getItem(id)!;
+
+  test('the row says how many are answered and how many questions it holds', async () => {
+    const item = make();
+    store.answerQuestion(item.id, 's1', { choice: 'Bay A', by: 'you' });
+    const page = await renderPage(handler, 'project.html', '/p/board');
+    const items = page.byId('items');
+    expect(items.byClass('lr-choice').map((c) => c.textContent)).toContain('1 of 3 answered');
+    const chip = items.byClass('qs-chip')[0];
+    expect(chip.textContent).toBe('3 questions');
+    expect(chip.classList.contains('done')).toBe(false);
+    // And it still counts as waiting on the person.
+    expect(page.byId('eyebrow').textContent).toContain('2 waiting on you');
+  });
+
+  test('the chip turns green once every question is answered', async () => {
+    const item = make([{ id: 'a', ask: 'One?' }]);
+    store.answerQuestion(item.id, 'a', { answer: 'yes', by: 'you' });
+    const page = await renderPage(handler, 'project.html', '/p/board');
+    expect(page.byId('items').byClass('qs-chip')[0].classList.contains('done')).toBe(true);
+  });
+
+  test('the item page draws the header, open questions with option buttons, and answered ones collapsed', async () => {
+    const item = make();
+    store.answerQuestion(item.id, 's1', { choice: 'Bay B', answer: 'by the dock', by: 'you' });
+    store.answerQuestion(item.id, 's2', { choice: 'Paper', by: 'tool-a', relay: true });
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    const host = page.byId('questions');
+    expect(host.byClass('qset').length).toBe(1);
+    expect(host.byClass('qcount')[0].textContent).toBe('2 of 3 answered');
+    const done = host.byClass('q-done');
+    expect(done.length).toBe(2);
+    expect(done[0].textContent).toContain('✓');
+    expect(done[0].textContent).toContain('Packing location');
+    expect(done[0].textContent).toContain('Bay B');
+    expect(done[0].textContent).toContain('by the dock');
+    expect(done[0].textContent).not.toContain('relayed');
+    expect(done[1].textContent).toContain('relayed');
+    expect(done[1].byClass('qchange').length).toBe(1);
+    const open = host.byClass('q-open');
+    expect(open.length).toBe(1);
+    expect(open[0].textContent).toContain('Notes');
+    // Free-text question: the input is the answer, and there are no option buttons.
+    expect(open[0].byClass('q-input')[0].placeholder).toBe('Your answer');
+    expect(open[0].byClass('opts').length).toBe(0);
+    // No item-level options exist on a question set.
+    expect(page.byId('panel').byClass('opts').length).toBe(0);
+  });
+
+  test('option buttons carry the recommendation and the pressed state, and the input is optional beside them', async () => {
+    const item = make();
+    store.answerQuestion(item.id, 's1', { choice: 'Bay A', by: 'you' });
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    const host = page.byId('questions');
+    const s2 = host.byClass('q-open').find((r) => r.textContent.includes('Label stock'))!;
+    const buttons = s2.byClass('opts')[0].children;
+    expect(buttons.map((b) => b.classList.contains('rec'))).toEqual([true, false]);
+    expect(buttons[0].textContent).toContain('Recommended');
+    expect(buttons[0].getAttribute('aria-pressed')).toBe('false');
+    expect(s2.byClass('q-input')[0].placeholder).toBe('Add a note (optional)');
+    expect(s2.byClass('q-input')[0].getAttribute('aria-label')).toBe('Answer for Label stock');
+  });
+
+  test('"change" opens an answered question with its answer pressed; Clear empties it', async () => {
+    const item = make();
+    store.answerQuestion(item.id, 's1', { choice: 'Bay B', by: 'you' });
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    page.byId('questions').byClass('qchange')[0].dispatchEvent({ type: 'click' });
+    await settle();
+    const reopened = page.byId('questions').byClass('q-editing')[0];
+    expect(reopened.byClass('opts')[0].children.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+    reopened.byClass('qclear')[0].dispatchEvent({ type: 'click' });
+    await settle();
+    expect(read(item.id).questions[0].choice).toBe('');
+  });
+
+  test('clicking an option records that one question and repaints from the returned item', async () => {
+    const item = make();
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    const s2 = page.byId('questions').byClass('q-open').find((r) => r.textContent.includes('Label stock'))!;
+    s2.byClass('opts')[0].children[1].dispatchEvent({ type: 'click' });
+    await settle();
+    expect(read(item.id).questions[1]).toMatchObject({ choice: 'Paper', by: 'you', relayed: false });
+    expect(read(item.id).questions[0].choice).toBe('');
+    expect(page.byId('questions').byClass('qcount')[0].textContent).toBe('1 of 3 answered');
+  });
+
+  test('a typed answer saves with Save, and a refused save shows in the note area', async () => {
+    const item = make();
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    const s3 = page.byId('questions').byClass('q-open').find((r) => r.textContent.includes('Notes'))!;
+    // Nothing typed: the server refuses an empty save and the page says so.
+    s3.byClass('qsave')[0].dispatchEvent({ type: 'click' });
+    await settle();
+    expect(page.byId('saved-main').textContent).toContain('nothing to record');
+    expect(read(item.id).answered).toBe(0);
+    const input = page.byId('questions').byClass('q-open').find((r) => r.textContent.includes('Notes'))!.byClass('q-input')[0];
+    input.value = 'Bring ear plugs';
+    input.dispatchEvent({ type: 'input' });
+    input.dispatchEvent({ type: 'keydown', key: 'Enter' } as any);
+    await settle();
+    expect(read(item.id).questions[2].answer).toBe('Bring ear plugs');
+  });
+
+  test('Accept all recommendations shows only when an open question has exactly one recommended option', async () => {
+    const none = make([{ id: 'a', ask: 'Free?' }, { id: 'b', ask: 'Two?', options: ['X', 'Y'], recommended: ['X', 'Y'] }]);
+    let page = await renderPage(handler, 'item.html', `/p/board/i/${none.id}`);
+    expect(page.byId('questions').byClass('qaccept').length).toBe(0);
+    const allDone = make([{ id: 'a', ask: 'One?', options: ['X'], recommended: ['X'] }]);
+    store.answerQuestion(allDone.id, 'a', { choice: 'X', by: 'you' });
+    page = await renderPage(handler, 'item.html', `/p/board/i/${allDone.id}`);
+    expect(page.byId('questions').byClass('qaccept').length).toBe(0);
+    const some = make();
+    page = await renderPage(handler, 'item.html', `/p/board/i/${some.id}`);
+    expect(page.byId('questions').byClass('qaccept').length).toBe(1);
+  });
+
+  test('Accept all answers each such question in turn, skips answered ones, and hands the set back when it finishes', async () => {
+    const item = make([QS[0], QS[1]]);
+    store.answerQuestion(item.id, 's2', { choice: 'Paper', by: 'you' });
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    page.byId('questions').byClass('qaccept')[0].dispatchEvent({ type: 'click' });
+    await settle();
+    const after = read(item.id);
+    expect(after.questions[0]).toMatchObject({ choice: 'Bay A', by: 'you' });
+    expect(after.questions[1].choice).toBe('Paper');
+    expect(after.status).toBe('received');
+  });
+
+  test('on the project page an expanded card loads the questions and answers them in place', async () => {
+    const item = make();
+    const page = await renderPage(handler, 'project.html', '/p/board');
+    const items = page.byId('items');
+    expect(items.byClass('qset').length).toBe(0);
+    const toggle = items.byClass('lr-toggle').find((t) => t.getAttribute('aria-label')!.includes('Three questions'))!;
+    toggle.dispatchEvent({ type: 'click' });
+    await settle();
+    const panel = page.byId('items').byClass('qset');
+    expect(panel.length).toBe(1);
+    const s1 = panel[0].byClass('q-open').find((r) => r.textContent.includes('Packing location'))!;
+    s1.byClass('opts')[0].children[1].dispatchEvent({ type: 'click' });
+    await settle();
+    expect(read(item.id).questions[0].choice).toBe('Bay B');
+    expect(page.byId('items').byClass('lr-choice').map((c) => c.textContent)).toContain('1 of 3 answered');
+  });
+
+  test('the layout holds at phone width: every row wraps and inputs may shrink', () => {
+    const css = readFileSync(new URL('../public/app.css', import.meta.url), 'utf8');
+    const rule = (selector: string) => css.slice(css.indexOf(selector)).split('}')[0];
+    expect(rule('.qrow {')).toContain('flex-wrap: wrap');
+    expect(rule('.qform {')).toContain('flex-wrap: wrap');
+    expect(rule('input.q-input {')).toContain('min-width: 0');
+    expect(rule('.qask {')).toContain('overflow-wrap');
+  });
+});
+
+describe('saving a question with Enter while its box has focus', () => {
+  const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0)); };
+  test('the row folds and the count moves without waiting for a blur', async () => {
+    const item = store.createItem(store.getProject('board')!.id, { title: 'Focus', kind: 'questions', questions: [{ id: 'a', ask: 'One?' }, { id: 'b', ask: 'Two?' }] });
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    const rows = () => page.byId('questions').byClass('q-open');
+    const input = rows()[0].byClass('q-input')[0];
+    // The browser reports the box as focused until something blurs it.
+    page.doc.activeElement = input;
+    (input as any).blur = () => { if (page.doc.activeElement === input) page.doc.activeElement = null; };
+    input.value = 'typed answer';
+    input.dispatchEvent({ type: 'input' });
+    input.dispatchEvent({ type: 'keydown', key: 'Enter' } as any);
+    await settle();
+    expect(page.byId('questions').byClass('qcount')[0].textContent).toBe('1 of 2 answered');
+    expect(page.byId('questions').byClass('q-done').length).toBe(1);
+    expect(rows().length).toBe(1);
+  });
+});
+
+describe('Accept all re-reads the item first', () => {
+  const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0)); };
+  test('an answer another session recorded meanwhile is not overwritten', async () => {
+    const item = store.createItem(store.getProject('board')!.id, {
+      title: 'Race', kind: 'questions',
+      questions: [{ id: 'a', ask: 'A?', options: ['X', 'Y'], recommended: ['X'] }, { id: 'b', ask: 'B?', options: ['P', 'Q'], recommended: ['P'] }],
+    });
+    const page = await renderPage(handler, 'item.html', `/p/board/i/${item.id}`);
+    store.answerQuestion(item.id, 'a', { choice: 'Y', by: 'you' });
+    page.byId('questions').byClass('qaccept')[0].dispatchEvent({ type: 'click' });
+    await settle();
+    const after = store.getItem(item.id)!;
+    expect(after.questions[0].choice).toBe('Y');
+    expect(after.questions[1].choice).toBe('P');
+  });
+});

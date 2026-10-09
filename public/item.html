@@ -22,6 +22,7 @@
     <div class="rule"></div>
   </header>
 
+  <div id="questions"></div>
   <div id="checks"></div>
   <div id="doc"></div>
   <div id="panel"></div>
@@ -51,6 +52,7 @@
       WB.localToday(), item.dueAt, item.priority,
       item.ref, item.version, item.status, item.choice, (item.messages || []).length, item.body.length,
       (item.checks || []).map((c) => c.id + c.result + c.note).join('|'),
+      (item.questions || []).map((q) => q.id + q.choice + q.answer + q.at).join('|'),
     ]);
   }
 
@@ -99,6 +101,19 @@
       pre.textContent = item.body;
       el.appendChild(pre);
     }
+  }
+
+  // A question set (contract v23): each question answered where it is asked,
+  // one write per question. Between the context above and the discussion below.
+  function renderQuestions() {
+    const el = document.getElementById('questions');
+    el.innerHTML = '';
+    if (item.kind !== 'questions') return;
+    el.appendChild(WB.questionsPanel(item, {
+      onItem: (next) => { item = next; paint(true); },
+      note,
+      repaint: () => paint(true),
+    }));
   }
 
   // A checklist item: every step separately answerable, all on one item. The
@@ -321,7 +336,7 @@
       card.appendChild(thread);
     }
 
-    if (item.options && item.options.length) {
+    if (item.kind !== 'questions' && item.options && item.options.length) {
       const opts = document.createElement('div');
       opts.className = 'opts';
       opts.setAttribute('role', 'group');
@@ -487,7 +502,7 @@
     if (!force && s === lastSig) return;
     const live = document.activeElement;
     // A date being picked is held the same way: a repaint mid-pick would drop it.
-    if (live && (live.id === 'ta-main' || live.id === 'brief-text' || live.classList.contains('ck-note') || live.classList.contains('plan-date'))) {
+    if (live && (live.id === 'ta-main' || live.id === 'brief-text' || live.classList.contains('ck-note') || live.classList.contains('q-input') || live.classList.contains('plan-date'))) {
       clearTimeout(deferred);
       deferred = setTimeout(() => paint(true), 2500);
       return;
@@ -522,6 +537,7 @@
     document.getElementById('eyebrow').textContent =
       [item.section, raised].filter(Boolean).join(' · ') || 'Item';
     renderLabels();
+    renderQuestions();
     renderChecks();
     renderDoc();
     renderPanel();

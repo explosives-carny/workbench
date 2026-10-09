@@ -13,7 +13,7 @@
 // reader). Text that looks like a credential is replaced on the way out, and a
 // home-directory prefix is shortened to `~`, because a pasted thread is where a
 // token quoted in an agent's reply leaves the machine without anyone noticing.
-import { STATUS_LABELS, type Item, type Message, type Project, type Status } from './db.ts';
+import { STATUS_LABELS, isAnswered, type Item, type Message, type Project, type Status } from './db.ts';
 
 /** What each status means to somebody who has never seen the board. */
 const STATUS_MEANING: Record<Status, string> = {
@@ -175,7 +175,10 @@ function itemName(item: Item): string {
 }
 
 function kindWord(item: Item): string {
-  return item.kind === 'document' ? 'a document' : item.kind === 'todo' ? 'a to-do' : 'an issue (something to decide or do)';
+  return item.kind === 'document' ? 'a document'
+    : item.kind === 'todo' ? 'a to-do'
+    : item.kind === 'questions' ? 'a question set (several questions answered in one place)'
+    : 'an issue (something to decide or do)';
 }
 
 function theQuestion(item: Item): string[] {
@@ -185,6 +188,9 @@ function theQuestion(item: Item): string[] {
   }
   if (item.kind === 'todo') {
     return [asked, '', "This is a task on the person's own to-do list. Is it worth doing, and what is the best way to do it?"];
+  }
+  if (item.kind === 'questions') {
+    return [asked, '', 'Answer each question below, or say which option fits and what is missing.'];
   }
   if (item.status === 'needs-qa' || item.checks.length) {
     return [asked, '', 'Built work is waiting for a check. Is it ready to sign off, and what should the check look at?'];
@@ -210,6 +216,38 @@ function optionsSection(item: Item): string[] {
   if (noPreference) lines.push('The agent marked every option as recommended: it has no preference.');
   else if (!recommended.length) lines.push('The agent did not mark a recommendation.');
   if (item.choice && !item.options.includes(item.choice)) lines.push(`Chosen so far: ${item.choice}`);
+  return lines;
+}
+
+// A question set: each question with its facts, its options (the agent's
+// recommendation marked) and the answer so far. Scrubbed before it is cut, like
+// every long field, so a secret pasted into an ask or an answer is redacted.
+function questionsSection(item: Item, tally: { count: number }): string[] {
+  if (item.kind !== 'questions') return [];
+  if (!item.questions.length) return ['## The questions', '', 'This set has no questions yet.'];
+  const done = item.questions.filter(isAnswered).length;
+  const lines = ['## The questions', '', `${done} of ${item.questions.length} answered.`, ''];
+  item.questions.forEach((q, n) => {
+    lines.push(`### ${n + 1}. ${scrub(q.label || q.id, tally)} (${q.id})`, '');
+    if (q.ask.trim()) lines.push(cut(scrub(q.ask.trim(), tally), BRIEF_LIMITS.section), '');
+    if (q.options.length) {
+      const noPreference = q.options.length > 1 && q.recommended.length === q.options.length;
+      q.options.forEach((option, i) => {
+        const marks: string[] = [];
+        if (!noPreference && q.recommended.includes(option)) marks.push('**recommended by the agent**');
+        if (q.choice === option) marks.push('**chosen**');
+        lines.push(`${i + 1}. ${scrub(option, tally)}${marks.length ? ` (${marks.join(', ')})` : ''}`);
+      });
+      lines.push('');
+    }
+    if (isAnswered(q)) {
+      const by = q.relayed ? `recorded by ${q.by} for the person` : (q.by === 'you' || !q.by ? 'the person' : q.by);
+      const bits = [q.choice ? `chose ${q.choice}` : '', q.answer.trim() ? `wrote: ${cut(scrub(q.answer.trim(), tally), BRIEF_LIMITS.message)}` : ''].filter(Boolean);
+      lines.push(`**Answer so far:** ${bits.join('; ')} (${by}${q.at ? ', ' + when(q.at) : ''})`, '');
+    } else {
+      lines.push('**Answer so far:** not answered yet', '');
+    }
+  });
   return lines;
 }
 
@@ -305,6 +343,7 @@ export function itemBrief(item: Item, project: Project, now: Date = new Date()):
     ['## The question', '', ...theQuestion(item)],
     ['## Why it exists', '', context ? cut(scrub(context, tally), BRIEF_LIMITS.section) : 'No background was written for this item.'],
     optionsSection(item),
+    questionsSection(item, tally),
     checksSection(item),
     bodySection(item, tally),
     threadSection(messages, tally),

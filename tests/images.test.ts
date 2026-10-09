@@ -229,8 +229,8 @@ describe('GET /api/images/<name>', () => {
 
   test('the contract version is 22 and the routes list names the upload', async () => {
     const res = await send('GET', '/api');
-    expect(res.json.contractVersion).toBe('22');
-    expect(CONTRACT_VERSION).toBe('22');
+    expect(res.json.contractVersion).toBe('23');
+    expect(CONTRACT_VERSION).toBe('23');
     expect(res.json.routes.some((r: string) => r.includes('POST   /api/images'))).toBe(true);
     expect(readFileSync(AGENTS_MD, 'utf8')).toContain('### Images (v22)');
   });

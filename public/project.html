@@ -624,13 +624,16 @@
 
     const choice = document.createElement('span');
     choice.className = 'lr-choice';
-    choice.textContent = item.choice || '—';
+    // A question set has no single choice; the column says how far through it is.
+    choice.textContent = item.kind === 'questions' ? (item.answered || 0) + ' of ' + (item.questionCount || 0) + ' answered' : (item.choice || '—');
     meta.appendChild(choice);
 
     const chip = document.createElement('span');
     chip.className = 'chip s-' + item.status;
     chip.textContent = WB.STATUS_LABELS[item.status];
     meta.appendChild(chip);
+    const qsChip = WB.questionsChip(item);
+    if (qsChip) meta.appendChild(qsChip);
     const qaChip = WB.qaChip(item);
     if (qaChip) meta.appendChild(qaChip);
 
@@ -680,6 +683,8 @@
       card.appendChild(bl);
     }
 
+    if (item.kind === 'questions') card.appendChild(questionsHost(item));
+
     if (item.messages && item.messages.length) {
       const thread = document.createElement('div');
       thread.className = 'thread';
@@ -701,7 +706,7 @@
       card.appendChild(thread);
     }
 
-    if (item.options && item.options.length) {
+    if (item.kind !== 'questions' && item.options && item.options.length) {
       const opts = document.createElement('div');
       opts.className = 'opts';
       opts.setAttribute('role', 'group');
@@ -781,6 +786,41 @@
     card.appendChild(saved);
 
     return card;
+  }
+
+  // A question set's questions are not in the list rows (only their counts
+  // are), so the expanded card fetches the one item. Kept by version: an answer
+  // bumps it, and a redraw with nothing new reuses what is here instead of
+  // asking again every five seconds.
+  const fullItems = {};
+  function questionsHost(item) {
+    const host = document.createElement('div');
+    host.className = 'qhost';
+    const draw = (full) => {
+      host.replaceChildren(WB.questionsPanel(full, {
+        onItem: (next) => {
+          fullItems[next.id] = next;
+          const at = items.findIndex((i) => i.id === next.id);
+          if (at >= 0) {
+            const row = Object.assign({}, next, { bodyLength: items[at].bodyLength || 0, body: '' });
+            delete row.questions;
+            items[at] = row;
+          }
+          safeRender(true);
+          load();
+        },
+        note: (text, isErr) => note(item.id, text, isErr),
+        repaint: () => safeRender(true),
+      }));
+    };
+    const cached = fullItems[item.id];
+    if (cached && cached.version === item.version) draw(cached);
+    else {
+      WB.get('/api/items/' + encodeURIComponent(item.id))
+        .then((data) => { fullItems[item.id] = data.item; draw(data.item); })
+        .catch((e) => { host.textContent = e.message; });
+    }
+    return host;
   }
 
   function note(id, text, isErr) {
@@ -885,7 +925,7 @@
       labelFilter,
       project && project.groupBy,
       project && project.sortBy,
-      items.map((i) => [i.id, i.ref, i.version, i.status, i.choice, i.title, i.context, i.section, i.dueAt, i.priority, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
+      items.map((i) => [i.id, i.ref, i.version, i.status, i.choice, i.answered, i.questionCount, i.title, i.context, i.section, i.dueAt, i.priority, (i.labels || []).join('\u0000'), (i.messages || []).length, i.bodyLength || 0,
         (i.messages || []).length ? i.messages[i.messages.length - 1].who : '']),
     ]);
   }
@@ -906,7 +946,7 @@
   function doRender() {
     const live = document.activeElement;
     // A due date half-picked in an expanded row is held back the same way.
-    const typing = live && ((live.tagName === 'TEXTAREA' && live.id && live.id.indexOf('ta-') === 0) || live.classList.contains('plan-date'));
+    const typing = live && ((live.tagName === 'TEXTAREA' && live.id && live.id.indexOf('ta-') === 0) || live.classList.contains('plan-date') || live.classList.contains('q-input'));
     if (typing) {
       clearTimeout(deferred);
       deferred = setTimeout(function () { doRender(); }, 2500);

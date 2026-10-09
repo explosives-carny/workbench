@@ -114,6 +114,10 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
           body: item.body,
           bodyFormat: item.bodyFormat,
           checks: item.checks,
+          // Only a question set holds any; its answers ride along, so a restore
+          // keeps what the person already said. A file without the field is [].
+          restoreAnswers: true,
+          questions: item.kind === 'questions' && Array.isArray(item.questions) ? item.questions : undefined,
           clientId: item.clientId,
           createdAt: item.createdAt,
           seq: item.seq,

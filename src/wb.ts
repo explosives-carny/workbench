@@ -164,7 +164,21 @@ function label(i: any): string {
 const PRIORITY_WORDS: Record<string, string> = { p1: 'High', p2: 'Medium', p3: 'Low' };
 const priorityWord = (p: unknown) => (typeof p === 'string' && PRIORITY_WORDS[p]) || p;
 
+// A question set, one line per question: id, label, options, what the agent
+// recommends, and either the answer (who, when) or "open". Shared by show and
+// questions so the two cannot disagree about how a question reads.
+function questionLine(q: any): string {
+  const opts = q.options?.length ? `[${q.options.join(' | ')}]` : '[free text]';
+  const rec = q.recommended?.length ? `rec: ${q.recommended.join(' | ')}` : 'rec: -';
+  const note = q.answer ? (q.choice ? ` — ${q.answer}` : q.answer) : '';
+  const state = q.choice || q.answer
+    ? `✓ ${q.choice}${note} · ${q.by || '-'} · ${q.at || '-'}${q.relayed ? ' · relayed' : ''}`
+    : 'open';
+  return `  ${q.id}  ${q.label}  ${opts}  ${rec}  ${state}`;
+}
+
 function row(i: any): string {
+  const set = i.kind === 'questions' ? `  ${i.answered ?? 0}/${i.questionCount ?? 0} answered` : null;
   const last = i.messages?.length ? i.messages[i.messages.length - 1] : null;
   const tag = (who: string, s?: string) => (s ? `${who}·${s}` : who);
   const lastLine = last ? `${last.who === 'you' ? 'YOU' : tag(last.author, last.session)}: ${String(last.text).replace(/\s+/g, ' ').slice(0, 160)}` : '(no messages)';
@@ -173,6 +187,7 @@ function row(i: any): string {
     `  ${i.title}`,
     i.dueAt || i.priority ? `  ${[i.priority ? priorityWord(i.priority) : null, i.dueAt ? `due ${i.dueAt}` : null].filter(Boolean).join('  ')}` : null,
     i.choice ? `  choice: ${i.choice}` : null,
+    set,
     `  last: ${lastLine}`,
   ].filter(Boolean).join('\n');
 }
@@ -196,6 +211,8 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb todo <slug> <title> [--due YYYY-MM-DD] [--priority high|medium|low]   add a to-do to a to-do project
   wb todos [slug] [--all]                  open to-dos on every to-do project (or one), due first; --all adds deferred
   wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
+  wb questions <id|ref>                    a question set's questions and their state, open ones first
+  wb answer <id|ref> <qid> [--choice "..."] [--note "..."] --relay   record an answer the person gave you (the person answers on the page)
   wb attach <id|ref> <file>... [--text "..."] [--status s]   upload images and post them as one reply
   wb image <file>... [--alt "..."]         upload images and print their Markdown, for a context or a body
   wb export [dir]                          write one JSON per project to the content directory
@@ -304,6 +321,7 @@ async function main() {
       `context: ${i.context}`,
       i.qa ? `qa:      ${i.qa}${i.qaWaitingOn ? ` (open steps: ${i.qaWaitingOn})` : ''}` : null,
       checks ? `checks:\n${checks}` : null,
+      i.kind === 'questions' ? `questions (${i.answered ?? 0}/${i.questionCount ?? 0} answered):\n${(i.questions || []).map(questionLine).join('\n') || '  (none)'}` : null,
       i.body ? `body (${i.bodyFormat}, ${i.body.length} chars):\n${i.body}` : null,
       `thread:\n${thread || '  (none)'}`,
     ].filter(Boolean).join('\n'), i);
@@ -494,6 +512,38 @@ async function main() {
     if (!json.ok) fail(`${status}: ${json.error}`);
     const c = json.item.checks.find((x: any) => x.id === step);
     out(flags, `${c?.result} ${step}  item now ${json.item.status}`, json.item);
+    return;
+  }
+
+  // A question set's questions and where each stands, open ones first so the
+  // next thing to read is the next thing the person has to answer.
+  if (cmd === 'questions') {
+    const id = args[0] || fail('usage: wb questions <id|ref>');
+    const { json } = await call('GET', `/api/items/${encodeURIComponent(id)}`);
+    if (!json.ok) fail(json.error);
+    const i = json.item;
+    if (i.kind !== 'questions') fail(`${label(i)} is ${i.kind === 'todo' ? 'a to-do' : 'a ' + i.kind}, not a question set`);
+    const open = (i.questions || []).filter((q: any) => !q.choice && !(q.answer || '').trim());
+    const done = (i.questions || []).filter((q: any) => q.choice || (q.answer || '').trim());
+    out(flags, `${label(i)}  ${i.status}  ${i.answered}/${i.questionCount} answered  ${i.title}\n${[...open, ...done].map(questionLine).join('\n') || '  (no questions)'}`, i.questions);
+    return;
+  }
+
+  // A relayed answer: the person said it somewhere other than the page and an
+  // agent writes it down. Refused here, before the network, without --relay:
+  // an answer is the person's, and the page is where they give it.
+  if (cmd === 'answer') {
+    const [id, qid] = args;
+    if (!id || !qid) fail('usage: wb answer <id|ref> <qid> [--choice "..."] [--note "..."] --relay');
+    if (!flags.relay) fail("answers are the person's; an agent records one only as a relay, with relay:true — pass --relay to write down what the person told you (they answer on the page)");
+    const payload: any = { relay: true, actor: await actor(flags), session: session() };
+    if (typeof flags.choice === 'string') payload.choice = flags.choice;
+    if (typeof flags.note === 'string') payload.answer = flags.note;
+    const { status, json } = await call('PATCH', `/api/items/${encodeURIComponent(id)}/questions/${encodeURIComponent(qid)}`, payload);
+    if (!json.ok) fail(`${status}: ${json.error}`);
+    if (json.warning) console.error(`wb: warning: ${json.warning}`);
+    const q = json.item.questions.find((x: any) => x.id === qid);
+    out(flags, `${qid} recorded (relayed)  ${json.item.answered}/${json.item.questionCount} answered  item now ${json.item.status}\n${questionLine(q)}`, json.item);
     return;
   }
 

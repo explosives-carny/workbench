@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Several questions can now be answered in one place. When a person has a handful
+  of questions that share one background, an agent files them as a question set:
+  one item, one page, with each question having its own buttons, its own
+  recommendation and its own answer box. Answer them in any order; a finished
+  question folds to one line, and "Accept all recommendations" takes the
+  agent's pick on every open question that has exactly one. The board row shows
+  "3 of 5 answered", and the item goes back to the agent on its own when the last
+  question is answered. An agent can write down an answer the person gave it in
+  chat, and the page marks it as relayed (contract v23). Questions that are
+  answered by someone else, or that block work on their own, still get their own
+  items; the contract now says which is which.
+
 - Items can show pictures. Paste a screenshot into a reply box, drop an image
   file on it, or use the new **Image** button: the picture uploads and a line
   of Markdown lands in the box, so it can be captioned or moved before sending.

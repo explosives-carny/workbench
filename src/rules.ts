@@ -1,7 +1,7 @@
 // The rules the contract states about an item's shape, in one place, so the
 // warnings a write gets and the audit of what is already stored cannot drift
 // apart. Pure functions over an item; nothing here reads or writes the store.
-import { normaliseRecommended, type Item, type Kind, type Status } from './db.ts';
+import { normaliseRecommended, isWorkKind, type Item, type Kind, type Status, type Question } from './db.ts';
 
 // A blocked item with nothing named reads exactly like the failure blocked
 // exists to fix: work that looks abandoned. Warned, not refused — refusing the
@@ -106,13 +106,64 @@ export function recommendedInTextWarning(options: string[] | undefined): string 
 // owners existed, so nothing is lost — but the board cannot tell the person
 // which QA is theirs until every step says.
 export function unownedStepsWarning(item: { kind: Kind; status: Status; checks: { owner: string }[] }): string | undefined {
-  if (item.kind !== 'issue' || item.status !== 'needs-qa') return undefined;
+  if (!isWorkKind(item.kind) || item.status !== 'needs-qa') return undefined;
   const unowned = item.checks.filter((c) => !c.owner).length;
   if (!unowned) return undefined;
   return `${unowned} of ${item.checks.length} steps have no owner and count as human QA — set "owner":"human" or "agent" on each`;
 }
 
 
+
+// Question sets (AGENTS.md, "Question sets", contract v23). Each question is
+// held to the same bar a decision is: a recommendation when it offers options,
+// the same text on the same fields. Judged per question and named by id, so the
+// writer knows which one to fix.
+export const QUESTION_SET_HINT_LIMIT = 12;
+
+export function questionWithoutRecommendation(q: Pick<Question, 'id' | 'options' | 'recommended'>): string | undefined {
+  if (!q.options.length || normaliseRecommended(q.recommended, q.options).length) return undefined;
+  return `question ${q.id}: ${MISSING_RECOMMENDATION}`;
+}
+
+export function emptyQuestionSetWarning(item: { kind: Kind; status: Status; questions: unknown[] }): string | undefined {
+  if (item.kind !== 'questions' || item.status !== 'needs-decision' || item.questions.length) return undefined;
+  return 'a question set with no questions gives nothing to answer — add "questions":[{"label":"…","ask":"…","options":["…"],"recommended":["…"]}]';
+}
+
+// A hint, never an audit finding and never a refusal: the limit is about how a
+// person answers in one sitting, and the contract's division rule says so.
+export function longQuestionSetHint(item: { kind: Kind; questions: unknown[] }): string | undefined {
+  if (item.kind !== 'questions' || item.questions.length <= QUESTION_SET_HINT_LIMIT) return undefined;
+  return `a question set of ${item.questions.length} questions is long — keep to about ${QUESTION_SET_HINT_LIMIT} and split the rest by the division rule in AGENTS.md ("Question sets"): questions answered by someone else, or that block work on their own, are their own items`;
+}
+
+// Every format rule that applies to an item's text, applied to a question's
+// ask and options with the field named, as `questions[q2].ask`.
+export function questionFormatFindings(item: { questions: Question[]; body: string }): { rule: string; message: string }[] {
+  const out: { rule: string; message: string }[] = [];
+  for (const q of item.questions) {
+    const ask = `questions[${q.id}].ask`;
+    const wall = wallOfTextWarning(ask, q.ask);
+    if (wall) out.push({ rule: 'context-wall-of-text', message: wall });
+    const escaped = escapedNewlineWarning(ask, q.ask);
+    if (escaped) out.push({ rule: 'context-escaped-newlines', message: escaped });
+    for (const f of pointerOptionWarnings(q.options, q.ask, item.body)) {
+      out.push({ rule: f.rule, message: `questions[${q.id}].options: ${f.message}` });
+    }
+  }
+  return out;
+}
+
+// A numbered or s<n>/q<n> line that ends in a question mark. Four of them in
+// one issue's context is a question set filed as an issue: the person has to
+// answer each in a reply, one message, and nothing records which are done.
+const QUESTION_LINE = /^\s*(?:[-*]\s*)?(?:\d+[.)]|[sq]\d+[.):]?)\s.*\?\s*$/i;
+export function issueReadsLikeQuestionSet(item: { kind: Kind; status: Status; context: string }): string | undefined {
+  if (item.kind !== 'issue' || item.status !== 'needs-decision') return undefined;
+  const lines = item.context.split('\n').filter((l) => QUESTION_LINE.test(l)).length;
+  if (lines < 4) return undefined;
+  return `the context holds ${lines} numbered questions — file it as kind "questions" with "questions":[{"label":"…","ask":"…","options":[…],"recommended":[…]}] so each is answered where it is asked`;
+}
 
 // Formatting (AGENTS.md rule 12, contract v20). Context, messages and bodies
 // render as Markdown, so one long paragraph with a table squashed into it shows
@@ -199,7 +250,7 @@ export function auditItem(item: Item): Finding[] {
   const add = (rule: string, message: string | undefined) => { if (message) out.push({ rule, message }); };
   if (lacksRecommendation(item)) add('decision-without-recommendation', MISSING_RECOMMENDATION);
   add('recommended-in-text', recommendedInTextWarning(item.options));
-  if (item.kind === 'issue' && item.status === 'needs-qa' && !item.checks.length) {
+  if (isWorkKind(item.kind) && item.status === 'needs-qa' && !item.checks.length) {
     add('qa-without-steps', 'needs-qa with no steps — attach checks:[{"label":"…","owner":"human"|"agent"}]');
   }
   add('qa-unowned-steps', unownedStepsWarning(item));
@@ -208,6 +259,12 @@ export function auditItem(item: Item): Finding[] {
   add('context-wall-of-text', wallOfTextWarning('context', item.context));
   add('context-escaped-newlines', escapedNewlineWarning('context', item.context));
   for (const f of pointerOptionWarnings(item.options, item.context, item.body)) add(f.rule, f.message);
+  if (item.kind === 'questions') {
+    if (!item.questions.length) add('question-set-without-questions', 'a question set with no questions gives nothing to answer — add "questions":[{"label":"…","ask":"…","options":["…"],"recommended":["…"]}]');
+    for (const q of item.questions) add('question-without-recommendation', questionWithoutRecommendation(q));
+    for (const f of questionFormatFindings(item)) add(f.rule, f.message);
+  }
+  add('issue-reads-like-a-question-set', issueReadsLikeQuestionSet(item));
   return out;
 }
 

@@ -92,6 +92,12 @@ built and needs checking), **Received** (the agent has it), **Deferred** (parked
 on purpose, waiting on neither), **Complete**, **Cancelled** (decided against,
 will not be done — it files with the finished work).
 
+A **question set** is an issue that carries several questions at once. The
+questions share one background, and each has its own buttons, recommendation
+and answer box, so a person can answer them one at a time in one place. It holds
+the same statuses as an issue and goes back to the agent when the last question
+is answered.
+
 A **document** — a specification, a review, a history — is not a task and never
 becomes one. It is **Active** while people still work from it and **Archived**
 once it has been superseded. Filing a document as "complete" to get it off the
