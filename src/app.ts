@@ -1075,11 +1075,19 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
       for (const field of ['clear', 'relay'] as const) {
         if (body[field] !== undefined && typeof body[field] !== 'boolean') return badRequest(ctx, `${field} must be true or false`);
       }
+      // Who is answering is never guessed for a program: only the browser is the
+      // person. A caller that names nobody cannot be recorded as `you`.
+      const by = actorOr(ctx, body, 'by');
+      if (!by) {
+        return badRequest(ctx, body.relay === true
+          ? 'a relayed answer needs your "actor" name'
+          : 'answers are the person\'s; an agent records one only as a relay, with relay:true and its own "actor"');
+      }
       try {
         ctx.wrote = true;
         const updated = store.answerQuestion(item.id, decodeURIComponent(parts[3]), {
           choice: body.choice, answer: body.answer, clear: body.clear === true, relay: body.relay === true,
-          by: actorOf(body, 'by') ?? 'you', session: sessionOf(body),
+          by, session: sessionOf(body),
         });
         const archivedWarn = archivedProjectWarning(owner);
         return json(ctx, withIgnored({ ok: true, item: updated, ...(archivedWarn ? { warning: archivedWarn } : {}) }, ignoredKeys(body, ANSWER_FIELDS)));

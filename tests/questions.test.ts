@@ -406,3 +406,25 @@ describe('export and import', () => {
     expect(plain.questions).toEqual([]);
   });
 });
+
+describe('review fixes', () => {
+  async function bare(method: string, path: string, body: unknown, headers: Record<string, string> = {}) {
+    const res = await handler(new Request(`http://localhost${path}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }));
+    return { status: res.status, json: await res.json() };
+  }
+
+  test('a non-browser answer with no actor is refused, not recorded as the person', async () => {
+    const item = await makeSet();
+    const res = await bare('PATCH', `/api/items/${item.id}/questions/s1`, { choice: 'Bay A' });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain('relay:true');
+    const relayNoActor = await bare('PATCH', `/api/items/${item.id}/questions/s1`, { choice: 'Bay A', relay: true });
+    expect(relayNoActor.status).toBe(400);
+    expect((await api('GET', `/api/items/${item.id}`)).json.item.answered).toBe(0);
+    // The page's own path still works: explicit actor, and the browser default.
+    expect((await bare('PATCH', `/api/items/${item.id}/questions/s1`, { choice: 'Bay A', actor: 'you' })).status).toBe(200);
+    const browser = await bare('PATCH', `/api/items/${item.id}/questions/s2`, { choice: 'Paper' }, { 'sec-fetch-mode': 'cors' });
+    expect(browser.status).toBe(200);
+    expect(browser.json.item.questions[1].by).toBe('you');
+  });
+});
