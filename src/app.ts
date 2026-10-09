@@ -32,7 +32,7 @@ import { ImageStore, ImageRefused, imageHeaders, imageTooLarge, MAX_IMAGE_REQUES
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '24';
+export const CONTRACT_VERSION = '25';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
