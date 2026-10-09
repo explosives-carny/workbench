@@ -420,3 +420,70 @@ describe('wb attach and wb image (v22)', () => {
     expect(res.stderr).toContain('PNG, JPEG, GIF, WebP or SVG');
   });
 });
+
+describe('wb questions, answer and show on a question set (v23)', () => {
+  let setId: string;
+  const QS = [
+    { id: 's1', label: 'Packing location', ask: 'Where?', options: ['Bay A', 'Bay B'], recommended: ['Bay A'] },
+    { id: 's2', label: 'Notes', ask: 'Anything else?' },
+  ];
+
+  test('wb ask files a set; show prints each question as open with its options and recommendation', async () => {
+    const filed = await wb('ask', 'demo', JSON.stringify([{ title: 'Packing set', kind: 'questions', questions: QS }]), '--json');
+    expect(filed.code).toBe(0);
+    setId = JSON.parse(filed.stdout)[0].id;
+    const shown = await wb('show', setId);
+    expect(shown.stdout).toContain('questions (0/2 answered):');
+    expect(shown.stdout).toContain('s1  Packing location  [Bay A | Bay B]  rec: Bay A  open');
+    expect(shown.stdout).toContain('s2  Notes  [free text]');
+  });
+
+  test('answer without --relay is refused locally with the reason and writes nothing', async () => {
+    const res = await wb('answer', setId, 's1', '--choice', 'Bay A');
+    expect(res.code).toBe(1);
+    expect(res.stderr).toContain("answers are the person's");
+    expect(res.stderr).toContain('relay:true');
+    const item = store.getItem(setId)!;
+    expect(item.answered).toBe(0);
+  });
+
+  test('answer --relay records it as a relay and show prints who, when and relayed', async () => {
+    const res = await wb('answer', setId, 's1', '--choice', 'Bay B', '--note', 'dock is closer', '--relay');
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('s1 recorded (relayed)');
+    const q = store.getItem(setId)!.questions[0];
+    expect(q).toMatchObject({ choice: 'Bay B', answer: 'dock is closer', by: 'tester', relayed: true });
+    const shown = await wb('show', setId);
+    expect(shown.stdout).toMatch(/s1  Packing location  \[Bay A \| Bay B\]  rec: Bay A  ✓ Bay B — dock is closer · tester · \d{4}-\d\d-\d\dT.* · relayed/);
+  });
+
+  test('questions lists open ones first; board shows N/M answered', async () => {
+    const res = await wb('questions', setId);
+    expect(res.code).toBe(0);
+    const lines = res.stdout.split('\n');
+    expect(lines[0]).toContain('1/2 answered');
+    expect(lines[1]).toContain('s2');
+    expect(lines[1]).toContain('open');
+    expect(lines[2]).toContain('s1');
+    const board = await wb('board', 'demo', '--all');
+    expect(board.stdout).toContain('1/2 answered');
+  });
+
+  test('questions on an issue says so; an unknown question is the server 404', async () => {
+    const issue = await wb('questions', 'WB-DEMO-1');
+    expect(issue.code).toBe(1);
+    expect(issue.stderr).toContain('not a question set');
+    const missing = await wb('answer', setId, 'zz', '--note', 'x', '--relay');
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain('404');
+  });
+
+  test('help lists the two commands and an audit prints the new findings', async () => {
+    const help = await wb('--help');
+    expect(help.stdout).toContain('wb questions <id|ref>');
+    expect(help.stdout).toContain('wb answer <id|ref> <qid>');
+    store.createItem(store.getProject('demo')!.id, { title: 'Bare set', kind: 'questions' });
+    const audit = await wb('audit', 'demo');
+    expect(audit.stdout).toContain('question-set-without-questions');
+  });
+});
