@@ -38,6 +38,13 @@ window.WB = (function () {
     return kind === 'document' ? DOCUMENT_STATUSES : kind === 'todo' ? TODO_STATUSES : ISSUE_STATUSES;
   }
 
+  // An issue and a question set are both the handshake: something to decide or
+  // do, held at a whose-move status. Mirrors isWorkKind in src/db.ts, so the
+  // pages ask one question where they used to test kind === 'issue'.
+  function isWork(kind) {
+    return kind === 'issue' || kind === 'questions';
+  }
+
   // Statuses that mean the human owes something. The index card counts these
   // together, because "how much is on me" is one number to a person even though
   // the two asks are different in kind.
@@ -597,7 +604,195 @@ window.WB = (function () {
   });
   }
 
+  // ---- Question sets (contract v23) ----
+  //
+  // One panel, drawn the same on the item page and inside an expanded card on
+  // the project page. "Answered" is the one definition the server uses (a
+  // choice, or a non-blank note) so the count here and the count on the row
+  // cannot disagree.
+  function isAnswered(q) {
+    return !!(q && (q.choice || String(q.answer || '').trim()));
+  }
+
+  // Kept across repaints, because the page redraws on every poll: what was
+  // typed and not yet saved, and which answered questions are open for change.
+  const qDrafts = {};
+  const qOpen = {};
+
+  function qEl(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // The chip beside a question set's status: how many questions it holds,
+  // green once every one is answered. Words first, colour second.
+  function questionsChip(item) {
+    if (!item || item.kind !== 'questions') return null;
+    const total = item.questionCount || 0;
+    const chip = qEl('span', 'qa-chip qs-chip' + (total && item.answered === total ? ' done' : ''), total + (total === 1 ? ' question' : ' questions'));
+    return chip;
+  }
+
+  // `hooks`: onItem(item) after a successful write, note(text, isErr) for the
+  // page's own message area. Every write is one PATCH for one question.
+  function questionsPanel(item, hooks) {
+    const root = qEl('section', 'qset');
+    root.setAttribute('aria-label', 'Questions');
+    const qs = item.questions || [];
+    const done = qs.filter(isAnswered).length;
+    const path = (qid) => '/api/items/' + encodeURIComponent(item.id) + '/questions/' + encodeURIComponent(qid);
+    const say = (text, isErr) => { if (hooks && hooks.note) hooks.note(text, isErr); };
+
+    async function save(qid, body) {
+      say('saving…');
+      try {
+        const res = await patch(path(qid), Object.assign({ actor: 'you' }, body));
+        delete qDrafts[item.id + '/' + qid];
+        delete qOpen[item.id + '/' + qid];
+        if (hooks && hooks.onItem) hooks.onItem(res.item);
+        say(res.warning ? res.warning : 'saved', Boolean(res.warning));
+      } catch (e) { say(e.message, true); }
+    }
+
+    // The sticky header, like the checks one: the label, the count, the bar,
+    // and the one-click way through the questions the agent already has a
+    // single recommendation for.
+    const head = qEl('div', 'checkhead sticky qhead');
+    head.appendChild(qEl('span', 'mono', 'Questions'));
+    head.appendChild(qEl('span', 'mono qcount', done + ' of ' + qs.length + ' answered'));
+    const bar = qEl('div', 'progress');
+    const fill = qEl('div', 'fill');
+    fill.style.width = (qs.length ? (done / qs.length) * 100 : 0) + '%';
+    bar.appendChild(fill);
+    head.appendChild(bar);
+    const acceptable = qs.filter((q) => !isAnswered(q) && (q.recommended || []).length === 1);
+    if (acceptable.length) {
+      const all = qEl('button', 'send qaccept', 'Accept all recommendations');
+      all.type = 'button';
+      all.title = 'Answer ' + acceptable.length + ' open question' + (acceptable.length === 1 ? '' : 's') + ' with the option the agent recommends';
+      all.addEventListener('click', async () => {
+        say('saving…');
+        let latest = null;
+        for (const q of acceptable) {
+          // Somebody may have answered it since this page drew; that answer stands.
+          const now = latest && (latest.questions || []).find((x) => x.id === q.id);
+          if (now && isAnswered(now)) continue;
+          try {
+            const res = await patch(path(q.id), { choice: q.recommended[0], actor: 'you' });
+            latest = res.item;
+            delete qDrafts[item.id + '/' + q.id];
+          } catch (e) { say(q.id + ': ' + e.message, true); break; }
+        }
+        if (latest && hooks && hooks.onItem) hooks.onItem(latest);
+        if (latest) say('saved');
+      });
+      head.appendChild(all);
+    }
+    root.appendChild(head);
+
+    for (const q of qs) {
+      const key = item.id + '/' + q.id;
+      const answered = isAnswered(q);
+      const open = !answered || qOpen[key];
+      const block = qEl('div', 'qrow ' + (answered ? 'q-done' : 'q-open'));
+      block.id = 'q-' + item.id + '-' + q.id;
+
+      if (!open) {
+        block.appendChild(qEl('span', 'q-tick', '\u2713'));
+        block.appendChild(qEl('span', 'mono qid', q.id));
+        block.appendChild(qEl('strong', 'qlabel', q.label || q.id));
+        const text = [q.choice, String(q.answer || '').trim()].filter(Boolean).join(' \u2014 ');
+        const a = qEl('span', 'qanswer-text');
+        a.innerHTML = MD.inline(text);
+        block.appendChild(a);
+        const meta = qEl('span', 'mono qmeta', (q.by || 'you') + (q.at ? ' \u00b7 ' + relTime(q.at) : ''));
+        if (q.at) meta.title = fmt(q.at);
+        block.appendChild(meta);
+        if (q.relayed) block.appendChild(qEl('span', 'mono q-relayed', 'relayed'));
+        const change = qEl('button', 'labeledit mono qchange', 'change');
+        change.type = 'button';
+        change.setAttribute('aria-label', 'Change the answer to ' + (q.label || q.id));
+        change.addEventListener('click', () => { qOpen[key] = true; if (hooks && hooks.repaint) hooks.repaint(); });
+        block.appendChild(change);
+        root.appendChild(block);
+        continue;
+      }
+
+      const top = qEl('div', 'qtop');
+      top.appendChild(qEl('span', 'mono qid', q.id));
+      top.appendChild(qEl('strong', 'qlabel', q.label || q.id));
+      block.appendChild(top);
+      if (q.ask) {
+        const ask = qEl('div', 'md qask');
+        ask.innerHTML = MD(q.ask, { breaks: true });
+        block.appendChild(ask);
+      }
+
+      const input = qEl('input', 'q-input');
+      input.type = 'text';
+      input.setAttribute('aria-label', 'Answer for ' + (q.label || q.id));
+      input.placeholder = (q.options || []).length ? 'Add a note (optional)' : 'Your answer';
+      input.value = key in qDrafts ? qDrafts[key] : (q.answer || '');
+      input.addEventListener('input', () => { qDrafts[key] = input.value; });
+
+      if ((q.options || []).length) {
+        const opts = qEl('div', 'opts');
+        opts.setAttribute('role', 'group');
+        opts.setAttribute('aria-label', q.label || q.id);
+        for (const o of q.options) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.innerHTML = MD.inline(o);
+          if ((q.recommended || []).indexOf(o) !== -1) {
+            b.classList.add('rec');
+            b.append(' ', qEl('span', 'rec-tag', 'Recommended'));
+          }
+          b.setAttribute('aria-pressed', q.choice === o ? 'true' : 'false');
+          // A click is the answer; a note already typed rides along with it.
+          b.addEventListener('click', () => {
+            const body = { choice: o };
+            const note = input.value.trim();
+            if (note) body.answer = note;
+            save(q.id, body);
+          });
+          opts.appendChild(b);
+        }
+        block.appendChild(opts);
+      }
+
+      const form = qEl('div', 'qform');
+      const saveBtn = qEl('button', 'send qsave', 'Save');
+      saveBtn.type = 'button';
+      saveBtn.setAttribute('aria-label', 'Save answer for ' + (q.label || q.id));
+      const submit = () => {
+        const body = {};
+        if (q.choice) body.choice = q.choice;
+        if (input.value.trim()) body.answer = input.value.trim();
+        save(q.id, body);
+      };
+      saveBtn.addEventListener('click', submit);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      form.append(input, saveBtn);
+      if (answered) {
+        const clear = qEl('button', 'labeledit mono qclear', 'Clear');
+        clear.type = 'button';
+        clear.setAttribute('aria-label', 'Clear the answer to ' + (q.label || q.id));
+        clear.addEventListener('click', () => save(q.id, { clear: true }));
+        form.appendChild(clear);
+      }
+      block.appendChild(form);
+      root.appendChild(block);
+    }
+    return root;
+  }
+
   return {
+    isWork,
+    isAnswered,
+    questionsPanel,
+    questionsChip,
     DUE_BANDED_STATUSES,
     imageAttach,
     uploadImage,
