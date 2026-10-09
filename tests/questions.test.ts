@@ -303,25 +303,51 @@ describe('redefining the questions', () => {
     expect(res.json.warning).toContain('"Bay A"');
   });
 
-  test('dropping an answered question is 409 with the live item, unless replaceQuestions is sent', async () => {
+  test('a list that omits a question drops nothing: an answered one stays, and so does an unanswered one (v27)', async () => {
     const item = await makeSet();
     await answer(item.id, 's1', { choice: 'Bay A' });
     const current = (await api('GET', `/api/items/${item.id}`)).json.item;
-    const locked = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: current.version, questions: [QS[1], QS[2]] });
-    expect(locked.status).toBe(409);
-    expect(locked.json.conflict).toBe('questions');
-    expect(locked.json.answeredIds).toEqual(['s1']);
-    expect(locked.json.item.questions).toHaveLength(3);
+    const kept = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: current.version, questions: [QS[1], QS[2]] });
+    expect(kept.status).toBe(200);
+    expect(kept.json.item.questions.map((q: any) => q.id)).toEqual(['s1', 's2', 's3']);
+    expect(kept.json.item.questions[0]).toMatchObject({ choice: 'Bay A', by: 'you' });
+    const unanswered = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: kept.json.item.version, questions: [QS[0]] });
+    expect(unanswered.status).toBe(200);
+    expect(unanswered.json.item.questions).toHaveLength(3);
+  });
+
+  test('adding one question is a PATCH carrying that one question; the rest stay, in order (the bug: twelve unanswered questions vanished)', async () => {
+    const item = await makeSet();
+    const res = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: item.version, questions: [{ id: 's4', ask: 'A fourth?' }] });
+    expect(res.status).toBe(200);
+    expect(res.json.item.questions.map((q: any) => q.id)).toEqual(['s1', 's2', 's3', 's4']);
+    expect(res.json.item.questionCount).toBe(4);
+    expect(res.json.warning || '').not.toContain('dropped');
+    // Updating one in place keeps its position, and the others untouched.
+    const re = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: res.json.item.version, questions: [{ id: 's2', ask: 'Reworded second', options: ['X', 'Y'], recommended: ['X'] }] });
+    expect(re.json.item.questions.map((q: any) => q.id)).toEqual(['s1', 's2', 's3', 's4']);
+    expect(re.json.item.questions[1]).toMatchObject({ ask: 'Reworded second', options: ['X', 'Y'] });
+    expect(re.json.item.questions[0].ask).toBe(QS[0].ask);
+  });
+
+  test('replaceQuestions makes the list the whole set: it drops what it omits, answered or not', async () => {
+    const item = await makeSet();
+    await answer(item.id, 's1', { choice: 'Bay A' });
+    const current = (await api('GET', `/api/items/${item.id}`)).json.item;
     const forced = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: current.version, questions: [QS[1], QS[2]], replaceQuestions: true });
     expect(forced.status).toBe(200);
     expect(forced.json.item.questions.map((q: any) => q.id)).toEqual(['s2', 's3']);
   });
 
-  test('dropping an unanswered question needs no ceremony', async () => {
+  test('leaving the question-set kind still needs the word when an answer would go: 409 with the live item', async () => {
     const item = await makeSet();
-    const res = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: item.version, questions: [QS[0]] });
-    expect(res.status).toBe(200);
-    expect(res.json.item.questions).toHaveLength(1);
+    await answer(item.id, 's1', { choice: 'Bay A' });
+    const current = (await api('GET', `/api/items/${item.id}`)).json.item;
+    const locked = await api('PATCH', `/api/items/${item.id}`, { actor: 'a', ifVersion: current.version, kind: 'issue' });
+    expect(locked.status).toBe(409);
+    expect(locked.json.conflict).toBe('questions');
+    expect(locked.json.answeredIds).toEqual(['s1']);
+    expect(locked.json.item.questions).toHaveLength(3);
   });
 
   test('one write turns an issue into a question set, clears its item-level fields and adds the questions', async () => {

@@ -11,6 +11,13 @@
   buttons stay plain, since a button cannot hold a link. Agents keep writing
   the bare reference; one that builds the link by hand is warned and listed
   by the audit (contract v26).
+- Adding a question to a question set no longer wipes the others. An agent
+  that sends one new question now adds it to the end; the questions it did
+  not mention stay exactly as they were, answers included. Before, a write
+  carrying only the new question was read as the whole list, and every
+  unanswered question it left out disappeared without a word. Removing
+  questions is now always a deliberate act: send the whole list with
+  `replaceQuestions` (contract v27).
 - Phone photos can be attached as they come. A HEIC or HEIF file — what an
   iPhone saves — is accepted by the Image button, by drag and drop, by
   `wb attach` and by the upload route, and is stored as a JPEG so it shows in
