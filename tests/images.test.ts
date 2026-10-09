@@ -75,8 +75,24 @@ describe('the type comes from the bytes', () => {
       '<svg><image href="https://example.invalid/x.png"/></svg>',
       '<svg><style>@import url(https://example.invalid/x.css);</style></svg>',
       '<svg><iframe src="x"></iframe></svg>',
+      // evasions: no whitespace before the handler, other schemes, entities
+      '<svg/onload=alert(1)></svg>',
+      '<svg a="1"onload="alert(1)"></svg>',
+      "<svg a='1'onclick='x()'></svg>",
+      '<svg:script>alert(1)</svg:script>',
+      '<svg><a href="&#106;avascript:alert(1)"><rect/></a></svg>',
+      '<svg><a href="&#x6A;avascript:alert(1)"><rect/></a></svg>',
+      '<svg><image href="file:///etc/passwd"/></svg>',
+      '<svg><image xlink:href="ftp://example.invalid/x.png"/></svg>',
+      '<svg><image href="relative/other.png"/></svg>',
+      '<svg><image href=https://example.invalid/x.png /></svg>',
     ];
     for (const s of bad) expect(svgRefusal(Buffer.from(s))).toMatch(/^SVG refused/);
+  });
+
+  test('fragment and embedded-image references are still allowed', () => {
+    const ok = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><rect id="r" width="1" height="1"/></defs><use xlink:href="#r"/><image href="data:image/png;base64,AAAA"/></svg>';
+    expect(svgRefusal(Buffer.from(ok))).toBeUndefined();
   });
 });
 

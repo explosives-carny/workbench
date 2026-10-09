@@ -75,28 +75,41 @@ export function sniffImage(bytes: Uint8Array): ImageExt | undefined {
 }
 
 /**
- * An SVG is a document that can carry script. It is served with a sandboxing
- * CSP and rendered through <img>, and neither runs script — but an image
- * that only stays inert because of two headers is one header change away from
- * not being inert. So an SVG carrying anything active is refused at the door:
- * script elements, on* handlers, javascript: URLs, foreignObject (HTML inside
- * the picture) and external references (which would make the board fetch
- * from somewhere else the moment it renders). A drawing exported from a
- * design tool has none of these.
+ * An SVG is a document that can carry script. The guarantee that it stays
+ * inert is how it is served and shown: a sandboxing CSP on the file, and
+ * rendering through <img>, which runs no script. This check is a second,
+ * best-effort line: common active content is refused at upload (script
+ * elements, on… handlers, javascript: and other non-image URL schemes,
+ * numeric entities hiding a scheme, foreignObject, embedded documents,
+ * outside references). It is a denylist over text, so it is not a sanitizer
+ * and must not be relied on as one. A drawing exported from a design tool has
+ * none of these.
  */
 export function svgRefusal(bytes: Uint8Array): string | undefined {
   const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   const checks: [RegExp, string][] = [
-    [/<script[\s>/]/i, 'a <script> element'],
-    [/\son[a-z]+\s*=/i, 'an on… event handler attribute'],
+    // `<svg/onload=` and `a="1"onload=` have no whitespace before the name.
+    [/<[\w:-]*script/i, 'a <script> element'],
+    [/[\s/"'<]on[a-z]+\s*=/i, 'an on… event handler attribute'],
     [/javascript\s*:/i, 'a javascript: URL'],
+    // An entity in an attribute value can spell a scheme (`&#106;avascript:`).
+    [/=\s*"[^"]*&(?:#|colon;|tab;|newline;)|=\s*'[^']*&(?:#|colon;|tab;|newline;)/i, 'an entity-encoded attribute value'],
     [/<foreignObject[\s>/]/i, 'a <foreignObject> element'],
     [/<(?:iframe|embed|object)[\s>/]/i, 'an embedded document'],
-    [/(?:href|src)\s*=\s*["']\s*(?:https?:|\/\/|data:text\/html)/i, 'a reference to an outside resource'],
     [/@import|url\(\s*["']?\s*(?:https?:|\/\/)/i, 'a stylesheet reference to an outside resource'],
   ];
   for (const [pattern, what] of checks) {
     if (pattern.test(text)) return `SVG refused: it contains ${what}. Export it without scripts or external references, or upload it as PNG.`;
+  }
+  // Every href/src/xlink:href may point only inside the drawing (#id) or at an
+  // embedded image. Anything else (http:, file:, ftp:, //host, data:text/html,
+  // a relative path) is a fetch or a navigation the drawing has no business making.
+  const ref = /(?<![\w-])(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  for (const m of text.matchAll(ref)) {
+    const value = (m[1] ?? m[2] ?? m[3] ?? '').trim();
+    if (!value.startsWith('#') && !/^data:image\//i.test(value)) {
+      return 'SVG refused: it contains a reference to an outside resource. Export it without scripts or external references, or upload it as PNG.';
+    }
   }
   return undefined;
 }
