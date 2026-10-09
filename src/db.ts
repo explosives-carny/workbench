@@ -684,7 +684,7 @@ function labelFromAsk(ask: string, id: string): string {
  * - `droppedAnswered` lists answered questions the new list leaves out; the
  *   caller decides whether that is allowed (see QuestionsLocked).
  */
-export function buildQuestions(incoming: QuestionInput[], existing: Question[] = [], opts: { restoreAnswers?: boolean } = {}): {
+export function buildQuestions(incoming: QuestionInput[], existing: Question[] = [], opts: { restoreAnswers?: boolean; keepUnnamed?: boolean } = {}): {
   questions: Question[]; warnings: string[]; droppedAnswered: string[];
 } {
   const bad = (message: string) => Object.assign(new Error(message), { statusCode: 400 });
@@ -721,6 +721,19 @@ export function buildQuestions(incoming: QuestionInput[], existing: Question[] =
       relayed: answered && source.relayed === true,
     } as Question;
   });
+  // `keepUnnamed`: the list names what to add or change, and every existing
+  // question it does not name stays where it was. A PATCH that carried one
+  // new question once left a set with one question: the twelve unanswered
+  // ones were gone, with no warning, because the list was read as the whole
+  // list. Now the whole list is what `replaceQuestions: true` sends; without
+  // it nothing is dropped, so there is nothing to refuse. Existing order is
+  // kept, with each named question updated in place; new ones follow.
+  if (opts.keepUnnamed) {
+    const updated = new Map(questions.map((q) => [q.id, q]));
+    const merged = existing.map((q) => updated.get(q.id) ?? q);
+    for (const q of questions) if (!byId.has(q.id)) merged.push(q);
+    return { questions: merged, warnings, droppedAnswered: [] };
+  }
   const droppedAnswered = existing.filter((q) => isAnswered(q) && !seen.has(q.id)).map((q) => q.id);
   return { questions, warnings, droppedAnswered };
 }
@@ -1802,7 +1815,10 @@ export class Store {
     let questions = current.questions;
     if (kind === 'questions') {
       if (patch.questions !== undefined) {
-        const built = buildQuestions(patch.questions, current.questions);
+        // Without `replaceQuestions`, the list adds and changes; it drops
+        // nothing. With it, the list is the whole set, answered ones included:
+        // the word is the consent (see QuestionsLocked).
+        const built = buildQuestions(patch.questions, current.questions, { keepUnnamed: !opts.replaceQuestions });
         if (built.droppedAnswered.length && !opts.replaceQuestions) throw new QuestionsLocked(current, built.droppedAnswered);
         questions = built.questions;
         opts.warnings?.push(...built.warnings);

@@ -450,14 +450,20 @@ context above them. Agents read the answers as fields.
   exactly as it moves an issue (their reply → `received`; yours on `received` →
   claims it). Answering an item at any other status records and moves nothing.
 - **Redefining the questions.** Send `questions:[…]` on a PATCH: questions merge
-  **by id**, so one that already exists keeps its recorded answer even when its
-  ask or label changes. Changing its options so the recorded `choice` is no
-  longer offered clears that choice, and the write says so. Dropping a question
-  that holds an answer is `409` with `conflict: "questions"` and the ids in
-  `answeredIds`, unless the write says `"replaceQuestions": true` — and then
-  say in the thread why. One write may turn an existing issue into a question
-  set: send `"kind":"questions"`, `"options":[]`, `"recommended":[]`,
-  `"choice":""` and the `questions` together.
+  **by id**. A question whose id already exists is updated in place and keeps
+  its recorded answer even when its ask or label changes; a new id is added
+  after the existing ones; **every existing question the list does not name
+  stays** (v27). So adding one question is a PATCH carrying that one question.
+  Changing a question's options so the recorded `choice` is no longer offered
+  clears that choice, and the write says so. To remove questions, send the
+  whole list with `"replaceQuestions": true` — that is the only way anything
+  is dropped, answered or not, and say in the thread why. (Before v27 the
+  list was read as the whole set, and a PATCH carrying one new question
+  silently dropped every unanswered one it did not name.) One write may turn
+  an existing issue into a question set: send `"kind":"questions"`,
+  `"options":[]`, `"recommended":[]`, `"choice":""` and the `questions`
+  together; leaving the kind drops the questions and needs the same word when
+  any holds an answer (`409`, `conflict: "questions"`, `answeredIds`).
 - **Cite a question as `WB-DEMO-14/q3`**: the item's ref, a slash, the
   question's id; the page draws it as a link to that question (v26). When an
   answer starts separate work, file that work as its own item and link it back
