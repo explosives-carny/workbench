@@ -1,7 +1,7 @@
 // The rules the contract states about an item's shape, in one place, so the
 // warnings a write gets and the audit of what is already stored cannot drift
 // apart. Pure functions over an item; nothing here reads or writes the store.
-import { normaliseRecommended, type Item, type Kind, type Status, type Question } from './db.ts';
+import { normaliseRecommended, isWorkKind, type Item, type Kind, type Status, type Question } from './db.ts';
 
 // A blocked item with nothing named reads exactly like the failure blocked
 // exists to fix: work that looks abandoned. Warned, not refused — refusing the
@@ -106,7 +106,7 @@ export function recommendedInTextWarning(options: string[] | undefined): string 
 // owners existed, so nothing is lost — but the board cannot tell the person
 // which QA is theirs until every step says.
 export function unownedStepsWarning(item: { kind: Kind; status: Status; checks: { owner: string }[] }): string | undefined {
-  if (item.kind !== 'issue' || item.status !== 'needs-qa') return undefined;
+  if (!isWorkKind(item.kind) || item.status !== 'needs-qa') return undefined;
   const unowned = item.checks.filter((c) => !c.owner).length;
   if (!unowned) return undefined;
   return `${unowned} of ${item.checks.length} steps have no owner and count as human QA — set "owner":"human" or "agent" on each`;
@@ -250,7 +250,7 @@ export function auditItem(item: Item): Finding[] {
   const add = (rule: string, message: string | undefined) => { if (message) out.push({ rule, message }); };
   if (lacksRecommendation(item)) add('decision-without-recommendation', MISSING_RECOMMENDATION);
   add('recommended-in-text', recommendedInTextWarning(item.options));
-  if (item.kind === 'issue' && item.status === 'needs-qa' && !item.checks.length) {
+  if (isWorkKind(item.kind) && item.status === 'needs-qa' && !item.checks.length) {
     add('qa-without-steps', 'needs-qa with no steps — attach checks:[{"label":"…","owner":"human"|"agent"}]');
   }
   add('qa-unowned-steps', unownedStepsWarning(item));

@@ -1922,7 +1922,7 @@ export class Store {
     // back. The builder reviews the results at `received`; nothing is signed off
     // unless every step passed, and the notes stay on the steps.
     const finished = checks.length > 0 && checks.every((c) => c.result);
-    if (recording && finished && current.kind === 'issue' && current.status === 'needs-qa') {
+    if (recording && finished && isWorkKind(current.kind) && current.status === 'needs-qa') {
       const by = patch.by || 'you';
       const count = (r: string) => checks.filter((c) => c.result === r).length;
       const allPass = count('pass') === checks.length;
@@ -2278,7 +2278,7 @@ export class Store {
    */
   qaCounts(projectId: string): { human: number; agent: number; mixed: number; waitingOnAgent: number } {
     const out = { human: 0, agent: 0, mixed: 0, waitingOnAgent: 0 };
-    const rows: any[] = this.db.query("SELECT checks FROM items WHERE project_id = ? AND kind = 'issue' AND status = 'needs-qa'").all(projectId);
+    const rows: any[] = this.db.query("SELECT checks FROM items WHERE project_id = ? AND kind IN ('issue','questions') AND status = 'needs-qa'").all(projectId);
     for (const row of rows) {
       let checks: any[] = [];
       try { const parsed = JSON.parse(row.checks ?? '[]'); if (Array.isArray(parsed)) checks = parsed; } catch {}

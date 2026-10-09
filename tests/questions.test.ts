@@ -449,3 +449,19 @@ describe('answers cannot ride in on a definition', () => {
     expect(restored.questions[0]).toMatchObject({ choice: 'X', answer: 'forged', by: 'you' });
   });
 });
+
+describe('a question set at needs-qa behaves as work', () => {
+  test('recording the last step signs it off, counts as QA, and is audited like an issue', async () => {
+    const item = await makeSet({ status: 'needs-qa', checks: [{ id: 'c1', label: '1. Look', owner: 'human' }, { id: 'c2', label: '2. Look again' }] });
+    const unowned = await api('GET', '/api/projects/demo/audit');
+    expect(unowned.json.items.find((i: any) => i.id === item.id).findings.map((f: any) => f.rule)).toContain('qa-unowned-steps');
+    expect((await api('GET', '/api/projects/demo')).json.qaCounts.human).toBe(1);
+    await api('PATCH', `/api/items/${item.id}/checks/c1`, { result: 'pass', actor: 'qa' });
+    const last = await api('PATCH', `/api/items/${item.id}/checks/c2`, { result: 'pass', actor: 'qa' });
+    expect(last.json.item.status).toBe('received');
+    expect(last.json.item.messages[0].text).toContain('All 2 steps passed');
+    const bare = await makeSet({ status: 'needs-qa' });
+    const audit = (await api('GET', '/api/projects/demo/audit')).json.items.find((i: any) => i.id === bare.id);
+    expect(audit.findings.map((f: any) => f.rule)).toContain('qa-without-steps');
+  });
+});
