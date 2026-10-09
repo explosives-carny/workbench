@@ -12,6 +12,9 @@
   write-up is shown on the page as well, so it can be copied by hand when the
   browser will not copy it. Agents get the same text from `wb brief`
   (contract v21). Nothing is sent anywhere and the item does not change.
+- The second-opinion panel has a Copy button beside Close. A browser can refuse
+  the automatic copy that follows the fetch; a click on Copy is a gesture of
+  its own and the clipboard takes it.
 - A to-do list sorted by due date now puts high priority before low among
   to-dos due the same day, and among those with no date, the same order
   `wb todos` already prints. Before, those ties fell back to most recent

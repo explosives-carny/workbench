@@ -367,4 +367,46 @@ describe('the item page button', () => {
     expect(note.textContent).toContain('Could not copy automatically');
     expect(note.classList.contains('err')).toBe(true);
   });
+
+  test('the panel carries a Copy button that writes the brief on a click of its own', async () => {
+    const p = board();
+    const item = store.createItem(p.id, { title: 'Ship it?' });
+    // The automatic copy is refused (as a browser may do that far from the
+    // gesture); the button's own click is allowed.
+    let calls = 0;
+    const copied: string[] = [];
+    const page = await renderPage(handler, 'item.html', `/p/${p.slug}/i/${item.id}`, {
+      navigator: { clipboard: { writeText: async (t: string) => { if (calls++ === 0) throw new Error('denied'); copied.push(t); } } },
+    });
+    panelButton(page.byId)!.dispatchEvent({ type: 'click' });
+    await settle();
+    let box = page.byId('panel').byClass('briefbox')[0];
+    const copy = box.byClass('brief-copy')[0];
+    expect(copy?.textContent).toBe('Copy');
+    copy!.dispatchEvent({ type: 'click' });
+    await settle();
+    expect(copied.length).toBe(1);
+    expect(copied[0].startsWith('# Second opinion: Ship it?')).toBe(true);
+    box = page.byId('panel').byClass('briefbox')[0];
+    expect(box.byClass('brief-note')[0].textContent).toContain('Copied to the clipboard');
+    expect(box.byClass('brief-note')[0].classList.contains('err')).toBe(false);
+    expect(box.byClass('brief-copy').length).toBe(1);
+    expect(box.byClass('brief-text')[0].value).toBe(copied[0]);
+  });
+
+  test('a Copy click the browser refuses keeps the panel and says to copy by hand', async () => {
+    const p = board();
+    const item = store.createItem(p.id, { title: 'Ship it?' });
+    const page = await renderPage(handler, 'item.html', `/p/${p.slug}/i/${item.id}`, {
+      navigator: { clipboard: { writeText: async () => { throw new Error('denied'); } } },
+    });
+    panelButton(page.byId)!.dispatchEvent({ type: 'click' });
+    await settle();
+    page.byId('panel').byClass('brief-copy')[0].dispatchEvent({ type: 'click' });
+    await settle();
+    const box = page.byId('panel').byClass('briefbox')[0];
+    expect(box).toBeDefined();
+    expect(box.byClass('brief-text')[0].value.startsWith('# Second opinion: Ship it?')).toBe(true);
+    expect(page.byId('saved-main').textContent).toContain('copy it by hand');
+  });
 });
