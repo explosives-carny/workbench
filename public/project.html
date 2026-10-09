@@ -743,7 +743,8 @@
     sb.className = 'send';
     sb.textContent = 'Send';
     sb.addEventListener('click', () => send(item.id));
-    box.append(ta, sb);
+    // Paste, drop or pick an image; it lands in the box as Markdown (v22).
+    box.append(ta, WB.imageAttach(ta, (text, isErr) => note(item.id, text, isErr)), sb);
     card.appendChild(box);
 
     // A select rather than four buttons. Status is one value out of four, which

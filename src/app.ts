@@ -21,6 +21,7 @@ import {
   wallOfTextWarning, escapedNewlineWarning, pointerOptionWarning,
 } from './rules.ts';
 import { itemBrief } from './brief.ts';
+import { ImageStore, ImageRefused, imageHeaders } from './images.ts';
 
 /**
  * The contract version. Bumped in the same pull request as any change to a
@@ -29,7 +30,7 @@ import { itemBrief } from './brief.ts';
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '21';
+export const CONTRACT_VERSION = '22';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -40,6 +41,12 @@ export type HandlerOptions = {
   onWrite?: () => void;
   /** The human's home directory, for expanding `~` in repo paths. */
   home?: string;
+  /**
+   * Where uploaded images live (contract v22). The server puts it beside the
+   * database. Left out, the image routes answer that this board stores none,
+   * rather than writing pictures somewhere nobody chose.
+   */
+  imagesDir?: string;
 };
 
 // Pretty JSON for a person reading it in a browser, compact for a program.
@@ -115,6 +122,7 @@ function actorOf(body: any, alias: 'author' | 'by'): string | undefined {
 // enough for a writer to notice and fix itself.
 const ITEM_FIELDS = new Set(['title', 'context', 'options', 'recommended', 'choice', 'status', 'section', 'blockedBy', 'dueAt', 'priority', 'kind', 'body', 'bodyFormat', 'checks', 'replaceChecks', 'createdAt', 'labels', 'clientId', 'ifVersion', 'actor', 'author', 'session', 'position']);
 const MESSAGE_FIELDS = new Set(['who', 'text', 'actor', 'author', 'session', 'status', 'createdAt']);
+const IMAGE_FIELDS = new Set(['data', 'alt', 'name', 'actor', 'author', 'session']);
 const CHECK_FIELDS = new Set(['result', 'note', 'owner', 'actor', 'by', 'session']);
 
 function ignoredKeys(body: any, known: Set<string>): string[] {
@@ -401,8 +409,76 @@ const ROUTES = [
   'GET    /api/items/<id-or-ref>/brief          text/markdown: the item written out for a second opinion from someone with no context; reads, never writes',
   'GET    /api/items/<id-or-ref>/messages · POST /api/items/<id-or-ref>/messages {who, text, actor, session, status?}',
   'PATCH  /api/items/<id-or-ref>/checks/<checkId>     {result, note?, actor, session}',
+  'POST   /api/images                          raw image bytes | multipart "file" | {data: base64 or data: URL, alt?}  → {image: {url, markdown}}; PNG, JPEG, GIF, WebP, SVG, 10 MB',
+  'GET    /api/images/<sha256>.<ext>           the image; reference it in Markdown as ![alt](/api/images/<sha256>.<ext>)',
   'every write: actor = the name a person recognises; session = the id this session generated once at start',
 ];
+
+// Images (contract v22). Three ways in, because there are three kinds of
+// sender: a browser posts the file's bytes as they are, a shell posts a
+// multipart form (`curl -F file=@shot.png`), and an agent that can only write
+// JSON sends base64. All three land in the same ImageStore.put, which decides
+// the type from the bytes and refuses anything else. See src/images.ts.
+async function readImageUpload(req: Request): Promise<{ bytes: Uint8Array; alt?: string; ignored: string[] }> {
+  const type = (req.headers.get('content-type') || '').toLowerCase();
+  if (type.startsWith('multipart/form-data')) {
+    const form = await req.formData();
+    const file = form.get('file');
+    if (!file || typeof file === 'string') throw new Error('multipart upload needs the image in a field named "file"');
+    const alt = form.get('alt');
+    return {
+      bytes: new Uint8Array(await (file as Blob).arrayBuffer()),
+      alt: typeof alt === 'string' && alt ? alt : (file as File).name?.replace(/\.[a-z0-9]+$/i, ''),
+      ignored: [],
+    };
+  }
+  if (type.startsWith('application/json') || type === '') {
+    const body = await readJson(req);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('body must be a JSON object');
+    if (typeof body.data !== 'string' || !body.data) {
+      throw new Error('send the image as {"data":"<base64>"} (a data: URL works too), as raw bytes with an image content-type, or as multipart field "file"');
+    }
+    const b64 = body.data.replace(/^data:[^,]*;base64,/i, '').replace(/\s+/g, '');
+    if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(b64)) throw new Error('data is not base64');
+    const alt = typeof body.alt === 'string' ? body.alt : typeof body.name === 'string' ? body.name.replace(/\.[a-z0-9]+$/i, '') : undefined;
+    return { bytes: new Uint8Array(Buffer.from(b64, 'base64')), alt, ignored: ignoredKeys(body, IMAGE_FIELDS) };
+  }
+  // Anything else is the file itself. The declared type is not trusted; the
+  // bytes are sniffed in the store.
+  return { bytes: new Uint8Array(await req.arrayBuffer()), alt: undefined, ignored: [] };
+}
+
+async function handleImages(opts: HandlerOptions, req: Request, parts: string[], method: string, ctx: Ctx): Promise<Response> {
+  if (!opts.imagesDir) return notFound(ctx, 'this board has no image directory configured');
+  const images = new ImageStore(opts.imagesDir);
+  if (parts.length === 1) {
+    if (method !== 'POST') return badRequest(ctx, `${method} not supported here; POST an image`);
+    let upload;
+    try {
+      upload = await readImageUpload(req);
+    } catch (error: any) {
+      return badRequest(ctx, error?.message || 'could not read the upload');
+    }
+    const alt = new URL(req.url).searchParams.get('alt') ?? upload.alt;
+    try {
+      const image = images.put(upload.bytes, alt);
+      // Only a new file changes anything worth exporting.
+      if (!image.existed) ctx.wrote = true;
+      return json(ctx, withIgnored({ ok: true, image }, upload.ignored), image.existed ? 200 : 201);
+    } catch (error) {
+      if (error instanceof ImageRefused) return badRequest(ctx, error.message);
+      throw error;
+    }
+  }
+  if (parts.length === 2 && (method === 'GET' || method === 'HEAD')) {
+    const found = images.get(parts[1]);
+    if (!found) return notFound(ctx, `no image "${parts[1]}"`);
+    return new Response(method === 'HEAD' ? null : Bun.file(found.path), { headers: imageHeaders(found.type) });
+  }
+  // No delete, for the same reason items have none: the board is a record.
+  if (method === 'DELETE') return json(ctx, { ok: false, error: 'images are never deleted: the board is a record, and a message that showed one must keep showing it.' }, 405);
+  return badRequest(ctx, `${method} not supported here`);
+}
 
 async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: URL, ctx: Ctx): Promise<Response> {
   const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
@@ -438,6 +514,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
     const projects = store.listProjects(false).map((p) => ({ slug: p.slug, name: p.name, items: auditItems(store.listItems(p.id, 'none')) }));
     return json(ctx, { ok: true, contractVersion: CONTRACT_VERSION, total: projects.reduce((n, p) => n + p.items.length, 0), projects });
   }
+
+  if (parts[0] === 'images') return handleImages(opts, req, parts, method, ctx);
 
   if (parts[0] === 'projects' && parts.length === 1) {
     if (method === 'GET') {

@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v21.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `21`,
+**Contract v22.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `22`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -63,6 +63,8 @@ wb todo <slug> "title" --due 2026-10-31 --priority high   POST /api/projects/<sl
 wb todos [slug] [--all]                            open to-dos on every to-do project (or one), due first — what `wb board` cannot show
 wb check <id> <step> pass|fail|skip --note "…"     PATCH /api/items/<id>/checks/<step> {"result":"…","note":"…","actor":"<you>"}
                                                    — define steps as checks:[{"label":"…","owner":"human"|"agent"},…]
+wb attach <id|ref> shot.png [--text "…"]           POST /api/images (the file) → POST /api/items/<id>/messages with ![shot](/api/images/<sha256>.png)
+wb image shot.png                                  POST /api/images {"data":"<base64>","alt":"…"} → prints ![shot](/api/images/<sha256>.png) to put in a context or body
 wb export                                          bun run export — the server also exports on its own after every change
 wb archive <slug>                                  PATCH /api/projects/<slug> {"archived":true,"actor":"<you>"}
 wb restore <slug>                                  PATCH /api/projects/<slug> {"archived":false,"actor":"<you>"} — reclaims its colour if still free
@@ -615,7 +617,8 @@ as an issue.
 page and the project page: headings, bold, italic, `code`, links (http/https or
 board paths only), bullet and numbered lists, tables (a header row plus a
 `|---|` separator row), quotes and fenced code. HTML is escaped, never
-rendered. A single newline in a context or message is a line break, as in a
+rendered. Images render too, when they are the board's own (see **Images**
+below). A single newline in a context or message is a line break, as in a
 chat reply; a document body joins lines into paragraphs as Markdown does.
 
 The shape of a decision context:
@@ -688,6 +691,57 @@ agent fetches never differ.
 An outside opinion is advice for the person, not their answer. If they paste
 one into the thread, it arrives as their message: act on the parts they say
 they agree with, and ask (as `options`, rule 10) when that is unclear.
+
+### Images (v22)
+
+A picture goes on an item as Markdown text that names a file the board holds:
+`![what it shows](/api/images/<sha256>.<ext>)`. It works anywhere Markdown
+renders: a context, a message, a Markdown document body. The page shows it
+inline, at most about 420px tall, and a click enlarges it.
+
+1. **Upload** with `POST /api/images`, one image per call, sent any of three
+   ways: the raw bytes with an image `content-type`; a multipart form with the
+   image in field `file` (`curl -F file=@shot.png`); or JSON
+   `{"data":"<base64, or a data: URL>","alt":"…"}`. `?alt=` sets the alt
+   text on any of them. `201` returns
+   `{"image":{"name","hash","type","bytes","url","markdown","existed"}}`;
+   `markdown` is ready to paste. The same bytes again return `200` with the
+   same `url` and `existed: true`, so a retry never makes a second file.
+2. **Reference** it by putting `markdown` (or your own `![alt](url)`) in the
+   text you write next: `context` on a create or `PATCH`, a message, or a
+   `markdown` body. Uploading posts nothing on its own. `wb attach` does both
+   steps as one reply; `wb image` uploads and prints the Markdown.
+3. **Write alt text that says what the picture shows** ("login page, error
+   banner under the password field"), not "screenshot". The second-opinion
+   brief and anyone reading the raw text see only the alt.
+
+- **Types and limits:** PNG, JPEG, GIF, WebP and SVG, up to 10 MB each. The
+  type is read from the bytes, never the file name; anything else is a `400`
+  naming the allowed set. An SVG holding script, event handlers,
+  `javascript:` URLs, `foreignObject`, embedded documents or outside
+  references is a `400`; export it plain or send a PNG.
+- **Only the board's own images render.** `![…](https://…)` stays literal text:
+  a page that fetched pictures from elsewhere would send requests off the
+  machine every time it renders. Upload the file instead.
+- **Served safely:** `GET /api/images/<sha256>.<ext>` returns the file with its
+  real `content-type`, `nosniff`, and a sandboxing CSP, so an SVG opened on its
+  own runs nothing. Names are the SHA-256 of the bytes, so a URL never points
+  at different content later.
+- **Stored beside the database,** in an `images/` folder
+  (`WORKBENCH_IMAGES` overrides), never inside it, and never in the JSON
+  export: the export copies the files to `<content dir>/images/`, and import
+  copies them back, skipping any file whose bytes do not match its name.
+- **No delete.** `DELETE /api/images/…` is `405`, as for items: a message that
+  showed a picture keeps showing it.
+- **The brief** (`/brief`) replaces each image with `[image: <alt> (on the
+  board, not included)]`, since the reader it is pasted to cannot fetch it.
+
+**Back-compat:** no route, field or status changed, and no schema moved.
+The one rendering change: text that already contained
+`![…](/api/images/<64 hex>.<ext>)` now shows as an image (a broken one if no
+such file exists). Every other `![…](…)` renders exactly as before. An old
+server answers `404` on `/api/images`; an agent that sees `contractVersion`
+below `22` should describe the picture in words instead.
 
 ### Payload
 

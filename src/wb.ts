@@ -196,6 +196,8 @@ const HELP = `wb — the workbench board from a shell (${BASE})
   wb todo <slug> <title> [--due YYYY-MM-DD] [--priority high|medium|low]   add a to-do to a to-do project
   wb todos [slug] [--all]                  open to-dos on every to-do project (or one), due first; --all adds deferred
   wb check <id|ref> <step> <pass|fail|skip> [--note "..."]   record one checklist result
+  wb attach <id|ref> <file>... [--text "..."] [--status s]   upload images and post them as one reply
+  wb image <file>... [--alt "..."]         upload images and print their Markdown, for a context or a body
   wb export [dir]                          write one JSON per project to the content directory
   wb archive <slug>                        archive a project (its colour frees for reuse)
   wb restore <slug>                        restore an archived project (reclaims its colour if still free)
@@ -390,6 +392,43 @@ async function main() {
     // a ref or a full UUID but never a UUID prefix, so an unkeyed item prints
     // its whole id here rather than the short label.
     out(flags, json.items.map((i: any) => `${i.ref || i.id}  ${i.status}  ${i.title}`).join('\n'), json.items);
+    return;
+  }
+
+  // Images (contract v22). The upload is the same POST /api/images a person's
+  // browser makes; the file is sent as base64 JSON so `call` keeps its one
+  // retry-and-reach path. The type is read from the bytes on the server, so a
+  // misnamed file is refused there with the reason, not guessed at here.
+  async function upload(file: string, alt?: string): Promise<any> {
+    const f = Bun.file(file);
+    if (!(await f.exists())) fail(`no such file: ${file}`);
+    const data = Buffer.from(await f.arrayBuffer()).toString('base64');
+    const { status, json } = await call('POST', '/api/images', { data, alt: alt ?? basename(file).replace(/\.[a-z0-9]+$/i, '') });
+    if (!json.ok) fail(`${file}: ${status}: ${json.error}`);
+    return json.image;
+  }
+
+  if (cmd === 'image') {
+    if (!args.length) fail('usage: wb image <file>... [--alt "..."]');
+    const images = [];
+    for (const file of args) images.push(await upload(file, typeof flags.alt === 'string' ? flags.alt : undefined));
+    out(flags, images.map((i) => i.markdown).join('\n'), images);
+    return;
+  }
+
+  if (cmd === 'attach') {
+    const id = args[0] || fail('usage: wb attach <id|ref> <file>... [--text "..."] [--status s]');
+    const files = args.slice(1);
+    if (!files.length) fail('give one or more image files to attach');
+    const images = [];
+    for (const file of files) images.push(await upload(file));
+    const text = [typeof flags.text === 'string' ? flags.text : '', ...images.map((i) => i.markdown)].filter(Boolean).join('\n\n');
+    const payload: any = { who: 'agent', actor: await actor(flags), session: session(), text };
+    if (typeof flags.status === 'string') payload.status = flags.status;
+    const { status, json } = await call('POST', `/api/items/${encodeURIComponent(id)}/messages`, payload);
+    if (!json.ok) fail(`${status}: ${json.error}`);
+    if (json.warning) console.error(`wb: warning: ${json.warning}`);
+    out(flags, `${images.length} image(s) posted  ${json.item.status} v${json.item.version}  ${json.item.title}`, { ...json, images });
     return;
   }
 

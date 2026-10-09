@@ -48,7 +48,7 @@ if (remove) {
 
 const bunPath = Bun.which('bun') || process.execPath;
 const env: Record<string, string> = { PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin', HOME };
-for (const key of ['WORKBENCH_PORT', 'WORKBENCH_DB', 'WORKBENCH_CONTENT', 'WORKBENCH_AUTO_EXPORT']) {
+for (const key of ['WORKBENCH_PORT', 'WORKBENCH_DB', 'WORKBENCH_CONTENT', 'WORKBENCH_AUTO_EXPORT', 'WORKBENCH_IMAGES']) {
   if (process.env[key]) env[key] = process.env[key]!;
 }
 

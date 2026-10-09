@@ -5,9 +5,15 @@
 import { PROJECT_COLORS, ProjectKeyTaken, Store, type Item } from './db.ts';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { copyImages } from './images.ts';
 
-export function exportAll(store: Store, dir: string): { projects: number; items: number; files: string[] } {
+export function exportAll(store: Store, dir: string, opts: { imagesDir?: string } = {}): { projects: number; items: number; files: string[]; images?: number } {
   mkdirSync(dir, { recursive: true });
+  // Images go beside the project files as files, never into the JSON: a
+  // screenshot as base64 would make every export of that project megabytes
+  // larger and every commit of it unreadable. Content-addressed, so a copy is
+  // only ever an addition, and an image already exported is never rewritten.
+  const images = opts.imagesDir ? copyImages(opts.imagesDir, join(dir, 'images')) : 0;
   const files: string[] = [];
   let total = 0;
   for (const project of store.listProjects(true)) {
@@ -33,16 +39,20 @@ export function exportAll(store: Store, dir: string): { projects: number; items:
     files.push(file);
     total += items.length;
   }
-  return { projects: files.length, items: total, files };
+  return { projects: files.length, items: total, files, ...(opts.imagesDir ? { images } : {}) };
 }
 
-export function importAll(store: Store, dir: string, log: (line: string) => void = console.log): { projects: number; items: number } {
+export function importAll(store: Store, dir: string, log: (line: string) => void = console.log, opts: { imagesDir?: string } = {}): { projects: number; items: number; images?: number } {
   let files: string[] = [];
   try {
     files = readdirSync(dir).filter((file) => file.endsWith('.json'));
   } catch {
     throw new Error(`No such directory: ${dir}`);
   }
+  // Images first, so a restored message never points at a picture that is
+  // not there yet. Only files whose bytes match their name are copied.
+  const images = opts.imagesDir ? copyImages(join(dir, 'images'), opts.imagesDir, log) : 0;
+  if (images) log(`imported ${images} image(s)`);
   let projects = 0;
   let items = 0;
   for (const file of files) {
@@ -157,7 +167,7 @@ export function importAll(store: Store, dir: string, log: (line: string) => void
       throw error;
     }
   }
-  return { projects, items };
+  return { projects, items, ...(opts.imagesDir ? { images } : {}) };
 }
 
 /**
@@ -189,7 +199,7 @@ export async function commitIfRepo(dir: string, message: string): Promise<'commi
  * board that had changed hundreds of times. A backup that depends on somebody
  * remembering is not a backup.
  */
-export function autoExporter(store: Store, dir: string, opts: { delayMs?: number; log?: (line: string) => void } = {}): () => void {
+export function autoExporter(store: Store, dir: string, opts: { delayMs?: number; log?: (line: string) => void; imagesDir?: string } = {}): () => void {
   const delay = opts.delayMs ?? 3000;
   const log = opts.log ?? (() => {});
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -200,7 +210,7 @@ export function autoExporter(store: Store, dir: string, opts: { delayMs?: number
     if (running) { dirtyAgain = true; return; }
     running = true;
     try {
-      const result = exportAll(store, dir);
+      const result = exportAll(store, dir, { imagesDir: opts.imagesDir });
       const committed = await commitIfRepo(dir, `workbench: auto-export ${new Date().toISOString()}`);
       log(`export     ${result.items} items in ${result.projects} project(s) -> ${dir} (${committed})`);
     } catch (error: any) {

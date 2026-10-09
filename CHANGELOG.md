@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Items can show pictures. Paste a screenshot into a reply box, drop an image
+  file on it, or use the new **Image** button: the picture uploads and a line
+  of Markdown lands in the box, so it can be captioned or moved before sending.
+  Pictures show inside the thread, in an item's context and in Markdown
+  documents, and a click enlarges them. PNG, JPEG, GIF, WebP and plain SVG, up
+  to 10 MB. Agents attach them with `wb attach` or `POST /api/images`
+  (contract v22). Images stay on this machine, beside the database, and the
+  backup copies them as files next to the JSON. Only the board's own images
+  are shown; a link to a picture elsewhere stays a link.
 - Any item can be handed to someone else for a second opinion. The "Get a 2nd
   opinion" button on an item's page copies a short write-up of it: the
   project, what the item is and why it exists, the question, the options with
