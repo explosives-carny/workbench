@@ -109,3 +109,41 @@ describe('audit', () => {
     expect(res.json.total).toBe(0);
   });
 });
+
+describe('question sets (contract v23)', () => {
+  const rulesFor = async (id: string) => {
+    const res = await api('GET', '/api/projects/demo/audit');
+    return (res.json.items.find((i: any) => i.id === id)?.findings || []).map((f: any) => f.rule);
+  };
+
+  test('a set with no questions, and a question with options and no recommendation, are findings', async () => {
+    const project = store.getProject('demo')!;
+    const empty = store.createItem(project.id, { title: 'Empty set', kind: 'questions' });
+    const unrec = store.createItem(project.id, { title: 'Set', kind: 'questions', questions: [{ id: 'q1', ask: 'Pick?', options: ['A', 'B'] }, { id: 'q2', ask: 'Fine?', options: ['A'], recommended: ['A'] }] });
+    expect(await rulesFor(empty.id)).toEqual(['question-set-without-questions']);
+    expect(await rulesFor(unrec.id)).toEqual(['question-without-recommendation']);
+    const finding = (await api('GET', '/api/projects/demo/audit')).json.items.find((i: any) => i.id === unrec.id).findings[0];
+    expect(finding.message).toContain('question q1');
+  });
+
+  test('there is no count-based rule: thirteen questions are not a finding', async () => {
+    const project = store.getProject('demo')!;
+    const many = store.createItem(project.id, { title: 'Long', kind: 'questions', questions: Array.from({ length: 13 }, (_, n) => ({ ask: `Q${n}?` })) });
+    expect(await rulesFor(many.id)).toEqual([]);
+  });
+
+  test('an issue at needs-decision whose context lists four numbered questions reads like a set', async () => {
+    const project = store.getProject('demo')!;
+    const context = ['Background.', '', '1. Where do the cases go?', '2. Which label stock?', 's3. Who signs off?', '- q4: Is a rerun needed?', 'Not a question.'].join('\n');
+    const issue = store.createItem(project.id, { title: 'Several things', context, options: ['A'], recommended: ['A'] });
+    const rules = await rulesFor(issue.id);
+    expect(rules).toEqual(['issue-reads-like-a-question-set']);
+    const finding = (await api('GET', '/api/projects/demo/audit')).json.items.find((i: any) => i.id === issue.id).findings[0];
+    expect(finding.message).toContain('kind "questions"');
+    // Three is not enough; a finished item is not audited.
+    const three = store.createItem(project.id, { title: 'Three', context: '1. a?\n2. b?\n3. c?', options: ['A'], recommended: ['A'] });
+    expect(await rulesFor(three.id)).toEqual([]);
+    const done = store.createItem(project.id, { title: 'Done', context, options: ['A'], recommended: ['A'], status: 'complete' });
+    expect(await rulesFor(done.id)).toEqual([]);
+  });
+});
