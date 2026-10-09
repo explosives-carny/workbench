@@ -200,24 +200,51 @@ window.WB = (function () {
     return chip;
   }
 
-  // A ref inside free text (WB-DEMO-14) linked, but only when its key matches
-  // THIS project's — the whole point of "resolves on this board". Anything
-  // else, including a ref that merely looks like one, stays plain text next to
-  // it: text nodes only, so nothing in `text` is ever parsed as markup.
-  const REF_IN_TEXT = /\bWB-([A-Z][A-Z0-9]{1,4})-([1-9][0-9]*)\b/gi;
-  function renderBlockedBy(text, slug, projectKey) {
+  // ---- References as links (contract v26) ----
+  //
+  // The keys this board knows, current and former, fetched once per page and
+  // handed to md.js as MD.refKeys. A ref whose key is on the board links to
+  // /i/<REF>, which the server resolves to the item's page on whatever
+  // project it lives; anything else, including a ref that merely looks like
+  // one, stays text. Cached for the page's life: a project created in another
+  // tab links after a reload, which is cheaper than a fetch on every repaint.
+  // A failed fetch leaves MD.refKeys null, and md.js then links every
+  // well-formed ref rather than none.
+  let refKeysPromise = null;
+  function refKeys() {
+    if (!refKeysPromise) {
+      refKeysPromise = req('GET', '/api/projects?archived=1').then((data) => {
+        const keys = new Set();
+        for (const p of data.projects || []) {
+          if (p.key) keys.add(String(p.key).toUpperCase());
+          for (const k of p.oldKeys || []) keys.add(String(k).toUpperCase());
+        }
+        if (window.MD) window.MD.refKeys = keys;
+        return keys;
+      }).catch(() => null);
+    }
+    return refKeysPromise;
+  }
+
+  // The same linking for a field that is not Markdown — a title, a check
+  // label, a question label, a blocked-by line: text nodes and anchors only,
+  // so nothing in `text` is ever parsed as markup. Same regex and same
+  // key rule as md.js, so a ref reads the same wherever it is.
+  function renderRefs(text, className) {
     const frag = document.createDocumentFragment();
     if (!text) return frag;
-    const re = new RegExp(REF_IN_TEXT.source, 'gi');
+    // A page without md.js (the gallery) has no ref regex: text as it is.
+    if (!window.MD || !window.MD.REF) { frag.appendChild(document.createTextNode(text)); return frag; }
+    const re = new RegExp(window.MD.REF.source, 'gi');
+    const keys = window.MD.refKeys;
     let last = 0;
     let match;
     while ((match = re.exec(text))) {
       if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
-      const key = match[1].toUpperCase();
-      if (projectKey && key === projectKey) {
+      if (!keys || keys.has(match[2].toUpperCase())) {
         const a = document.createElement('a');
-        a.className = 'blocked-ref mono';
-        a.href = '/p/' + encodeURIComponent(slug) + '/i/' + encodeURIComponent(match[0].toUpperCase());
+        a.className = className || 'ref-link mono';
+        a.href = window.MD.refHref(match[1], match[5]);
         a.textContent = match[0];
         frag.appendChild(a);
       } else {
@@ -227,6 +254,28 @@ window.WB = (function () {
     }
     if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
     return frag;
+  }
+
+  // Blocked by: once only a ref on the same project linked, because the link
+  // was built from the slug. With /i/<REF> any project's ref lands, so the
+  // only rule left is the one every ref follows: the key must be on the board.
+  function renderBlockedBy(text) {
+    return renderRefs(text, 'ref-link blocked-ref mono');
+  }
+
+  // A ref may sit inside something clickable — an expanded card's header, a
+  // row that toggles. Caught in the capture phase and stopped there, so the
+  // click still navigates the anchor (its default action is not prevented)
+  // but no listener on the page sees it — not the container that would
+  // toggle, and not the document-level ones either (the lightbox handler
+  // below only ever wants an image click, so nothing is lost). Guarded:
+  // this file is also loaded with only a `window`, by tests of its helpers.
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('click', (e) => {
+      const t = e.target;
+      const a = t && t.closest ? t.closest('a.ref-link') : null;
+      if (a) e.stopPropagation();
+    }, true);
   }
 
   // A compact relative time for a crowded row — "3m", "5h", "2d" — where `fmt`
@@ -633,6 +682,13 @@ window.WB = (function () {
     return e;
   }
 
+  // A question's label, with any ref in it linked (contract v26).
+  function qLabel(q) {
+    const e = qEl('strong', 'qlabel');
+    e.replaceChildren(renderRefs(q.label || q.id));
+    return e;
+  }
+
   // The chip beside a question set's status: how many questions it holds,
   // green once every one is answered. Words first, colour second.
   function questionsChip(item) {
@@ -716,7 +772,7 @@ window.WB = (function () {
       if (!open) {
         block.appendChild(qEl('span', 'q-tick', '\u2713'));
         block.appendChild(qEl('span', 'mono qid', q.id));
-        block.appendChild(qEl('strong', 'qlabel', q.label || q.id));
+        block.appendChild(qLabel(q));
         const text = [q.choice, String(q.answer || '').trim()].filter(Boolean).join(' \u2014 ');
         const a = qEl('span', 'qanswer-text');
         a.innerHTML = window.MD.inline(text);
@@ -736,7 +792,7 @@ window.WB = (function () {
 
       const top = qEl('div', 'qtop');
       top.appendChild(qEl('span', 'mono qid', q.id));
-      top.appendChild(qEl('strong', 'qlabel', q.label || q.id));
+      top.appendChild(qLabel(q));
       block.appendChild(top);
       if (q.ask) {
         const ask = qEl('div', 'md qask');
@@ -758,7 +814,8 @@ window.WB = (function () {
         for (const o of q.options) {
           const b = document.createElement('button');
           b.type = 'button';
-          b.innerHTML = window.MD.inline(o);
+          // No anchor inside a button: a ref in an option stays text.
+          b.innerHTML = window.MD.inline(o, { refs: false });
           if ((q.recommended || []).indexOf(o) !== -1) {
             b.classList.add('rec');
             b.append(' ', qEl('span', 'rec-tag', 'Recommended'));
@@ -837,6 +894,8 @@ window.WB = (function () {
     statusesFor,
     labelChoices,
     refChip,
+    refKeys,
+    renderRefs,
     renderBlockedBy,
     STATUSES: Object.keys(STATUS_LABELS),
     get: (p) => req('GET', p),

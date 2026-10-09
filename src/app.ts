@@ -19,7 +19,7 @@ import { join } from 'path';
 import {
   blockedWithoutReason, titleWarning, recommendationRefusal, lacksRecommendation, MISSING_RECOMMENDATION,
   convertRecommendedSuffix, noOptionsWarning, recommendedInTextWarning, unownedStepsWarning, auditItems,
-  wallOfTextWarning, escapedNewlineWarning, pointerOptionWarning,
+  wallOfTextWarning, escapedNewlineWarning, pointerOptionWarning, refLinkWarning,
   questionWithoutRecommendation, emptyQuestionSetWarning, longQuestionSetHint, questionFormatFindings,
 } from './rules.ts';
 import { itemBrief } from './brief.ts';
@@ -32,7 +32,7 @@ import { ImageStore, ImageRefused, imageHeaders, imageTooLarge, MAX_IMAGE_REQUES
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '25';
+export const CONTRACT_VERSION = '26';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -479,6 +479,7 @@ const ROUTES = [
   'PATCH  /api/projects/<slug>/authors         {from,to,actor}',
   'POST   /api/projects/<slug>/items           item | [item, ...]   (item.clientId for idempotent retries)',
   'GET    /api/items/<id-or-ref> · PATCH /api/items/<id-or-ref> {..., actor, session, ifVersion}  (id accepts WB-<KEY>-<n> refs)',
+  'GET    /i/<id-or-ref>                      302 to the item\'s page (/p/<slug>/i/<ref>), any project, former keys too; a #qid fragment survives — the address every rendered ref links to',
   'GET    /api/items/<id-or-ref>/body',
   'GET    /api/items/<id-or-ref>/brief          text/markdown: the item written out for a second opinion from someone with no context; reads, never writes',
   'GET    /api/items/<id-or-ref>/messages · POST /api/items/<id-or-ref>/messages {who, text, actor, session, status?}',
@@ -590,7 +591,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
   // Read-only: it names the rule and the fix, and the agent that owns each
   // project makes the change (AGENTS.md, "When the contract version moves").
   if (parts[0] === 'audit' && parts.length === 1 && method === 'GET') {
-    const projects = store.listProjects(false).map((p) => ({ slug: p.slug, name: p.name, items: auditItems(store.listItems(p.id, 'none')) }));
+    const projects = store.listProjects(false).map((p) => ({ slug: p.slug, name: p.name, items: auditItems(itemsForAudit(store, p.id)) }));
     return json(ctx, { ok: true, contractVersion: CONTRACT_VERSION, total: projects.reduce((n, p) => n + p.items.length, 0), projects });
   }
 
@@ -791,7 +792,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
     }
 
     if (parts[2] === 'audit' && parts.length === 3 && method === 'GET') {
-      const items = auditItems(store.listItems(project.id, 'none'));
+      const items = auditItems(itemsForAudit(store, project.id));
       return json(ctx, { ok: true, contractVersion: CONTRACT_VERSION, total: items.length, items });
     }
 
@@ -869,7 +870,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           const optionsWarn = askedForDecision ? noOptionsWarning(item) : undefined;
           if (optionsWarn) warnings.push(parsed.length > 1 ? `"${item.title}": ${optionsWarn}` : optionsWarn);
           for (const w of questionSetWarnings(item, true)) warnings.push(parsed.length > 1 ? `"${item.title}": ${w}` : w);
-          for (const w of [wallOfTextWarning('context', item.context), escapedNewlineWarning('context', item.context), pointerOptionWarning(item.options, item.context, item.body)]) {
+          for (const w of [wallOfTextWarning('context', item.context), escapedNewlineWarning('context', item.context), refLinkWarning('context', item.context), item.bodyFormat === 'markdown' ? refLinkWarning('body', item.body) : undefined, pointerOptionWarning(item.options, item.context, item.body)]) {
             if (w) warnings.push(parsed.length > 1 ? `"${item.title}": ${w}` : w);
           }
         }
@@ -961,7 +962,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           if (optionsWarn) warnings.push(optionsWarn);
           if (updated) {
             const sent: (string | undefined)[] = [];
-            if (patch.context !== undefined) sent.push(wallOfTextWarning('context', updated.context), escapedNewlineWarning('context', updated.context));
+            if (patch.context !== undefined) sent.push(wallOfTextWarning('context', updated.context), escapedNewlineWarning('context', updated.context), refLinkWarning('context', updated.context));
+            if (patch.body !== undefined && updated.bodyFormat === 'markdown') sent.push(refLinkWarning('body', updated.body));
             if (patch.options !== undefined) sent.push(pointerOptionWarning(updated.options, updated.context, updated.body));
             for (const w of sent) if (w) warnings.push(w);
           }
@@ -1124,7 +1126,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
         });
         const after = store.getItem(item.id)!;
         // Only an agent is held to the format: a person types the way they type.
-        const formatWarnings = who === 'agent' ? [wallOfTextWarning('message', body.text), escapedNewlineWarning('message', body.text)] : [];
+        const formatWarnings = who === 'agent' ? [wallOfTextWarning('message', body.text), escapedNewlineWarning('message', body.text), refLinkWarning('message', body.text)] : [];
         const warnings = [
           finishedWithoutStatus(who, body.text, status, after.status),
           ...formatWarnings,
@@ -1165,6 +1167,14 @@ export function crossSiteRefusal(req: Request, url: URL, extra: string[] = []): 
   const allowed = [url.origin, ...extra.map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean)];
   if (allowed.includes(origin.replace(/\/+$/, ''))) return undefined;
   return `this write came from ${origin}; the board takes browser writes only from its own pages (${url.origin}). Set WORKBENCH_ORIGINS to allow another host.`;
+}
+
+// The audit reads list rows, which carry no body; a Markdown document is
+// read in full so the rule against hand-built links can see its text.
+function itemsForAudit(store: Store, projectId: string) {
+  const finished = new Set(['complete', 'cancelled', 'archived']);
+  return store.listItems(projectId, 'none').map((row: any) =>
+    (row.bodyFormat === 'markdown' && row.bodyLength && !finished.has(row.status) ? store.getItem(row.id) || row : row));
 }
 
 export function createHandler(store: Store, opts: HandlerOptions): (req: Request) => Promise<Response> {
@@ -1209,6 +1219,28 @@ export function createHandler(store: Store, opts: HandlerOptions): (req: Request
     }
     if (url.pathname === '/api-doc') {
       return new Response(Bun.file(opts.agentsMdPath), { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+    }
+    // /i/<ref> is the one address a rendered reference links to (contract v26).
+    // The page that draws a ref knows its key, not its project's slug, and a
+    // former key must still land; resolveItem knows both. So the server answers
+    // with the item's current page, and the browser keeps any #fragment (a
+    // question id) across the 302. A redirect rather than serving item.html
+    // here, so the item page keeps reading its identifiers from one path shape
+    // and the address bar teaches the current ref.
+    const refPage = url.pathname.match(/^\/i\/([^/]+)\/?$/);
+    if (refPage && req.method !== 'GET' && req.method !== 'HEAD') {
+      return new Response('Only GET here: /i/<ref> is an address, not a route to write to.', { status: 405, headers: { allow: 'GET, HEAD', 'content-type': 'text/plain; charset=utf-8' } });
+    }
+    if (refPage) {
+      let raw = refPage[1];
+      try { raw = decodeURIComponent(raw); } catch { /* a bad escape is just not a ref */ }
+      const item = store.resolveItem(raw);
+      const project = item ? store.getProjectById(item.projectId) : null;
+      if (!item || !project) {
+        return new Response(`No item ${raw} on this board.`, { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      }
+      const location = `/p/${encodeURIComponent(project.slug)}/i/${encodeURIComponent(item.ref || item.id)}`;
+      return new Response(null, { status: 302, headers: { location } });
     }
     // /p/<slug>/i/<id> is one item on its own page; /p/<slug> is the list. Both
     // read their identifiers client-side from the path.

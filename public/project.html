@@ -663,7 +663,9 @@
     const head = document.createElement('div');
     head.className = 'row';
     const h = document.createElement('h3');
-    h.textContent = item.title;
+    // A ref in the title links here, where the title is not itself a link
+    // (the row's title is, so it stays text there).
+    h.replaceChildren(WB.renderRefs(item.title));
     head.appendChild(h);
     head.appendChild(statusChip(item.status));
     card.appendChild(head);
@@ -679,7 +681,7 @@
     if (item.status === 'blocked' && item.blockedBy) {
       const bl = document.createElement('p');
       bl.className = 'blocked-line';
-      bl.append('Blocked by: ', WB.renderBlockedBy(item.blockedBy, slug, project && project.key));
+      bl.append('Blocked by: ', WB.renderBlockedBy(item.blockedBy));
       card.appendChild(bl);
     }
 
@@ -715,7 +717,8 @@
         const b = document.createElement('button');
         b.type = 'button';
         // Inline formatting only; the value sent on click is the raw option text.
-        b.innerHTML = MD.inline(o);
+        // No anchor inside a button: a ref in an option stays text.
+        b.innerHTML = MD.inline(o, { refs: false });
         // The agent's recommendation, marked by the board rather than written
         // into the option text (which would end up in `choice` when clicked).
         if ((item.recommended || []).includes(o)) {
@@ -968,6 +971,8 @@
   }
 
   async function load(redraw) {
+    // The keys this board knows, before anything is drawn (contract v26).
+    await WB.refKeys();
     const data = await WB.get('/api/projects/' + encodeURIComponent(slug));
     // A project grouping by status, or by whose move it is, has no section
     // headings, so the section box would file things somewhere nothing

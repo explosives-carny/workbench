@@ -410,7 +410,11 @@ pre.doc {
 .item h3 { font-size: 16px; font-weight: 600; margin: 0 0 4px; text-wrap: balance; }
 .item .ctx { color: var(--soft); font-size: 13.5px; margin: 0 0 12px; max-width: 70ch; }
 .blocked-line { color: var(--blocked); font-size: 13.5px; margin: 0 0 12px; max-width: 70ch; }
-.blocked-ref { color: var(--blocked); text-decoration: underline; }
+/* A reference linked in text (contract v26): reads as the ref it is, in the
+   mono the chip uses, with a quiet underline that firms up on hover. */
+.ref-link { font-family: var(--mono); font-size: .94em; color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 2px; }
+.ref-link:hover, .ref-link:focus-visible { color: var(--accent); text-decoration-color: currentColor; }
+.blocked-ref, .ref-link.blocked-ref { color: var(--blocked); text-decoration: underline; }
 .chip {
   margin-left: auto; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em;
   text-transform: uppercase; padding: 3px 8px; border-radius: 3px; white-space: nowrap;
