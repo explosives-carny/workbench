@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Phone photos can be attached as they come. A HEIC or HEIF file — what an
+  iPhone saves — is accepted by the Image button, by drag and drop, by
+  `wb attach` and by the upload route, and is stored as a JPEG so it shows in
+  every browser. The board converts it with a tool the computer already has
+  (`sips` on a Mac, ImageMagick or libheif elsewhere); a computer with none
+  says so and asks for a JPEG instead.
 - A web page from another site that is open in the same browser can no longer
   write to the board. The board now takes browser writes only from its own
   pages (and from any host named in `WORKBENCH_ORIGINS`); the rest are refused
