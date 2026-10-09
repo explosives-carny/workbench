@@ -44,6 +44,13 @@ export type HandlerOptions = {
   /** The human's home directory, for expanding `~` in repo paths. */
   home?: string;
   /**
+   * Origins besides the board's own that may write from a browser page
+   * (`WORKBENCH_ORIGINS`, comma-separated). A write whose `Origin` header is
+   * neither the request's own origin nor one of these is refused; see
+   * crossSiteRefusal.
+   */
+  origins?: string[];
+  /**
    * Where uploaded images live (contract v22). The server puts it beside the
    * database. Left out, the image routes answer that this board stores none,
    * rather than writing pictures somewhere nobody chose.
@@ -1140,6 +1147,26 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
 }
 
 /** The `fetch` handler for one store: the API under /api, the UI everywhere else. */
+// A browser sends `Origin` on every cross-site request and on every same-site
+// write. The board has no delete and every write is a record, so a page on
+// some other site must not be able to file items, post messages or fill the
+// image directory from the person's own browser with a plain cross-site POST
+// (content-type was never checked on the way in, so a simple request was
+// enough). Reads are unaffected, and so is anything that sends no Origin at
+// all — curl, `wb`, an agent — because those are not a browser acting on a
+// page's behalf. Same-origin is judged against the request's own URL, so
+// `localhost` and `127.0.0.1` each match themselves; a board reached through
+// another host name lists it in `WORKBENCH_ORIGINS`.
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+export function crossSiteRefusal(req: Request, url: URL, extra: string[] = []): string | undefined {
+  if (SAFE_METHODS.has(req.method.toUpperCase())) return undefined;
+  const origin = req.headers.get('origin');
+  if (origin === null || origin === 'null') return origin === 'null' ? 'this write came from a page with no origin (a sandboxed frame or a file); the board takes browser writes only from its own pages' : undefined;
+  const allowed = [url.origin, ...extra.map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean)];
+  if (allowed.includes(origin.replace(/\/+$/, ''))) return undefined;
+  return `this write came from ${origin}; the board takes browser writes only from its own pages (${url.origin}). Set WORKBENCH_ORIGINS to allow another host.`;
+}
+
 export function createHandler(store: Store, opts: HandlerOptions): (req: Request) => Promise<Response> {
   return async function fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -1148,6 +1175,8 @@ export function createHandler(store: Store, opts: HandlerOptions): (req: Request
     // swallowed `/api-doc` into the API router, which then 404'd it.
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
       const ctx: Ctx = { pretty: wantsPretty(req, url), wrote: false, browser: req.headers.has('sec-fetch-mode') };
+      const crossSite = crossSiteRefusal(req, url, opts.origins);
+      if (crossSite) return json(ctx, { ok: false, error: crossSite }, 403);
       try {
         return await handleApi(store, opts, req, url, ctx);
       } catch (error: any) {

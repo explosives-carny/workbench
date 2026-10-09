@@ -30,6 +30,9 @@ const CONTENT_DIR = process.env.WORKBENCH_CONTENT || join(homedir(), 'workbench-
 // On by default: the human who declines a backup has said so at onboarding, and
 // an export to a directory nothing reads costs a few milliseconds.
 const AUTO_EXPORT = process.env.WORKBENCH_AUTO_EXPORT !== '0';
+// Browser pages on these origins may write too (comma-separated); the board's
+// own origin always may. A write from any other page is refused (crossSiteRefusal).
+const EXTRA_ORIGINS = (process.env.WORKBENCH_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
 
 const store = new Store(openDb(DB_PATH));
 const onWrite = AUTO_EXPORT ? autoExporter(store, CONTENT_DIR, { imagesDir: IMAGES_DIR, log: (line) => console.log(line) }) : undefined;
@@ -39,7 +42,7 @@ const server = Bun.serve({
   hostname: '127.0.0.1',
   // An image upload is the largest body any route takes (see MAX_IMAGE_REQUEST_BYTES).
   maxRequestBodySize: 16 * 1024 * 1024,
-  fetch: createHandler(store, { publicDir: PUBLIC_DIR, agentsMdPath: AGENTS_MD, onWrite, home: homedir(), imagesDir: IMAGES_DIR }),
+  fetch: createHandler(store, { publicDir: PUBLIC_DIR, agentsMdPath: AGENTS_MD, onWrite, home: homedir(), imagesDir: IMAGES_DIR, origins: EXTRA_ORIGINS }),
 });
 
 // The start time and pid are what tell a restart someone asked for apart from a

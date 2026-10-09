@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A web page from another site that is open in the same browser can no longer
+  write to the board. The board now takes browser writes only from its own
+  pages (and from any host named in `WORKBENCH_ORIGINS`); the rest are refused
+  with a clear message. Reading is unchanged, and so is `wb` and every agent,
+  because those do not come from a web page. Before this, any site could post
+  an item or a message to a board that keeps everything forever.
 - Several questions can now be answered in one place. When a person has a handful
   of questions that share one background, an agent files them as a question set:
   one item, one page, with each question having its own buttons, its own
