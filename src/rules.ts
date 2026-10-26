@@ -15,6 +15,18 @@ export function blockedWithoutReason(item: { status: Status; blockedBy: string }
   return 'status is "blocked" with no blockedBy — say what it is waiting on (an item ref, a PR, or "deploy of X") with {"blockedBy":"..."}.';
 }
 
+// needs-qa means there is something left to run. An item whose every step
+// already carries a result has nothing left, so at needs-qa it reads as
+// unchecked work. It happened when a builder posted "QA passed, held for the
+// release" with status needs-qa on three signed-off items: the person asked why
+// finished QA showed as waiting. Warned, not refused: the status still lands,
+// and the warning names where the item belongs.
+export function qaWithoutOpenSteps(item: { kind: Kind; status: Status; checks: { result?: string | null }[] }): string | undefined {
+  if (!isWorkKind(item.kind) || item.status !== 'needs-qa' || !item.checks.length) return undefined;
+  if (item.checks.some((c) => !c.result)) return undefined;
+  return 'status is "needs-qa" but every step already has a result, so nothing is left to run. Waiting on a release or other work: "blocked" with blockedBy. Landed: "complete". A new round: send new steps with "replaceChecks": true.';
+}
+
 // A title is a headline, not the body (AGENTS.md rule 7). Warned, not refused
 // — refusing would lose the item entirely over a formatting mistake, and the
 // caller may fix it or may not care. The failure this answers (2026-09-25): a
@@ -294,6 +306,7 @@ export function auditItem(item: Item): Finding[] {
     add('qa-without-steps', 'needs-qa with no steps — attach checks:[{"label":"…","owner":"human"|"agent"}]');
   }
   add('qa-unowned-steps', unownedStepsWarning(item));
+  add('qa-without-open-steps', qaWithoutOpenSteps(item));
   add('blocked-without-reason', blockedWithoutReason(item));
   add('title-reads-like-a-body', titleWarning(item));
   add('context-wall-of-text', wallOfTextWarning('context', item.context));

@@ -17,7 +17,7 @@ import {
 } from './db.ts';
 import { join } from 'path';
 import {
-  blockedWithoutReason, titleWarning, recommendationRefusal, lacksRecommendation, MISSING_RECOMMENDATION,
+  blockedWithoutReason, qaWithoutOpenSteps, titleWarning, recommendationRefusal, lacksRecommendation, MISSING_RECOMMENDATION,
   convertRecommendedSuffix, noOptionsWarning, recommendedInTextWarning, unownedStepsWarning, auditItems,
   wallOfTextWarning, escapedNewlineWarning, pointerOptionWarning, refLinkWarning,
   questionWithoutRecommendation, emptyQuestionSetWarning, longQuestionSetHint, questionFormatFindings,
@@ -32,7 +32,7 @@ import { ImageStore, ImageRefused, imageHeaders, imageTooLarge, MAX_IMAGE_REQUES
  * discovering it when a request is refused. The server keeps accepting older
  * spellings regardless; the number is for the writer, not the server.
  */
-export const CONTRACT_VERSION = '27';
+export const CONTRACT_VERSION = '28';
 
 export type HandlerOptions = {
   /** Directory the static UI is served from. */
@@ -954,6 +954,8 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           }
           const blockedWarning = updated ? blockedWithoutReason(updated) : undefined;
           if (blockedWarning) warnings.push(blockedWarning);
+          const qaWarn = updated && patch.status !== undefined ? qaWithoutOpenSteps(updated) : undefined;
+          if (qaWarn) warnings.push(qaWarn);
           const titleWarn = updated ? titleWarning(updated) : undefined;
           if (titleWarn) warnings.push(titleWarn);
           const ownerWarn = updated && (patch.checks !== undefined || patch.status !== undefined) ? unownedStepsWarning(updated) : undefined;
@@ -1131,6 +1133,7 @@ async function handleApi(store: Store, opts: HandlerOptions, req: Request, url: 
           finishedWithoutStatus(who, body.text, status, after.status),
           ...formatWarnings,
           archivedProjectWarning(owner),
+          status !== undefined ? qaWithoutOpenSteps(after) : undefined,
           reopensWithout ? `this decision has options and no recommended — PATCH /api/items/${item.id} {"recommended":["<one of the options>"]}` : undefined,
           // The message lands (it never conflicts), but a status this kind of
           // item cannot hold is not applied. Said rather than dropped, naming

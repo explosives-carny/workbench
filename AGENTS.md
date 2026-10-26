@@ -1,7 +1,7 @@
 # Workbench — agent contract
 
-**Contract v27.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
-overrides). `GET /api` returns the version the server speaks; if it is not `27`,
+**Contract v28.** Vendor-neutral. Base URL `http://localhost:4317` (`WORKBENCH_PORT`
+overrides). `GET /api` returns the version the server speaks; if it is not `28`,
 re-read this file — and if it is newer than the one your project was last
 worked under, run `wb audit <slug>` and bring your items into spec (see *When
 the contract version moves*).
@@ -388,6 +388,15 @@ model doing the QA — is the sign-off, and you land and close. If any step is
 S skip. Not signed off." and you review the notes on the steps. Either way the
 item comes back to you. A round with an empty step stays at `needs-qa`. It
 once stayed at QA on any skip, and finished rounds read as unchecked work.
+
+**A signed-off item waiting on a release is `blocked`, not `needs-qa` (v28).**
+Name the release in `blockedBy`, then set `complete` when it lands. A write that
+puts an item at `needs-qa` when every step already has a result still lands,
+but comes back with a warning naming `blocked` and `complete`, and the audit
+lists it as `qa-without-open-steps`. A real new round sends new steps with
+`"replaceChecks": true`. Why: on 2026-10-26 three signed-off items were set back
+to `needs-qa` by "held for the release" replies, and the person asked why
+finished QA was showing as waiting.
 
 **A fail that blocks the rest ends the round.** If a failed step makes later
 steps impossible (nothing to click, nothing to judge), record each of those
